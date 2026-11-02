@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- The `read` RPC method: run a read-only operation without a model, for example `opencode api post /api/rpc/google-workspace.gws/read`. It takes the `gws_read` input under the same plugin policy, refuses changes, and is audited with `caller: "rpc"`.
+
 ## [0.0.0] - 2026-11-01
 
 ### Added

@@ -104,14 +104,19 @@ async function status(h: Harness): Promise<Record<string, unknown> & { accounts:
 const url = (scope: string) => `${SCOPE_PREFIX}${scope}`
 
 describe("rpc contract", () => {
-  it("is plain JSON Schema and exposes only status", () => {
+  it("is plain JSON Schema and exposes only status and read", () => {
     expect(Gws.id).toBe(RPC_ID)
-    expect(Object.keys(Gws.methods)).toEqual(["status"])
+    expect(Object.keys(Gws.methods)).toEqual(["status", "read"])
     expect(Object.keys(Gws.events)).toEqual([])
     const { input, output } = Gws.methods.status
     expect(input).toEqual({ type: "object", properties: {}, additionalProperties: false })
     expect(output).toMatchObject({ type: "object", required: ["pluginVersion", "hostVersion", "gws", "services", "accounts", "unguardedAgents"] })
     expect(JSON.parse(JSON.stringify(output))).toEqual(output)
+    const read = Gws.methods.read
+    expect(read.input).toMatchObject({ type: "object", required: ["operation"] })
+    expect(read.output).toMatchObject({ type: "object", required: ["ok", "operation", "category", "data", "truncated"] })
+    expect(Object.keys(read.errors ?? {})).toEqual(["failed"])
+    expect(JSON.parse(JSON.stringify(read))).toEqual(read)
   })
 
   it("accepts only the status shape in isStatus", () => {
@@ -260,6 +265,45 @@ describe("status", () => {
     const base = await h.runtime.status()
     vi.spyOn(h.runtime, "status").mockResolvedValue({ ...base, auditDegraded: true })
     expect(await status(h)).toMatchObject({ auditDegraded: true })
+  })
+})
+
+describe("read", () => {
+  const signedIn = {
+    connections: { "gws-personal": { type: "credential", id: "cred_1", label: "personal", method: "oauth" } },
+    credentials: { cred_1: storedSignIn("read", requestedScopes(["gmail"], "read")) },
+  }
+  const get = { account: "personal", operation: "gmail.users.messages.get", params: { userId: "me", id: "m1" } }
+
+  it("runs a read under the plugin policy, returns a plain JSON value, and audits caller rpc", async () => {
+    const h = await setup(signedIn)
+    const emit = vi.spyOn(h.runtime.audit, "emit")
+    const output = await h.handlers.read!(get, rpcContext())
+    expect(output).toMatchObject({ ok: true, operation: "gmail.users.messages.get", category: "read", data: { id: "m1" }, truncated: false })
+    expect(output).not.toHaveProperty("pagination")
+    expect(JSON.parse(JSON.stringify(output))).toEqual(output)
+    expect(emit).toHaveBeenCalledWith(expect.objectContaining({ event: "operation.read", outcome: "success", caller: "rpc" }))
+  })
+
+  it("refuses a change with the declared error and the error table's code", async () => {
+    const h = await setup(signedIn)
+    const output = await h.handlers.read!({ ...get, operation: "gmail.users.messages.trash" }, rpcContext())
+    expect(output).toMatchObject({ type: "failed", handlerError: true, data: { code: "POLICY_DENIED" } })
+    expect((output as { message: string }).message).toMatch(/^POLICY_DENIED: .+ Next step: /)
+  })
+
+  it("rejects a request outside the gws_read contract as GWS_VALIDATION_ERROR", async () => {
+    const h = await setup(signedIn)
+    const output = await h.handlers.read!({ ...get, extra: true }, rpcContext())
+    expect(output).toMatchObject({ type: "failed", data: { code: "GWS_VALIDATION_ERROR" } })
+  })
+
+  it("stops through the RPC invocation signal", async () => {
+    const h = await setup(signedIn)
+    const abort = new AbortController()
+    abort.abort()
+    const output = await h.handlers.read!(get, rpcContext(abort.signal))
+    expect(output).toMatchObject({ type: "failed", data: { code: "CANCELLED" } })
   })
 })
 

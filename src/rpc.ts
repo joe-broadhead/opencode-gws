@@ -8,8 +8,10 @@ import { Rpc } from "@opencode/plugin/rpc"
  * client receives, because JSON Schema outputs reach clients unchecked.
  *
  * Authority: the server part is the only authority. This contract can read
- * status. It can never approve or commit a plan; that happens only through
- * the OpenCode permission prompt raised when the agent calls a commit tool.
+ * status and run read-only operations under the plugin's policy, for
+ * scripts that run without a model. It can never plan, approve or commit a
+ * change; that happens only through the OpenCode permission prompt raised
+ * when the agent calls a commit tool.
  */
 
 export const RPC_ID = "google-workspace.gws"
@@ -95,12 +97,29 @@ const status = object(
   ["pluginVersion", "hostVersion", "gws", "services", "accounts", "unguardedAgents"],
 )
 
+/** The gws_read input; the server part checks it against the tool contract. */
+const readRequest = object({ operation: text }, ["operation"])
+
+/** The gws_read output. Workspace content in data is untrusted. */
+const readResult = object(
+  { ok: { const: true }, operation: text, category: { const: "read" }, data: {}, truncated: { type: "boolean" } },
+  ["ok", "operation", "category", "data", "truncated"],
+)
+
+/** A plugin error: its code from the error table and the next step. */
+const failure = object({ code: text, next: text }, ["code", "next"])
+
 export const Gws = Rpc.define({
   id: RPC_ID,
   methods: {
     status: {
       input: { type: "object", properties: {}, additionalProperties: false },
       output: status,
+    },
+    read: {
+      input: readRequest,
+      output: readResult,
+      errors: { failed: failure },
     },
   },
   events: {},

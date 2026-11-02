@@ -240,6 +240,7 @@ export class Operations {
         category: "read",
         operation: entry.id,
         durationMs: Date.now() - started,
+        caller: ctx.caller,
       })
       return {
         ok: true,
@@ -252,7 +253,7 @@ export class Operations {
         trust: { workspaceContent: "untrusted" },
       }
     } catch (error) {
-      this.runtime.audit.emit({ event: "operation.read", outcome: "error", account: request.account, operation: entry.id, durationMs: Date.now() - started, errorCode: auditErrorCode(error) })
+      this.runtime.audit.emit({ event: "operation.read", outcome: "error", account: request.account, operation: entry.id, durationMs: Date.now() - started, errorCode: auditErrorCode(error), caller: ctx.caller })
       throw error
     }
   }

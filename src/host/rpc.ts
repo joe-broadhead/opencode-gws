@@ -1,3 +1,5 @@
+import { RequestInput } from "../domain/contract.js"
+import { GwsError } from "../domain/errors.js"
 import { Gws, type GwsAccount, type GwsStatus } from "../rpc.js"
 import type { Runtime } from "../runtime/index.js"
 import { permissionsBlock, unguardedAgents, type Rule } from "./agents.js"
@@ -6,9 +8,13 @@ import type { PluginContext } from "./context.js"
 /**
  * The plugin's one status model and the `google-workspace.gws` RPC that
  * serves it. The RPC, the TUI dialog, /gws-status and gws_status all render
- * this model. Nothing here can approve or commit a plan; that stays with
- * the commit tools and the OpenCode permission prompt they raise.
+ * this model. The RPC also serves policy-gated reads for scripts that run
+ * without a model. Nothing here can plan, approve or commit a change; that
+ * stays with the commit tools and the OpenCode permission prompt they raise.
  */
+
+/** An RPC read has no session or agent behind it; the audit marks it `caller: "rpc"`. */
+const RPC_CALLER = { sessionId: "", agentId: "", caller: "rpc" } as const
 
 export type StatusSource = (signal?: AbortSignal) => Promise<GwsStatus>
 
@@ -46,6 +52,23 @@ export function statusSource(runtime: Runtime, listAgents: AgentList): StatusSou
 export async function registerRpc(ctx: PluginContext, runtime: Runtime, status: StatusSource): Promise<() => Promise<void>> {
   const registration = await ctx.rpc.register(Gws, {
     status: async (_input, context) => runtime.wait((signal) => status(signal), context.signal),
+    // The gws_read path without the permission assert: read() still resolves
+    // the account and applies the plugin policy before anything runs.
+    read: async (input, context) => {
+      try {
+        const parsed = RequestInput.safeParse(input)
+        if (!parsed.success) {
+          throw new GwsError("GWS_VALIDATION_ERROR", parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; "))
+        }
+        const output = await runtime.read(parsed.data, { ...RPC_CALLER, signal: context.signal })
+        // RPC output must be a JSON value: drop undefined keys such as an unpaged read's pagination.
+        return JSON.parse(JSON.stringify(output))
+      } catch (error) {
+        const known = GwsError.from(error)
+        if (!known) throw error
+        return context.error("failed", known.message, { code: known.code, next: known.next })
+      }
+    },
   })
 
   return async () => {
