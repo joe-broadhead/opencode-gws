@@ -34,7 +34,7 @@ export interface CallContext {
   /** Aborting stops the gws child and rejects with `CANCELLED`. */
   signal?: AbortSignal
   progress?: (update: Progress) => void
-  /** Set when the call came through the RPC rather than a tool; the audit records it. */
+  /** Set when a script made the call through the tools RPC rather than a tool call; the audit records it. */
   caller?: "rpc"
 }
 

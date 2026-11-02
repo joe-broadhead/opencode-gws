@@ -29,8 +29,8 @@ Each layer has one job and a fixed set of allowed imports. `test/architecture.te
 
 ```
 src/
-  index.ts          Plugin.define: host check, options, ask rules, tools, skills, commands, RPC
-  rpc.ts            internal status and read contract in plain JSON Schema; @opencode/plugin/rpc only
+  index.ts          Plugin.define: host check, options, ask rules, tools, skills, commands, RPCs
+  rpc.ts            internal status contract in plain JSON Schema; @opencode/plugin/rpc only
   tui.tsx           status dialog; host UI modules and ./rpc only
   runtime/
     index.ts        lifecycle, composing operations and accounts
@@ -43,7 +43,8 @@ src/
     skills.ts       the three skills
     integrations.ts sign-in
     commands.ts     /gws-status, /gws-doctor
-    rpc.ts          status and read implementation
+    rpc.ts          status implementation
+    scripting.ts    tools RPC: the Code Mode tool specs for scripts, as a session
   domain/           pure logic; imports only domain/
     contract.ts     tool schemas
     config.ts       options

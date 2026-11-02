@@ -33,7 +33,7 @@ Each command posts a message and does not start a model turn.
 
 ## RPC
 
-Contract: `src/rpc.ts`, id `google-workspace.gws`, methods `status` and `read`. It is internal: the build inlines it into both `dist/index.js` and `dist/tui.js`, and the package exports only `.` and `./tui`.
+Contract: `src/rpc.ts`, id `google-workspace.gws`, method `status` only. It is internal: the build inlines it into both `dist/index.js` and `dist/tui.js`, and the package exports only `.` and `./tui`.
 
 `status` returns:
 
@@ -57,15 +57,6 @@ An account entry is `{ alias, mode, services, integrationID?, connected, needsAu
 - `clientSource` is `account`, `plugin`, or `pasted` (entered in the sign-in form).
 - `nextStep` is one sentence, absent when nothing is needed.
 
-`read` runs one read-only operation for a script that runs without a model, for example through `opencode api`:
-
-```sh
-opencode api post /api/rpc/google-workspace.gws/read \
-  -d '{"input":{"operation":"gmail.users.messages.list","params":{"userId":"me","q":"after:1767225600 before:1767312000"},"fields":"messages(id),nextPageToken"}}'
-```
-
-Its input is the `gws_read` input, and its output is the `gws_read` output as plain JSON. The plugin policy, the account's enabled services and its sign-in apply as they do for `gws_read`, and a change is refused with `POLICY_DENIED`. A refusal or failure is the error `failed`, with `{ code, next }` from the error table.
-
-`read` does not ask OpenCode for `gws.read`: no session or agent stands behind it, so agent permission rules for `gws.read` do not apply. Whoever can call the OpenCode server API can read with every configured account. Audit records of these reads carry `caller: "rpc"`.
-
 The RPC cannot approve or commit. A commit happens only when the agent calls a commit tool and the permission prompt allows it.
+
+Scripts call the tools through a separate RPC, `google-workspace.gws.tools`: see [Scripting](scripting.md).

@@ -329,6 +329,7 @@ export class Operations {
       category,
       operation: entry.id,
       durationMs: Date.now() - started,
+      caller: ctx.caller,
     })
     return {
       ok: true,

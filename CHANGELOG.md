@@ -6,7 +6,9 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Added
 
-- The `read` RPC method: run a read-only operation without a model, for example `opencode api post /api/rpc/google-workspace.gws/read`. It takes the `gws_read` input under the same plugin policy, refuses changes, and is audited with `caller: "rpc"`.
+- The tools RPC, `google-workspace.gws.tools`: scripts call `status`, `catalog`, `schema`, `read` and `plan` with no model, for example through `opencode api`. Each method runs the Code Mode tool's own definition as a named session and its agent, with the same permission checks; an ask is denied, since no one can answer it. `describe` lists the methods with their JSON Schemas. The commit tools are not methods.
+- Error codes `SESSION_UNKNOWN`, `SESSION_AGENT_REQUIRED` and `PERMISSION_DENIED` for scripts.
+- Audit records of a script's reads and plans carry `caller: "rpc"`.
 
 ## [0.0.0] - 2026-11-01
 
