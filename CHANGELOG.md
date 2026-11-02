@@ -10,6 +10,10 @@ All notable changes to this project are documented here. The format follows [Kee
 - Error codes `SESSION_UNKNOWN`, `SESSION_AGENT_REQUIRED` and `PERMISSION_DENIED` for scripts.
 - Audit records of a script's reads and plans carry `caller: "rpc"`.
 
+### Fixed
+
+- Invalid helper input, such as `gmail.read` without `id`, is refused with `GWS_VALIDATION_ERROR` and the helper's next step before any permission check or `gws` run, instead of a raw zod error.
+
 ## [0.0.0] - 2026-11-01
 
 ### Added
