@@ -96,7 +96,7 @@ Also never: imported OAuth grants, credentials from `gws auth login`, or a
 - Errors read `CODE: What happened. Next step: What to do.` One `ErrorCode`
   table feeds the runtime, the audit and the Errors section of
   `docs/configuration.md`.
-- At most three skills (today two), with real tool and parameter names; each
+- At most three skills (today three), with real tool and parameter names; each
   SKILL.md's frontmatter is the one place its description lives. Nothing the model
   sees contains test status or internal jargon.
 

@@ -10,7 +10,7 @@ import { testConfig } from "./support/config.js"
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
 const SKILLS = join(ROOT, "skills")
-const EXPECTED = ["opencode-gws", "opencode-gws-recipes"]
+const EXPECTED = ["opencode-gws", "opencode-gws-recipes", "opencode-gws-calendar"]
 const JARGON = ["vitest", "fixture", "ctx.", "evidence", "PACK_", "verified on", "test status", "passing test", "failing test"]
 
 const manifest = loadManifest()
@@ -57,7 +57,7 @@ async function register(config = testConfig()): Promise<Array<{ id: string; auto
   return added
 }
 
-describe("two skills", () => {
+describe("three skills", () => {
   it("ships at most three skills, under stable ids", () => {
     expect(skills.length).toBeLessThanOrEqual(3)
     expect(skills.map((skill) => skill.dir).sort()).toEqual([...EXPECTED].sort())
@@ -69,7 +69,7 @@ describe("two skills", () => {
     }
   })
 
-  it("registers both, auto-invoked, with the description from each file's frontmatter", async () => {
+  it("registers all three, auto-invoked, with the description from each file's frontmatter", async () => {
     const added = await register()
     expect(added.map((skill) => skill.id)).toEqual(EXPECTED)
     for (const skill of added) {

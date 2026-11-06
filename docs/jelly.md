@@ -28,7 +28,7 @@ changes nothing in Jelly.
 
 ## Skills
 
-Declared: `opencode-gws`, `opencode-gws-recipes`. Jelly refuses an install whose
+Declared: `opencode-gws`, `opencode-gws-recipes`, `opencode-gws-calendar`. Jelly refuses an install whose
 skill ids collide with another plugin's or the agent's own.
 
 ## Views

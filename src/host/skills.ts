@@ -9,11 +9,11 @@ import { GwsError } from "../domain/errors.js"
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..")
 
 /**
- * The two hand-written skills. Service detail comes from gws_catalog and
+ * The three hand-written skills. Service detail comes from gws_catalog and
  * gws_schema at runtime, not from a generated skill per service. Each
  * file's frontmatter is the one place its name and description live.
  */
-const SKILL_IDS = ["opencode-gws", "opencode-gws-recipes"] as const
+const SKILL_IDS = ["opencode-gws", "opencode-gws-recipes", "opencode-gws-calendar"] as const
 
 /** Where the package keeps one of its skills. */
 export function ownSkillPath(id: string): string {

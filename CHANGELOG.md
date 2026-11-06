@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- The `opencode-gws-calendar` skill, for calendar changes and checks. Before any write it reads the calendar's time zone, lists the window and checks every occurrence for overlaps with busy events, protected time, public holidays and duplicates by meaning, not only by title. It proposes free alternatives, and needs a yes before an insert with guests, any change to an existing event, an RSVP or a delete. It covers scheduling a plan or table as a batch, finding time with other people through `calendar.freebusy.query`, reviewing a day or week, meeting prep, answering invites, clean-up and an audit of the next weeks. Its preferences (protected time, allowed slots, buffer, load limits, durations, naming) are defaults that a "Calendar preferences" section in the user's own instructions overrides.
+
 ## [0.0.8] - 2026-11-06
 
 ### Fixed

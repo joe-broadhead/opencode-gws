@@ -223,7 +223,7 @@ describe("tool execution", () => {
 
 describe("skill registry", () => {
   it("lists every skill the plugin registers, read from this package", async () => {
-    const expected = ["opencode-gws", "opencode-gws-recipes"].map((id) => ({
+    const expected = ["opencode-gws", "opencode-gws-recipes", "opencode-gws-calendar"].map((id) => ({
       id,
       path: join(PLUGIN_PACKAGE, "skills", id, "SKILL.md"),
     }))

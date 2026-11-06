@@ -43,7 +43,7 @@ An account whose config sets `access` to read, with no write service, does not o
 | `policy` | see below | Deny-only content constraints, plus the plan lifetime. |
 | `execution` | see below | Timeouts, page caps, and file roots. |
 | `audit` | JSONL in the state directory | Audit sink. |
-| `skills` | both skills enabled | `enabled`. The ids are `opencode-gws` and `opencode-gws-recipes`. |
+| `skills` | all three skills enabled | `enabled`. The ids are `opencode-gws`, `opencode-gws-recipes` and `opencode-gws-calendar`. |
 | `admin` | enabled, every admin service, reason required | The admin gate. See [admin.md](admin.md). |
 
 ## Policy
@@ -167,7 +167,7 @@ A sink failure does not turn a completed operation into an error. Status keeps `
 { "skills": { "enabled": false } }
 ```
 
-Two skills load automatically: `opencode-gws` (how the tools work: accounts, plan and commit, errors) and `opencode-gws-recipes` (requests for Gmail, Calendar, Drive, Docs, Sheets and the workflow helpers). `enabled: false` registers neither. Service detail comes from `gws_catalog` and `gws_schema`, not from a skill per service.
+Three skills load automatically: `opencode-gws` (how the tools work: accounts, plan and commit, errors), `opencode-gws-recipes` (requests for Gmail, Calendar, Drive, Docs, Sheets and the workflow helpers) and `opencode-gws-calendar` (calendar changes: overlap, protected-time and duplicate checks, approvals before guests are notified or events deleted, and default preferences the user's own instructions override). `enabled: false` registers none. Service detail comes from `gws_catalog` and `gws_schema`, not from a skill per service.
 
 ## Binary
 
