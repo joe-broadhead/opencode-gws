@@ -377,3 +377,22 @@ describe("/gws-doctor", () => {
     expect(String(h.synthetic[0]!["text"])).toContain("- personal gmail: DENIED · a permission rule or reply refused gws.read")
   })
 })
+
+describe("/gws-install", () => {
+  // The version is the binary's own --version line, which already names gws.
+  it("names gws once: the binary's version line, then that it is installed and verified", async () => {
+    const h = await setup()
+    await run(h, "gws-install")
+    expect(h.synthetic[0]).toMatchObject({ text: "gws 0.22.5 is installed and verified.", description: "gws installed", metadata: { command: "gws-install" } })
+    // Status prints the same line once too.
+    await run(h, "gws-status")
+    expect(String(h.synthetic[1]!["text"])).toMatch(/\nTools: gws tools for [^\n]* \(gws 0\.22\.5\)\n/)
+  })
+
+  it("says gws is not installed, with the reason, when the binary cannot be resolved", async () => {
+    const h = await setup({ binary: { path: join(dir, "missing", "gws") } })
+    await run(h, "gws-install")
+    expect(h.synthetic[0]).toMatchObject({ description: "gws not installed" })
+    expect(String(h.synthetic[0]!["text"])).toMatch(/^gws is not installed: [A-Z_]+: /)
+  })
+})

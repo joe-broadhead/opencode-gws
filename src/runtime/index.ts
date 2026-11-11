@@ -61,7 +61,7 @@ export class Runtime {
   /** The verified binary's path, or "" while none is installed for this process. */
   get binary(): string { return this.resolved?.binary ?? "" }
 
-  /** The probed version, or "unknown" while no binary is resolved. */
+  /** The binary's `--version` line, such as "gws 0.22.5", or "unknown" while no binary is resolved. */
   get version(): string { return this.resolved?.version ?? "unknown" }
 
   /**
