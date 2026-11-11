@@ -46,7 +46,10 @@ interface CommandSources {
   status: (signal?: AbortSignal) => Promise<GwsStatus>
   plans: (sessionID: string) => PlanSummary[]
   doctor: DoctorSource
-  /** Downloads and verifies the binary, as the person asked: the command is typed, so the access rules do not ask. */
+  /**
+   * Downloads and verifies the binary, as the person asked: the command is typed, so the access rules do not ask.
+   * `version` is the binary's own `--version` line, name included, such as "gws 0.22.5".
+   */
   install: (signal: AbortSignal) => Promise<{ readonly path: string; readonly version: string }>
 }
 
@@ -295,7 +298,7 @@ export async function registerCommands(ctx: PluginContext, sources: CommandSourc
             return { ok: false as const, message: (error as Error).message }
           }
         }, signal)
-        const text = result.ok ? `gws ${result.installed.version} is installed and verified.` : `gws is not installed: ${result.message}`
+        const text = result.ok ? `${result.installed.version} is installed and verified.` : `gws is not installed: ${result.message}`
         await post(sessionID, delivery, text, result.ok ? "gws installed" : "gws not installed", COMMANDS.install.name)
       },
     })

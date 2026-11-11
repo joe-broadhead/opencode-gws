@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Fixed
 
 - An interactive account without `enabledServices`, with or without `mode`, gets the services the default account enables: every manifest service except `keep`, `admin-reports` and `modelarmor`. Its sign-in form starts on Read-only and still offers Read and write, unless its `access` says otherwise. Jelly adds each named account as the `jelly` declaration says, `{ "mode": "interactive" }`, and the plugin refused that with `OPTIONS_INVALID` (`accounts.<alias>.enabledServices`), so OpenCode did not load it and Google Workspace could not be signed in to at all. A headless account still names its services. (#26)
+- `/gws-install` names gws once: "gws 0.22.5 is installed and verified.", not "gws gws 0.22.5 …". The version it reports is the binary's own `--version` line, which already starts with `gws`, as `/gws-status`, `gws_status` and the status dialog show it. (#29)
 
 ## [0.0.0] - 2026-11-10
 <!-- kit-release: the GitHub release v0.0.0 -->
