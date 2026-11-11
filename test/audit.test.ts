@@ -16,14 +16,19 @@ function audit(write?: (line: string, signal: AbortSignal) => Promise<void>) {
 
 describe("audit sink", () => {
   it("projects known fields and fixed error codes instead of arbitrary error text", async () => {
+    // The same freeze as the rotation test: the sink's 100 ms write budget must not drop the first line under suite load.
+    // vi.waitFor would advance the faked timers, so the waits use real timers from node:timers/promises.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     const { sink, path } = audit()
     sink.emit({ event: "operation.read", outcome: "error", operation: "drive.files.get", errorCode: "AUTH_REQUIRED: PRIVATE_TOKEN", body: "PRIVATE_BODY", reason: "PRIVATE_REASON" } as never)
-    await vi.waitFor(() => expect(readFileSync(path, "utf8")).toContain("operation.read"), { timeout: 5000 })
+    const { setTimeout: pause } = await import("node:timers/promises")
+    for (let i = 0; i < 2000 && !(existsSync(path) && readFileSync(path, "utf8").includes("operation.read")); i++) await pause(5)
     const text = readFileSync(path, "utf8")
+    expect(text).toContain("operation.read")
     expect(text).not.toContain("PRIVATE_")
     expect(JSON.parse(text).errorCode).toBe("UNKNOWN_ERROR")
     sink.emit({ event: "PRIVATE_EVENT", outcome: "error", operation: "PRIVATE_OPERATION" } as never)
-    await new Promise(resolve => setTimeout(resolve, 20))
+    await pause(20)
     expect(readFileSync(path, "utf8")).not.toContain("PRIVATE_")
   })
 
