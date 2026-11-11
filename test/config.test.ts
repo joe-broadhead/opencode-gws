@@ -66,6 +66,32 @@ describe("accounts", () => {
     }
   })
 
+  it("gives a named interactive account without enabledServices the default account's services, at Read-only", () => {
+    const services = loadManifest()
+      .services.map((service) => service.alias)
+      .filter((service) => !["keep", "modelarmor", "admin-reports"].includes(service))
+    // With mode or without it: an account is interactive unless it names a headless mode.
+    for (const profile of [{ mode: "interactive" }, {}]) {
+      expect(loadConfig({ accounts: { work: profile } }).accounts).toEqual({
+        work: { mode: "interactive", enabledServices: services, access: "read", scopes: [] },
+      })
+    }
+    // Its form starts on Read-only and still offers Read and write, with no delegation note.
+    const access = signInForm("work", loadConfig({ accounts: { work: {} } }).accounts.work!, undefined)[2]
+    expect(access.default).toBe("read")
+    expect(access.options.map((option) => option.value)).toEqual(["read", "write"])
+    expect(access.description).not.toMatch(/delegation/)
+    // Its access applies over those services, and names only services they include.
+    expect(loadConfig({ accounts: { work: { access: "write" } } }).accounts.work).toMatchObject({ enabledServices: services, access: "write", accessSpecified: true })
+    expect(loadConfig({ accounts: { work: { access: { drive: "write" } } } }).accounts.work?.access).toEqual({ drive: "write" })
+    expect(() => loadConfig({ accounts: { work: { access: { keep: "write" } } } })).toThrow(/^OPTIONS_INVALID: Account 'work' sets access for 'keep', which it does not enable\./)
+    // A headless account still names its services.
+    expect(() => loadConfig({ accounts: { ci: { mode: "access_token", tokenEnv: "GWS_TOKEN" } } })).toThrow(/^OPTIONS_INVALID: .*accounts\.ci\.enabledServices/)
+    expect(() => loadConfig({ accounts: { ci: { mode: "credentials_file", credentialsFileEnv: "GWS_CREDENTIALS" } } })).toThrow(/^OPTIONS_INVALID: .*accounts\.ci\.enabledServices/)
+    // An empty list is still refused: naming no service is not the same as leaving the field out.
+    expect(() => loadConfig({ accounts: { work: { enabledServices: [] } } })).toThrow(/^OPTIONS_INVALID: .*accounts\.work\.enabledServices/)
+  })
+
   it("says in the default form nothing about Keep, and in a Keep account's form that Keep needs domain-wide delegation", () => {
     expect(signInForm("default", loadConfig(undefined).accounts.default!, undefined)[2].description).not.toMatch(/delegation/)
     const notes = loadConfig({ accounts: { notes: { enabledServices: ["keep"], access: "write" } } }).accounts.notes!

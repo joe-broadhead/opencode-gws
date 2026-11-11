@@ -51,7 +51,7 @@ skill ids collide with another plugin's or the agent's own.
 
 `jelly.signIns` declares one sign-in, `google`, for OpenCode's integration `gws-*`: every account (`gws-<alias>`) folds into it, so the card waits while any account waits. The sign-in declares what Jelly does for it, so Jelly has no code of its own for gws:
 
-- `account`: Jelly asks for an account's name and writes `{ "mode": "interactive" }` under it in `accounts`; gws has no account until one is named, so Jelly adds it to an agent with that question and never gives it blank.
+- `account`: Jelly asks for an account's name and writes `{ "mode": "interactive" }` under it in `accounts`; gws has no account until one is named, so Jelly adds it to an agent with that question and never gives it blank. That account names no `enabledServices`, so it gets every service the `default` account enables, and its form starts on Read-only and still offers Read and write.
 - `hostClient`: `{ "id": "google", "field": "clientJson", "replaces": ["clientId", "clientSecret"] }`. Jelly holds the person's OAuth clients and answers the hidden `clientJson` field with one, whole: the Desktop app client for a loopback sign-in. Its form shows only Access (starting on `default`, read-only) and the write acknowledgement while it applies, and no `oauthClient` option is needed.
 - `needed`: `AUTH_REQUIRED` and `AUTH_SCOPE_MISSING`, the codes a gws tool result carries when an account must sign in again, so Jelly puts this card in front of the person.
 
