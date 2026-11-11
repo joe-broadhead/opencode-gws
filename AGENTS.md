@@ -86,7 +86,9 @@ Also never: imported OAuth grants, credentials from `gws auth login`, or a
   a delegation scope (`src/domain/restricted.ts`): Google refuses the whole
   consent for a delegation scope. The
   form still offers Read-only, shows the exact scopes before consent, and
-  write needs the acknowledgment. A user's own `accounts` apply exactly.
+  write needs the acknowledgment. A user's own `accounts` apply exactly; an
+  interactive one without `enabledServices` (the one Jelly adds) gets the
+  default account's services, at Read-only unless its `access` says otherwise.
 - The admin gate is on by default; admin plans still need an allowed
   service, a reason, the ask and `gws_admin`.
 - Every change is a `gws --dry-run` plan, committed only by its category's

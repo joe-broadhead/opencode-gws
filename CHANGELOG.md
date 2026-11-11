@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- An interactive account without `enabledServices`, with or without `mode`, gets the services the default account enables: every manifest service except `keep`, `admin-reports` and `modelarmor`. Its sign-in form starts on Read-only and still offers Read and write, unless its `access` says otherwise. Jelly adds each named account as the `jelly` declaration says, `{ "mode": "interactive" }`, and the plugin refused that with `OPTIONS_INVALID` (`accounts.<alias>.enabledServices`), so OpenCode did not load it and Google Workspace could not be signed in to at all. A headless account still names its services. (#26)
+
 ## [0.0.0] - 2026-11-10
 <!-- kit-release: the GitHub release v0.0.0 -->
 

@@ -53,17 +53,25 @@ const accessLevel = z.enum(["read", "write"])
 const NOT_DEFAULT: readonly string[] = ["modelarmor", "admin-reports"]
 
 /**
- * With no `accounts` option, one interactive account enables every manifest
- * service a person's sign-in can use at Read and write, so one consent
- * grants every scope the plugin can use. Services that need domain-wide
- * delegation (Keep) are left out, as are NOT_DEFAULT. Every change still
- * needs a plan, the ask, and a commit; the form still offers Read-only.
+ * Every manifest service a person's sign-in can use: services that need
+ * domain-wide delegation (Keep) are left out, as are NOT_DEFAULT. The
+ * default account enables them, and so does an interactive account that
+ * names no `enabledServices`, such as the one Jelly adds.
  */
-function defaultAccounts(): Record<string, { mode: "interactive"; enabledServices: string[]; access: "write" }> {
-  const services = loadManifest()
+function defaultServices(): string[] {
+  return loadManifest()
     .services.map((service) => service.alias)
     .filter((service) => !DELEGATION_SERVICES.includes(service) && !NOT_DEFAULT.includes(service))
-  return { default: { mode: "interactive", enabledServices: services, access: "write" } }
+}
+
+/**
+ * With no `accounts` option, one interactive account enables the default
+ * services at Read and write, so one consent grants every scope the plugin
+ * can use. Every change still needs a plan, the ask, and a commit; the form
+ * still offers Read-only.
+ */
+function defaultAccounts(): Record<string, { mode: "interactive"; enabledServices: string[]; access: "write" }> {
+  return { default: { mode: "interactive", enabledServices: defaultServices(), access: "write" } }
 }
 
 const enabledServices = z.array(z.string().min(1)).min(1)
@@ -76,7 +84,8 @@ const accountProfile = z.preprocess(
   z.discriminatedUnion("mode", [
     z.strictObject({
       mode: z.literal("interactive"),
-      enabledServices,
+      /** Omitted: the default services. A headless account names its own. */
+      enabledServices: enabledServices.optional(),
       domains: domains.optional(),
       access: z.union([accessLevel, z.record(z.string().min(1), accessLevel)]).optional(),
       scopes: z.array(z.string().min(1)).optional(),
@@ -203,7 +212,7 @@ export function loadConfig(raw: unknown): PluginConfig {
   const known = new Set(loadManifest().services.map((service) => service.alias))
   const accounts: Record<string, AccountProfile> = {}
   for (const [alias, profile] of Object.entries(configured)) {
-    const enabled = [...new Set(profile.enabledServices.map(canonicalService))]
+    const enabled = [...new Set((profile.enabledServices ?? defaultServices()).map(canonicalService))]
     for (const service of enabled) {
       if (!known.has(service)) throw invalid(`Account '${alias}' enables the unknown service '${service}'`, `Fix accounts.${alias}.enabledServices in the plugin options.`)
     }
