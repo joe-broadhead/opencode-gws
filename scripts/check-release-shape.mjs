@@ -2,26 +2,27 @@
 // Checks that a release tag has the shape D19 and the release brief require. The release workflow runs it; it runs
 // locally too, after release-commit.mjs. It reads only git objects and never changes anything.
 //
-//   node scripts/check-release-shape.mjs [--tag v0.0.0] [--branch master] [--allow <path>]...
+//   node scripts/check-release-shape.mjs [--tag v<version>] [--branch master] [--allow <path>]...
 //     [--verify git --allowed-signers <file> | --verify github-api]
 //     [--rebuilt <dir>]  a directory whose dist/ is a fresh build of the tag's parent: compared byte for byte
-//     [--notes <file>]   writes the release notes: the CHANGELOG's 0.0.0 section up to the next ## heading, then the
-//                        README's Known limits. The CHANGELOG must be in the release shape (scripts/changelog.mjs).
+//     [--notes <file>]   writes the release notes: the CHANGELOG's section for the version up to the next ## heading,
+//                        then the README's Known limits. The CHANGELOG must be in the release shape (scripts/changelog.mjs).
 //
-// Checks, in order: the tag is annotated and signed by the owner; its name is v<version> and the version is 0.0.0;
-// its commit has one parent, which is on the branch; the commit and tag identities are the GitHub noreply domain; the
-// paths it changes from its parent are exactly the allowed set; package.json has no lifecycle scripts and is not
-// private; dist/ is committed. Emails are checked by domain and never printed.
+// The tag defaults to v<version> of the checkout's package.json. Checks, in order: the tag is annotated and signed by
+// the owner; its name is exactly v<version>, where the version is the x.y.z of the tagged commit's package.json; its
+// commit has one parent, which is on the branch; the commit and tag identities are the GitHub noreply domain; the paths
+// it changes from its parent are exactly the allowed set; package.json has no lifecycle scripts and is not private;
+// dist/ is committed. Emails are checked by domain and never printed.
 import { execFileSync, spawnSync } from "node:child_process"
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
-import { allowedPath, LIFECYCLE_SCRIPTS, NOREPLY_DOMAIN, RELEASE_VERSION, TAG } from "./release-commit.mjs"
+import { allowedPath, LIFECYCLE_SCRIPTS, NOREPLY_DOMAIN, tagFor, tagProblem } from "./release-commit.mjs"
 import { MANIFEST_PATH, manifestProblems } from "./native-manifest.mjs"
 import { changelogProblems, releaseNotes } from "./changelog.mjs"
 
 function parseArgs(argv) {
-  const options = { tag: TAG, branch: "master", allow: [], verify: "git", allowedSigners: undefined, rebuilt: undefined, notes: undefined }
+  const options = { tag: undefined, branch: "master", allow: [], verify: "git", allowedSigners: undefined, rebuilt: undefined, notes: undefined }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === "--tag") options.tag = argv[++i]
@@ -35,6 +36,7 @@ function parseArgs(argv) {
   }
   if (!["git", "github-api"].includes(options.verify)) throw new Error('--verify is "git" or "github-api"')
   if (options.verify === "git" && !options.allowedSigners) throw new Error("--verify git needs --allowed-signers <file>")
+  options.tag ??= tagFor(JSON.parse(readFileSync("package.json", "utf8")).version)
   return options
 }
 
@@ -74,9 +76,10 @@ function main() {
     process.exit(1)
   }
 
-  // The version: the tag is v<version>, and every plugin releases as 0.0.0.
-  if (pkg.version === RELEASE_VERSION && tag === `v${pkg.version}`) ok(`the tag is v${pkg.version}, and the version is ${pkg.version}`)
-  else fail("the version", `the tag is ${tag} and package.json says ${pkg.version}; every plugin releases as ${TAG}`)
+  // The version: package.json's x.y.z, and the tag is exactly v<version>.
+  const versionRefusal = tagProblem(tag, pkg.version)
+  if (!versionRefusal) ok(`the tag is ${tag}, and the version is ${pkg.version}`)
+  else fail("the version", versionRefusal)
 
   // The signatures: the tag and its commit, by the owner.
   if (options.verify === "git") {
@@ -171,7 +174,7 @@ function main() {
   if (pkg.private !== true) ok("the package is not private")
   else fail("the package", 'package.json has "private": true')
 
-  if (options.notes) writeNotes(target, options.notes, (message) => fail("the release notes", message), ok)
+  if (options.notes) writeNotes(target, pkg.version, options.notes, (message) => fail("the release notes", message), ok)
 
   if (failures.length) {
     console.error(`check-release-shape: ${failures.length} check(s) failed`)
@@ -194,13 +197,13 @@ function listFiles(dir) {
 }
 
 /** The CHANGELOG section for the version, then the README's Known limits (D3), written to the file. */
-function writeNotes(target, file, fail, ok) {
+function writeNotes(target, version, file, fail, ok) {
   const changelog = gitBuffer(["show", `${target}:CHANGELOG.md`])?.toString("utf8") ?? ""
-  const shape = changelogProblems(changelog)
-  if (shape.length) return fail(`CHANGELOG.md is not in the release shape: ${shape.join("; ")}`)
+  const shape = changelogProblems(changelog, version)
+  if (shape.length) return fail(`CHANGELOG.md is not in the release shape for ${version}: ${shape.join("; ")}`)
   let section
   try {
-    section = releaseNotes(changelog)
+    section = releaseNotes(changelog, version)
   } catch (error) {
     return fail(error.message)
   }

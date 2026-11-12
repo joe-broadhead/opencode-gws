@@ -67,7 +67,7 @@ jobs:
         with:
           bun-version: 1.4.4 # the Bun that every stock OpenCode host in TESTED_HOSTS bundles; a repo's build may run bun
           no-cache: true
-      - name: "Check the tag (annotated, signed by the owner, v0.0.0, one parent on master, the allowed change, no lifecycle scripts, and the native manifest when there is one)"
+      - name: "Check the tag (annotated, signed by the owner, exactly v<package.json version>, one parent on master, the allowed change, no lifecycle scripts, and the native manifest when there is one)"
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/check-release-shape.mjs --tag "$GITHUB_REF_NAME" --branch origin/master --verify github-api --notes "$RUNNER_TEMP/notes.md"

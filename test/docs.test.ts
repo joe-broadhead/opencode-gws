@@ -148,6 +148,18 @@ describe("the tested releases", () => {
   })
 })
 
+describe("the install spec", () => {
+  it("names the release tag of package.json's version in every concrete spec", () => {
+    // The release commit may change only dist/, package.json and the native manifest, so the docs name the new tag in
+    // the commit that sets the version. A spec with a placeholder, such as #v<version>, is not concrete.
+    const { version } = JSON.parse(read("package.json")) as { version: string }
+    const files = ["README.md", "CONTRIBUTING.md", ...readdirSync(`${ROOT}docs`).map((name) => `docs/${name}`)]
+    const specs = files.flatMap((file) => [...read(file).matchAll(/github:joe-broadhead\/opencode-gws#(v\d+\.\d+\.\d+(?:[-+][\w.-]*\w)?)/g)].map((match) => ({ file, tag: match[1] })))
+    expect(specs.length).toBeGreaterThanOrEqual(1)
+    for (const spec of specs) expect(spec).toEqual({ file: spec.file, tag: `v${version}` })
+  })
+})
+
 /** Every TypeScript module under `dir`, in a stable order. */
 function walk(dir: string): string[] {
   return readdirSync(`${ROOT}${dir}`, { withFileTypes: true })

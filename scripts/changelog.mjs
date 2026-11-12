@@ -1,15 +1,20 @@
-// The CHANGELOG at v0.0.0 (GH-RELEASE-BRIEF, "CHANGELOG shape at v0.0.0"): one release heading, `## [0.0.0] - <date>`; the
-// npm history under `## Earlier releases on npm` as `### npm <version> - <date>`; and the release notes, read from the
-// release heading. apply-release-kit.mjs shapes a repo's CHANGELOG with this, and check-release-shape.mjs reads the notes.
-// It works on text only and has no dependencies.
+#!/usr/bin/env node
+// The CHANGELOG's release shape. Each GitHub release is a top-level `## [x.y.z] - YYYY-MM-DD` heading, newest first.
+// While a release is being prepared, its notes sit under `## [Unreleased]`, above the released ones. The npm history
+// stays under `## Earlier releases on npm`, the last section, as `### npm <version> - <date>` headings. The release
+// notes are the section of the version being released. check-release-shape.mjs and release-commit.mjs read the notes
+// and the problems; it works on text only and has no dependencies.
+//
+//   node scripts/changelog.mjs release [--date YYYY-MM-DD]   turns `## [Unreleased]` into `## [<version>] - <date>`, for
+//                                                           package.json's version (the date is today's, UTC, by default)
+//   node scripts/changelog.mjs check                        prints what the release of package.json's version would refuse
+import { readFileSync, writeFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 
-export const VERSION = "0.0.0"
+export const UNRELEASED_HEADING = "## [Unreleased]"
 export const EARLIER_HEADING = "## Earlier releases on npm"
-export const EARLIER_PREFACE =
-  "These versions were published to npm before the plugin moved to GitHub releases. Their Git tags have been removed."
-// Written under the release heading, so a later run finds the release even when no npm history sits below it.
-export const MARKER = "<!-- kit-release: the GitHub release v0.0.0 -->"
 
+const VERSION = /^\d+\.\d+\.\d+$/
 const VERSION_HEADING = /^## \[(\d+\.\d+\.\d+)\](?: - (.+))?$/
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const FENCE = /^(```|~~~)/
@@ -33,36 +38,25 @@ function trimBlank(lines) {
   return lines.slice(start, end)
 }
 
-/** Blocks of lines, one blank line between the non-empty ones. */
-function joinBlocks(blocks) {
-  return blocks
-    .filter((block) => block.length > 0)
-    .reduce((out, block) => (out.length ? [...out, "", ...block] : [...block]), [])
-}
-
-/** `### ` and deeper headings move down one level, outside code fences. */
-function demote(lines) {
-  let fenced = false
-  return lines.map((line) => {
-    if (FENCE.test(line)) {
-      fenced = !fenced
-      return line
-    }
-    return !fenced && /^#{3,5} /.test(line) ? `#${line}` : line
-  })
+function trimEnd(lines) {
+  let end = lines.length
+  while (end > 0 && lines[end - 1].trim() === "") end--
+  return lines.slice(0, end)
 }
 
 function classify(heading, body) {
-  if (heading === "## [Unreleased]") return { kind: "unreleased", heading, body }
+  if (heading === UNRELEASED_HEADING) return { kind: "unreleased", heading, body }
   if (heading === EARLIER_HEADING) return { kind: "earlier", heading, body }
   const match = VERSION_HEADING.exec(heading)
   if (match) return { kind: "version", heading, version: match[1], date: match[2] ?? null, body }
   return { kind: "other", heading, body }
 }
 
-/** The body of a section: no marker line, and no blank lines at either end. */
-function bodyOf(section) {
-  return trimBlank(section.body.filter((line) => line !== MARKER))
+/** -1, 0 or 1, comparing two x.y.z versions by number. */
+function compareVersions(a, b) {
+  const [x, y] = [a, b].map((version) => version.split(".").map(Number))
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1
+  return 0
 }
 
 /** The lines before the first `## ` heading, and one section per `## ` heading. */
@@ -78,84 +72,110 @@ export function parseChangelog(text) {
 }
 
 /**
- * The release heading. An earlier run's marker names it. Otherwise, with the npm history already under the Earlier section,
- * it is the first version heading when that is 0.0.0. Otherwise it is a 0.0.0 first in the file that is unpublished (no
- * date, or Unreleased) or dated the release date. A 0.0.0 dated on an earlier day is published history: never re-dated.
+ * The CHANGELOG with `## [Unreleased]` released as `## [<version>] - <date>`, above every earlier release. Every other
+ * section keeps its text. When the version already has its heading and nothing is unreleased, the text is returned
+ * unchanged, so a second run changes nothing. Throws, so the caller writes nothing, on a heading the shape does not
+ * know, on an empty or repeated Unreleased section, on Unreleased notes next to a heading for the version, and on a
+ * release newer than the version.
  */
-function findRelease(sections, date, today) {
-  const versions = sections.filter((s) => s.kind === "version")
-  const marked = versions.find((s) => trimBlank(s.body)[0] === MARKER)
-  if (marked) return marked
-  const first = versions[0]
-  if (!first || first.version !== VERSION) return undefined
-  if (sections.some((s) => s.kind === "earlier")) return first
-  const unpublished = first.date === null || first.date === "Unreleased"
-  return unpublished || first.date === (date ?? today) ? first : undefined
-}
-
-/**
- * The CHANGELOG in shape. `date` is an explicit release date (it re-dates the unpublished release only); without it the
- * release keeps its date, or takes `today`. Throws on a heading it does not know, so the caller writes nothing.
- * Shaping a shaped CHANGELOG changes nothing.
- */
-export function shapeChangelog(text, { date, today }) {
+export function shapeChangelog(text, { version, date }) {
+  if (!VERSION.test(version ?? "")) throw new Error(`the version ${JSON.stringify(version)} is not x.y.z`)
+  if (!ISO_DATE.test(date ?? "")) throw new Error(`the date ${JSON.stringify(date)} is not YYYY-MM-DD`)
   const { preamble, sections } = parseChangelog(text)
   const unknown = sections.find((s) => s.kind === "other")
   if (unknown) throw new Error(`"${unknown.heading}" is not a heading the release shape knows: edit CHANGELOG.md by hand`)
-  const earlier = sections.filter((s) => s.kind === "earlier")
-  if (earlier.length > 1) throw new Error("CHANGELOG.md has more than one Earlier releases section")
+  const unreleased = sections.filter((s) => s.kind === "unreleased")
+  if (unreleased.length > 1) throw new Error(`CHANGELOG.md has ${unreleased.length} ${UNRELEASED_HEADING} sections: merge them by hand`)
   const versions = sections.filter((s) => s.kind === "version")
-  const release = findRelease(sections, date, today)
-  for (const version of versions) {
-    if (version !== release && (!version.date || version.date === "Unreleased")) {
-      throw new Error(`"${version.heading}" has no release date, so it cannot be moved as published history: edit CHANGELOG.md by hand`)
-    }
+  const existing = versions.filter((s) => s.version === version)
+  if (!unreleased.length) {
+    if (existing.length) return text
+    throw new Error(`CHANGELOG.md has no ${UNRELEASED_HEADING} section to release as ${version}`)
   }
-  const releaseDate = date ?? (release && release.date && ISO_DATE.test(release.date) ? release.date : today)
-  const folded = sections.filter((s) => s.kind === "unreleased").map((s) => trimBlank(s.body))
-  const releaseBody = joinBlocks([...folded, release ? bodyOf(release) : []])
-  const history = versions
-    .filter((s) => s !== release)
-    .map((s) => {
-      const body = bodyOf(s)
-      return [`### npm ${s.version} - ${s.date}`, ...(body.length ? ["", ...demote(body)] : [])]
-    })
-  const existing = earlier.length ? bodyOf(earlier[0]) : []
-  const keptEntries = existing[0] === EARLIER_PREFACE ? trimBlank(existing.slice(1)) : existing
+  if (existing.length) throw new Error(`CHANGELOG.md has both ${UNRELEASED_HEADING} and a ## [${version}] heading: merge them by hand`)
+  const newer = versions.find((s) => compareVersions(s.version, version) >= 0)
+  if (newer) throw new Error(`"${newer.heading}" is not older than ${version}: a release goes above every earlier one`)
+  const notes = trimEnd(unreleased[0].body)
+  if (!trimBlank(notes).length) throw new Error(`the ${UNRELEASED_HEADING} section has no notes`)
   const blocks = []
-  const head = trimBlank(preamble)
+  const head = trimEnd(preamble)
   if (head.length) blocks.push(head)
-  blocks.push([`## [${VERSION}] - ${releaseDate}`, MARKER, ...(releaseBody.length ? ["", ...releaseBody] : [])])
-  if (history.length || keptEntries.length) {
-    blocks.push([EARLIER_HEADING, "", ...joinBlocks([[EARLIER_PREFACE], joinBlocks(history), keptEntries])])
-  }
-  return blocks.map((block) => block.join("\n")).join("\n\n") + "\n"
+  blocks.push([`## [${version}] - ${date}`, ...notes])
+  for (const section of sections.filter((s) => s.kind !== "unreleased")) blocks.push([section.heading, ...trimEnd(section.body)])
+  return `${blocks.map((block) => block.join("\n")).join("\n\n")}\n`
 }
 
-/** What the release would refuse about a CHANGELOG (empty means it is in shape). */
-export function changelogProblems(text) {
+/** What the release of `version` would refuse about a CHANGELOG (empty means it is in shape). */
+export function changelogProblems(text, version) {
+  if (!VERSION.test(version ?? "")) return [`the version ${JSON.stringify(version)} is not x.y.z`]
   const { sections } = parseChangelog(text)
   const problems = []
   for (const section of sections.filter((s) => s.kind === "other")) {
     problems.push(`"${section.heading}" is not a heading the release shape knows`)
   }
-  if (sections.some((s) => s.kind === "unreleased")) problems.push("an ## [Unreleased] section is still there")
-  const versions = sections.filter((s) => s.kind === "version")
-  const release = versions.filter((s) => s.version === VERSION)
-  if (release.length !== 1) problems.push(`expected one ## [${VERSION}] heading, found ${release.length}`)
-  if (versions.length !== release.length) {
-    problems.push(`${versions.length - release.length} other ## [x.y.z] heading(s): they belong under "${EARLIER_HEADING}" as ### npm headings`)
+  if (sections.some((s) => s.kind === "unreleased")) {
+    problems.push(`an ${UNRELEASED_HEADING} section is still there: run node scripts/changelog.mjs release`)
   }
-  if (release.length === 1 && bodyOf(release[0]).length === 0) problems.push(`the ## [${VERSION}] section has no notes`)
+  const earlier = sections.filter((s) => s.kind === "earlier")
+  if (earlier.length > 1) problems.push(`there are ${earlier.length} "${EARLIER_HEADING}" sections; there may be one`)
+  if (earlier.length && sections.at(-1) !== earlier.at(-1)) problems.push(`"${EARLIER_HEADING}" must be the last section`)
+  const versions = sections.filter((s) => s.kind === "version")
+  for (const section of versions.filter((s) => !ISO_DATE.test(s.date ?? ""))) {
+    problems.push(`"${section.heading}" is not dated as ## [x.y.z] - YYYY-MM-DD`)
+  }
+  versions.forEach((section, index) => {
+    const next = versions[index + 1]
+    if (next && compareVersions(section.version, next.version) <= 0) {
+      problems.push(`"${section.heading}" is above "${next.heading}": GitHub releases go newest first, once each`)
+    }
+  })
+  const release = versions.filter((s) => s.version === version)
+  if (release.length !== 1) problems.push(`expected one ## [${version}] heading, found ${release.length}`)
+  else {
+    if (versions[0] !== release[0]) problems.push(`## [${version}] is not the newest release heading`)
+    if (!trimBlank(release[0].body).length) problems.push(`the ## [${version}] section has no notes`)
+  }
   return problems
 }
 
-/** The release notes: the `## [0.0.0]` section, up to the next `## ` heading (fenced code is not a heading), without the marker. */
-export function releaseNotes(text) {
+/** The release notes of `version`: its `## [x.y.z]` section, up to the next `## ` heading (fenced code is not a heading). */
+export function releaseNotes(text, version) {
   const lines = text.split("\n")
   const starts = headingIndexes(lines)
-  const start = starts.find((index) => /^## \[0\.0\.0\](?: - .*)?$/.test(lines[index]))
-  if (start === undefined) throw new Error(`CHANGELOG.md has no "## [${VERSION}]" heading`)
+  const start = starts.find((index) => VERSION_HEADING.exec(lines[index])?.[1] === version)
+  if (start === undefined) throw new Error(`CHANGELOG.md has no "## [${version}]" heading`)
   const next = starts.find((index) => index > start)
-  return trimBlank(lines.slice(start, next ?? lines.length).filter((line) => line !== MARKER)).join("\n")
+  return trimBlank(lines.slice(start, next ?? lines.length)).join("\n")
+}
+
+function main(argv) {
+  const [command, ...rest] = argv
+  const version = JSON.parse(readFileSync("package.json", "utf8")).version
+  const text = readFileSync("CHANGELOG.md", "utf8")
+  if (command === "release") {
+    const at = rest.indexOf("--date")
+    if (rest.length !== (at >= 0 ? 2 : 0)) throw new Error("usage: changelog.mjs release [--date YYYY-MM-DD]")
+    const date = at >= 0 ? rest[at + 1] : new Date().toISOString().slice(0, 10)
+    const shaped = shapeChangelog(text, { version, date })
+    const problems = changelogProblems(shaped, version)
+    if (problems.length) throw new Error(`CHANGELOG.md would still not be in the release shape: ${problems.join("; ")}`)
+    if (shaped === text) console.log(`changelog: CHANGELOG.md already releases ${version}; nothing changed`)
+    else {
+      writeFileSync("CHANGELOG.md", shaped)
+      console.log(`changelog: ${UNRELEASED_HEADING} is now ## [${version}] - ${date}`)
+    }
+  } else if (command === "check" && rest.length === 0) {
+    const problems = changelogProblems(text, version)
+    if (problems.length) throw new Error(`CHANGELOG.md is not in the release shape for ${version}: ${problems.join("; ")}`)
+    console.log(`changelog: CHANGELOG.md is in the release shape for ${version}`)
+  } else throw new Error("usage: changelog.mjs release [--date YYYY-MM-DD] | changelog.mjs check")
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  try {
+    main(process.argv.slice(2))
+  } catch (error) {
+    console.error(`changelog: ${error.message}`)
+    process.exit(1)
+  }
 }

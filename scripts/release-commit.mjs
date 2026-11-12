@@ -6,20 +6,22 @@
 //
 //   node scripts/release-commit.mjs --ci-sha <full sha CI passed> [--dry-run] [--native-run <run id>]
 //
-// It never pushes. Refuses: a dirty tree, a branch other than master, a head other than --ci-sha, a git identity that is
-// not the GitHub noreply address, a tag that already exists, a version other than 0.0.0, a private package, a native run
-// whose head is not the parent, whose conclusion is not success, whose workflow is not native.yml, or whose manifest
-// fails the manifest rules, and any staged path outside the allowed set. The identity is checked by domain only, and no
-// address is printed.
+// The version is package.json's, and the tag is exactly v<version>. It never pushes. Refuses: a dirty tree, a branch other
+// than master, a head other than --ci-sha, a git identity that is not the GitHub noreply address, a version that is not
+// x.y.z, a tag that already exists, a private package, a CHANGELOG.md not in the release shape for the version
+// (scripts/changelog.mjs), a native run whose head is not the parent, whose conclusion is not success, whose workflow is
+// not native.yml, or whose manifest fails the manifest rules, and any staged path outside the allowed set. The identity
+// is checked by domain only, and no address is printed.
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { basename, join } from "node:path"
 import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
+import { changelogProblems } from "./changelog.mjs"
 import { MANIFEST_PATH, manifestProblems } from "./native-manifest.mjs"
 
-export const RELEASE_VERSION = "0.0.0"
-export const TAG = `v${RELEASE_VERSION}`
+/** A release version: x.y.z, numbers without leading zeros, and no prerelease or build part. */
+const RELEASE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 export const NOREPLY_DOMAIN = "users.noreply.github.com"
 /** Lifecycle scripts a git install runs, or that npm runs around install and publish. The release commit drops them. */
 export const LIFECYCLE_SCRIPTS = [
@@ -55,6 +57,21 @@ export function withoutLifecycle(pkg) {
 }
 
 export const serialise = (pkg) => `${JSON.stringify(pkg, null, 2)}\n`
+
+/** The release tag of a version: exactly v<version>. */
+export const tagFor = (version) => `v${version}`
+
+/** Why package.json's version cannot be released, or undefined. */
+export function versionProblem(version) {
+  return typeof version === "string" && RELEASE_VERSION.test(version) ? undefined : `package.json version ${JSON.stringify(version)} is not x.y.z`
+}
+
+/** Why a tag cannot release package.json's version, or undefined: the tag must be exactly v<version>. */
+export function tagProblem(tag, version) {
+  const problem = versionProblem(version)
+  if (problem) return problem
+  return tag === tagFor(version) ? undefined : `the tag is ${tag}, and package.json's version ${version} releases only as ${tagFor(version)}`
+}
 
 function die(message) {
   console.error(`release-commit: ${message}`)
@@ -134,15 +151,25 @@ function main() {
   const email = git(["config", "user.email"], { allowFailure: true }) ?? ""
   if (!email.endsWith(`@${NOREPLY_DOMAIN}`)) die(`git user.email is not a GitHub noreply address (domain ${NOREPLY_DOMAIN}); set it before release`)
 
-  if (git(["rev-parse", "-q", "--verify", `refs/tags/${TAG}`], { allowFailure: true })) {
-    die(`tag ${TAG} already exists: delete the old tag first (D19a), then run this again`)
-  }
-
   const pkgPath = join(root, "package.json")
   const pkg = JSON.parse(readFileSync(pkgPath, "utf8"))
-  if (pkg.version !== RELEASE_VERSION) die(`package.json version is ${pkg.version}; every plugin releases as ${TAG}`)
+  const versionRefusal = versionProblem(pkg.version)
+  if (versionRefusal) die(versionRefusal)
+  const tag = tagFor(pkg.version)
+
+  if (git(["rev-parse", "-q", "--verify", `refs/tags/${tag}`], { allowFailure: true })) {
+    die(`tag ${tag} already exists: delete it first if it was never pushed; a pushed tag stays, so release the next version`)
+  }
+
   if (pkg.private === true) die('package.json has "private": true, so the release would refuse it')
   if (serialise(pkg) !== readFileSync(pkgPath, "utf8")) die("package.json is not in the repository's canonical JSON form; reformat it first")
+
+  // The release notes are the version's CHANGELOG section, checked again by the release workflow. A pushed tag cannot be
+  // moved, so a CHANGELOG the workflow would refuse stops here, before anything is built or tagged.
+  const changelogPath = join(root, "CHANGELOG.md")
+  if (!existsSync(changelogPath)) die("there is no CHANGELOG.md: the release notes come from it")
+  const changelog = changelogProblems(readFileSync(changelogPath, "utf8"), pkg.version)
+  if (changelog.length) die(`CHANGELOG.md is not ready for ${tag}: ${changelog.join("; ")}`)
 
   // A native run's candidate manifest is read and checked before anything is built or written.
   const native = options.nativeRun !== undefined
@@ -150,7 +177,7 @@ function main() {
   if (native) {
     const repository = repositoryOf()
     const candidate = candidateManifest(options.nativeRun, head, repository)
-    const problems = manifestProblems(candidate.manifest, { plugin: pkg.name.replace(/^@[^/]+\//, ""), tag: TAG, commit: head, repository })
+    const problems = manifestProblems(candidate.manifest, { plugin: pkg.name.replace(/^@[^/]+\//, ""), tag, commit: head, repository })
     if (problems.length) die(`the native manifest is not right: ${problems.join("; ")}`)
     manifestText = candidate.text
   }
@@ -170,7 +197,7 @@ function main() {
   const nextText = serialise(next)
 
   if (options.dryRun) {
-    console.log(`dry run: the release commit on ${head.slice(0, 12)} for ${TAG}, nothing is written or committed`)
+    console.log(`dry run: the release commit on ${head.slice(0, 12)} for ${tag}, nothing is written or committed`)
     console.log(`  add (force): dist/ (${built.length} files)`)
     for (const path of built.slice(0, 20)) console.log(`    ${path}`)
     if (built.length > 20) console.log(`    … ${built.length - 20} more`)
@@ -180,7 +207,7 @@ function main() {
     for (const line of before) if (!after.includes(line)) console.log(`    - ${line}`)
     for (const line of after) if (!before.includes(line)) console.log(`    + ${line}`)
     if (native) console.log(`  add: ${MANIFEST_PATH} (the candidate of native run ${options.nativeRun})`)
-    console.log(`  tag: ${TAG} (annotated, signed), on the new commit. Not pushed.`)
+    console.log(`  tag: ${tag} (annotated, signed), on the new commit. Not pushed.`)
     return
   }
 
@@ -199,12 +226,12 @@ function main() {
   }
   if (!staged.includes("package.json") || !staged.some((path) => path.startsWith("dist/"))) die("the release commit must add dist/ and change package.json")
 
-  git(["commit", "-S", "-q", "-m", `chore(release): ${TAG} with the built dist/ and no lifecycle scripts`])
+  git(["commit", "-S", "-q", "-m", `chore(release): ${tag} with the built dist/ and no lifecycle scripts`])
   const commit = git(["rev-parse", "HEAD"])
-  git(["tag", "-s", "-a", TAG, "-m", TAG, commit])
+  git(["tag", "-s", "-a", tag, "-m", tag, commit])
   console.log(`release commit ${commit} on parent ${head}`)
-  console.log(`tag ${TAG} is annotated and signed on it${native ? `; manifest from native run ${options.nativeRun}` : ""}`)
-  console.log(`staged: ${staged.length} paths; nothing is pushed. Push the tag only, after review: git push origin ${TAG}`)
+  console.log(`tag ${tag} is annotated and signed on it${native ? `; manifest from native run ${options.nativeRun}` : ""}`)
+  console.log(`staged: ${staged.length} paths; nothing is pushed. Push the tag only, after review: git push origin ${tag}`)
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main()

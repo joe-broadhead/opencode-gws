@@ -20,7 +20,7 @@ npm run build
 { "plugins": [{ "package": "<path-to-checkout>" }] }
 ```
 
-`npm run check` is the local gate: lint, typecheck, build, unit tests, the host suite, the pack-install check, the generated-file check, and the TUI render. Run it before a change is reviewed.
+`npm run check` is the local gate: lint, typecheck, build, unit tests, the release kit's tests, the host suite, the pack-install check, the generated-file check, and the TUI render. Run it before a change is reviewed.
 
 The host suite embeds `@opencode/sdk` 2.2.3. It needs Node 24. `HOST_SDK_DIR`, when set, is an extra embedded SDK directory for that pack check (for example a 2.2.4 SDK kept outside the lockfile).
 
@@ -61,23 +61,33 @@ A public tool or config change needs a test and a docs update.
 
 ### Releasing
 
-Every plugin releases as `v0.0.0`, and it installs from that GitHub tag. The release is one commit on top of a `master`
-head that CI passed, and the tag points at it.
+Each release is the GitHub tag `v<version>`, where `<version>` is the `version` in `package.json`, and users install from
+that tag. The release is one commit on top of a `master` head that CI passed, and the tag points at it.
 
-1. Set `version` to `0.0.0` in `package.json`, date the `## [0.0.0]` entry in `CHANGELOG.md`, then run `npm run check`.
+While changes land, their notes go under `## [Unreleased]` at the top of `CHANGELOG.md`. Each earlier GitHub release is
+a `## [x.y.z] - YYYY-MM-DD` heading below it, newest first, and the npm history stays last, under
+`## Earlier releases on npm`.
+
+1. On `master`, set `version` in `package.json` to the new version, and change every install spec in the README,
+   `CONTRIBUTING.md` and `docs/` to `#v<version>` (`test/docs.test.ts` fails until they match). Then run
+   `node scripts/changelog.mjs release`: it turns `## [Unreleased]` into `## [<version>] - <today>`, above the earlier
+   releases, and refuses a CHANGELOG it cannot shape. Run `npm run check`.
 2. Push that commit to `master`, and wait for CI to pass on it.
-3. In a clean checkout of `master` at that commit, run `node scripts/release-commit.mjs --ci-sha <its full sha>`. It builds
-   `dist/`, removes the lifecycle scripts, and creates the signed commit and the signed annotated tag `v0.0.0`. It never
-   pushes; `--dry-run` shows the change first.
-4. Push the tag only: `git push origin v0.0.0`.
-5. Approve the run in the `release` environment. The release workflow checks the tag and its commit, installs the tag on
-   each stock OpenCode host (2.2.3 to 2.2.6), packs it, and creates the GitHub Release with the notes, the tarball and
-   `SHA256SUMS`.
+3. Run the `native` workflow on that commit. It builds the release files for `v<version>`.
+4. In a clean checkout of `master` at that commit, run
+   `node scripts/release-commit.mjs --ci-sha <its full sha> --native-run <the native run id>`. It refuses a version that
+   is not `x.y.z`, a tag that already exists, and a CHANGELOG whose newest release is not this version. It builds
+   `dist/`, removes the lifecycle scripts, copies the native manifest, and creates the signed commit and the signed
+   annotated tag `v<version>`. It never pushes; `--dry-run` shows the change first.
+5. Push the tag only: `git push origin v<version>`.
+6. Approve the run in the `release` environment. The release workflow refuses a tag that is not exactly
+   `v<package.json version>`, checks the tag and its commit, installs the tag on each stock OpenCode host (2.2.3 to
+   2.2.6), packs it, and creates the GitHub Release with the version's CHANGELOG section as its notes, the tarball, the
+   native files and `SHA256SUMS`.
 
-A tag that already exists stops step 3. Delete the old tag and its Release first, then start again.
+The repository's tag ruleset keeps a pushed `v*` tag from being moved or deleted, so check `--dry-run` before step 5.
 
-
-Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:joe-broadhead/opencode-gws#v0.0.0`, then add the new tag with `opencode plugin add github:joe-broadhead/opencode-gws#v<version>`.
+Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:joe-broadhead/opencode-gws#v<old version>`, then add the new tag with `opencode plugin add github:joe-broadhead/opencode-gws#v<version>`.
 
 Or add the plugin to `opencode.json` instead, with the same spec:
 
