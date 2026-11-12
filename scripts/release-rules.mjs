@@ -208,6 +208,18 @@ export function strictJson(text) {
   return value
 }
 
+/**
+ * Whether a repository path is plain: relative, no empty, "." or ".." part, no backslash, NUL or other control character.
+ * REST paths must also have no `%`, `#` or whitespace; file paths may.
+ */
+export function plainRepositoryPath(path, { rest = false } = {}) {
+  if (typeof path !== "string" || path === "") return false
+  const control = [...path].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127 || char === "\\")
+  if (control || path.startsWith("/") || path.includes("//")) return false
+  if (rest && /[%#\s]/.test(path)) return false
+  return !path.split(rest ? /[/?]/ : "/").some((part) => part === "." || part === "..")
+}
+
 /** Whether a value is a plain object with exactly these keys. */
 const hasKeys = (value, keys) =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key))
@@ -240,7 +252,8 @@ function commitRequestProblem(input, repository) {
   if (!hasKeys(commit.message, ["headline"]) || commit.message.headline !== releaseHeadline(match[1])) return "a createCommitOnBranch without the release headline"
   if (!hasKeys(commit.fileChanges, ["additions"]) || !Array.isArray(commit.fileChanges.additions) || !commit.fileChanges.additions.length) return "a createCommitOnBranch that deletes, or adds nothing"
   const paths = commit.fileChanges.additions.map((file) => (hasKeys(file, ["path", "contents"]) && typeof file.contents === "string" ? file.path : undefined))
-  if (paths.some((path) => typeof path !== "string" || !allowedPath(path, { native: true })) || new Set(paths).size !== paths.length) return "a createCommitOnBranch that writes a path outside the release's allowed set"
+  if (paths.some((path) => !plainRepositoryPath(path))) return "a createCommitOnBranch that writes a path with an empty, relative, absolute or control part"
+  if (paths.some((path) => !allowedPath(path, { native: true })) || new Set(paths).size !== paths.length) return "a createCommitOnBranch that writes a path outside the release's allowed set"
   return undefined
 }
 
@@ -257,12 +270,15 @@ const plainPath = (arg) => typeof arg === "string" && arg !== "" && !arg.startsW
 export function forbiddenCall(args, input, { repository = process.env.GITHUB_REPOSITORY } = {}) {
   if (!Array.isArray(args) || !args.every((arg) => typeof arg === "string")) return "arguments that are not strings"
   const [command, sub] = args
-  const otherRepository = (name) => Boolean(repository) && name !== repository
+  // A call on a repository names exactly GITHUB_REPOSITORY; without a well-formed one, no such call is made.
+  const knownRepository = typeof repository === "string" && REPO_EXACT.test(repository)
+  const otherRepository = (name) => !knownRepository || name !== repository
   if (command === "api") {
     if (args.length === 4 && sub === "graphql" && args[2] === "--input" && args[3] === "-") return commitRequestProblem(input, repository)
     const method = sub === "-X" ? args[2] : "GET"
     const path = sub === "-X" ? args[3] : sub
-    if (typeof path !== "string" || /[%#\\\s]|\/\/|^\//.test(path) || path.split(/[/?]/).some((part) => part === "." || part === "..")) return "a path with encoded, empty or relative parts"
+    if (!plainRepositoryPath(path, { rest: true })) return "a path with encoded, empty or relative parts"
+    if (!knownRepository) return "a call on a repository while GITHUB_REPOSITORY is unset or not owner/name"
     if (otherRepository(path.split("/").slice(1, 3).join("/"))) return `a call on another repository than ${repository}`
     const rest = args.slice(sub === "-X" ? 4 : 2)
     if (method === "GET") return rest.length === 0 && READS.some((pattern) => pattern.test(path)) ? undefined : `GET ${path}, which the kit never reads`
@@ -279,6 +295,7 @@ export function forbiddenCall(args, input, { repository = process.env.GITHUB_REP
     }
     return `POST ${path}`
   }
+  if ((command === "run" || command === "attestation") && !knownRepository) return "a call on a repository while GITHUB_REPOSITORY is unset or not owner/name"
   if ((command === "run" || command === "attestation") && args.includes("--repo") && otherRepository(args[args.indexOf("--repo") + 1])) return `a call on another repository than ${repository}`
   if (command === "run" && sub === "download" && /^\d+$/.test(args[2] ?? "") && args[3] === "--repo" && REPO_EXACT.test(args[4] ?? "")) {
     const rest = args.slice(5)
@@ -301,10 +318,11 @@ export function forbiddenCall(args, input, { repository = process.env.GITHUB_REP
 /**
  * Runs `gh`, only for a call the kit makes (forbiddenCall), and returns its output, or throws with its message. `input`
  * is sent on stdin, re-serialised from the checked body, so gh sends exactly what was checked. With `inherit`, gh's
- * output goes to this process's, and nothing is returned.
+ * output goes to this process's, and nothing is returned. `repository` (GITHUB_REPOSITORY by default) is the one
+ * repository every call may name.
  */
-export function ghOutput(args, { input, inherit = false } = {}) {
-  const forbidden = forbiddenCall(args, input)
+export function ghOutput(args, { input, inherit = false, repository = process.env.GITHUB_REPOSITORY } = {}) {
+  const forbidden = forbiddenCall(args, input, { repository })
   if (forbidden) throw new Error(`refused: the release kit makes only its own GitHub calls, and not ${forbidden}; only the owner approves a release`)
   const sent = input === undefined ? undefined : JSON.stringify(strictJson(input))
   const result = spawnSync("gh", args, { encoding: "utf8", input: sent, maxBuffer: 256 * 1024 * 1024, stdio: inherit ? ["pipe", "inherit", "inherit"] : "pipe" })

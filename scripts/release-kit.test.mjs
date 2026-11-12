@@ -483,8 +483,8 @@ describe("the calls the kit makes, and no other", () => {
     for (const query of ["mutation($i: X!) { approveDeployments(input: $i) { a } }", "mutation { updateRepositoryRuleset(input: {}) { a } }", "mutation { updateEnvironment(input: {}) { a } }", "mutation { createBypassRequest(input: {}) { a } }"]) {
       assert.ok(forbiddenCall(["api", "graphql", "--input", "-"], JSON.stringify({ query }), R), query)
     }
-    assert.throws(() => ghOutput(["api", "-X", "POST", "repos/o/r/actions/runs/1/pending_deployments"]), /refused: the release kit makes only its own GitHub calls, and not POST repos\/o\/r\/actions\/runs\/1\/pending_deployments; only the owner approves a release/)
-    assert.throws(() => ghOutput(["api", "repos/o/r/environments/release"]), /refused: the release kit makes only its own GitHub calls/)
+    assert.throws(() => ghOutput(["api", "-X", "POST", "repos/o/r/actions/runs/1/pending_deployments"], R), /refused: the release kit makes only its own GitHub calls, and not POST repos\/o\/r\/actions\/runs\/1\/pending_deployments; only the owner approves a release/)
+    assert.throws(() => ghOutput(["api", "repos/o/r/environments/release"], R), /refused: the release kit makes only its own GitHub calls/)
   })
 
   test("refuses the shapes a denylist missed: attached and long field flags, a query file, an input file, GraphQL comments, encoded and relative paths", () => {
@@ -545,11 +545,26 @@ describe("the calls the kit makes, and no other", () => {
       "no additions": commitBody({ fileChanges: { additions: [] } }),
       "an extra input key": commitBody({ clientMutationId: "x" }),
     }
+    for (const path of ["dist/../package.json", "dist/../.github/workflows/ci.yml", "dist//index.js", "/dist/index.js", "./dist/index.js", "dist/./index.js", "dist\\index.js", "dist/index.js\u0000", "dist/a\nb.js", "dist/.."]) {
+      refused[`the path ${JSON.stringify(path)}`] = commitBody({ fileChanges: { additions: [{ path, contents: "eA==" }] } })
+    }
     for (const [label, body] of Object.entries(refused)) assert.ok(forbiddenCall(["api", "graphql", "--input", "-"], body, R), label)
     assert.equal(forbiddenCall(["api", "graphql", "--input", "-"], COMMIT_BODY, R), undefined)
     assert.match(forbiddenCall(["api", "graphql", "--input", "-"], COMMIT_BODY, { repository: undefined }), /another repository than GITHUB_REPOSITORY/)
     assert.match(forbiddenCall(["api", `repos/o/other/commits/${SHA}`], undefined, R), /another repository than o\/r/)
     assert.match(forbiddenCall(["run", "download", "1", "--repo", "o/other", "--dir", "/tmp/x"], undefined, R), /another repository than o\/r/)
+    assert.match(forbiddenCall(["api", "graphql", "--input", "-"], commitBody({ fileChanges: { additions: [{ path: "dist/../package.json", contents: "e30=" }] } }), R), /an empty, relative, absolute or control part/)
+  })
+
+  test("a call on a repository is refused while GITHUB_REPOSITORY is unset or not owner/name", () => {
+    for (const repository of ["", "o", "o/r/x", "o/r ", "../r", 7]) {
+      assert.match(forbiddenCall(["api", `repos/o/r/commits/${SHA}`], undefined, { repository }), /GITHUB_REPOSITORY is unset or not owner\/name|another repository/, String(repository))
+      assert.ok(forbiddenCall(["run", "download", "1", "--repo", "o/r", "--dir", "/tmp/x"], undefined, { repository }), String(repository))
+      assert.ok(forbiddenCall(["attestation", "verify", "/tmp/a.gz", "--repo", "o/r"], undefined, { repository }), String(repository))
+    }
+    assert.match(forbiddenCall(["api", `repos/o/r/commits/${SHA}`], undefined, { repository: "" }), /GITHUB_REPOSITORY is unset or not owner\/name/)
+    assert.equal(forbiddenCall(["api", `repos/o/r/commits/${SHA}`], undefined, R), undefined)
+    assert.equal(forbiddenCall(["release", "view", "v0.0.1", "--json", "assets,isDraft"], undefined, { repository: "" }), undefined, "gh release names no repository")
   })
 
   test("a body with a repeated key is refused, and gh is sent only the body that was checked", () => {
@@ -618,7 +633,7 @@ describe("the calls the kit makes, and no other", () => {
       assert.doesNotMatch(source, /(?<![.\w])(execFileSync|execSync|execFile|exec|spawn|fork)\s*\(/, script)
     }
     assert.doesNotMatch(readFileSync(join(SCRIPTS, "check-release-plugin-add.sh"), "utf8"), /(^|[\s;|&(])gh\s/m)
-    assert.match(readFileSync(join(SCRIPTS, "release-rules.mjs"), "utf8"), /const forbidden = forbiddenCall\(args, input\)\n {2}if \(forbidden\) throw/)
+    assert.match(readFileSync(join(SCRIPTS, "release-rules.mjs"), "utf8"), /const forbidden = forbiddenCall\(args, input, \{ repository \}\)\n {2}if \(forbidden\) throw/)
   })
 })
 
@@ -1588,6 +1603,23 @@ describe("the release workflow's shape", () => {
       for (const step of steps(job).filter((text) => /\brun: /.test(text))) {
         for (const [, script] of step.matchAll(/\bnode (\S+)/g)) assert.match(script, /^scripts\/(release-github|check-release-shape|attach-native|publish-release)\.mjs$/, `${job} runs ${script}`)
       }
+    }
+  })
+
+  test("jobs that run repository code give setup-node and setup-bun no token", () => {
+    for (const job of ["build", "rebuild", "hosts", "pack"]) {
+      for (const step of steps(job).filter((text) => /uses: (actions\/setup-node|oven-sh\/setup-bun)@/.test(text))) assert.match(step, /^ {10}token: ''/m, `${job}: ${step.split("\n")[0]}`)
+    }
+  })
+
+  test("every job on the release commit refuses changed scripts/ or .github/ before it runs a kit script", () => {
+    for (const job of ["verify", "hosts", "pack", "stage", "publish"]) {
+      const list = steps(job)
+      const guard = list.findIndex((step) => /git diff --quiet "\$PARENT" "\$COMMIT" -- scripts \.github \|\| \{/.test(step))
+      const firstScript = list.findIndex((step) => /\b(node|sh) scripts\//.test(step) || /\bnpm (ci|pack|run)\b/.test(step))
+      assert.ok(guard >= 0 && firstScript > guard, `${job}: the guard is step ${guard}, the first script step ${firstScript}`)
+      assert.ok(list.slice(0, guard).every((step) => /uses: actions\/(checkout|setup-node)@/.test(step)), job)
+      assert.match(jobs[job], /^ {6}COMMIT: \$\{\{ needs\.commit\.outputs\.commit \|\| needs\.plan\.outputs\.commit \}\}$/m, job)
     }
   })
 

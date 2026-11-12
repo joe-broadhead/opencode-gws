@@ -106,9 +106,12 @@ Before the approval, the workflow:
 - **stages** the Release: verifies the attested native files, writes `SHA256SUMS` and the notes (the version's CHANGELOG
   section), and shows them all in the run summary with the sha256 of `SHA256SUMS`.
 
-A job either runs repository or dependency code (`npm ci`, the build, the pack stage, a host install) and holds no
-token, or holds a token and runs only the kit's scripts on a fresh checkout. Jobs pass files as artifacts downloaded by
-the id the uploading job gave, and each is checked again on arrival.
+A job either runs repository or dependency code (`npm ci`, the build, the pack stage, a host install) and has no write
+token, or uses the API and runs only the kit's scripts on a fresh checkout, after checking that the release commit's
+`scripts/` and `.github/` are the parent's. The first kind is not token-free: `actions/checkout` fetches with the job's
+read-only (`contents: read`) token, and its post step and the artifact uploads run after repository code on the same
+runner, so that code could reach a read-only token for this public repository and the runner's artifact token. Jobs
+pass files as artifacts downloaded by the id the uploading job gave, and each is checked again on arrival.
 
 After the approval, it downloads the staged artifact by the id the summary names, and refuses unless `SHA256SUMS` has
 the sha256 the summary shows and every staged file matches it, and every native file is the one the release commit's
