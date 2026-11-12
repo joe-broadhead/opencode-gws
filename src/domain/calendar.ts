@@ -27,6 +27,20 @@ export interface CalendarEvent {
   joinUrl?: string
 }
 
+/** The most an answer may take as UTF-8 JSON: Jelly refuses an RPC answer over 64 KB. */
+export const CALENDAR_MAX_BYTES = 60 * 1024
+
+/**
+ * The answer cut to CALENDAR_MAX_BYTES by leaving out its latest-starting events (events are earliest first, so the
+ * last ones go), whole: no field is cut further. Also how many were left out.
+ */
+export function fitAnswer(answer: CalendarToday): { answer: CalendarToday; omitted: number } {
+  const events = [...answer.events]
+  const size = () => Buffer.byteLength(JSON.stringify({ ...answer, events }), "utf8")
+  while (events.length > 0 && size() > CALENDAR_MAX_BYTES) events.pop()
+  return { answer: { ...answer, events }, omitted: answer.events.length - events.length }
+}
+
 export interface CalendarToday {
   account: string
   at: string

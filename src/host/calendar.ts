@@ -1,5 +1,5 @@
 import { Rpc } from "@opencode/plugin/rpc"
-import { CALENDAR_MAX_EVENTS, type CalendarEvent, type CalendarToday, EVENT_FIELDS, calendarAccount, dayKey, iso, knownZone, todayBounds, todayEvents } from "../domain/calendar.js"
+import { CALENDAR_MAX_EVENTS, type CalendarEvent, type CalendarToday, EVENT_FIELDS, calendarAccount, dayKey, fitAnswer, iso, knownZone, todayBounds, todayEvents } from "../domain/calendar.js"
 import { GwsError } from "../domain/errors.js"
 import { PACKAGE_NAME } from "../domain/version.js"
 import type { Runtime } from "../runtime/index.js"
@@ -16,7 +16,9 @@ import type { PluginContext } from "./context.js"
  *
  * One account answers (`calendarAccount`). Its primary calendar's own time zone sets today's bounds. A good answer
  * is kept in memory: a call within FRESH_MS of it is answered from it, and when a later read fails for any reason
- * but the sign-in, the kept events of the same day come back as `stale`, with the time they were read.
+ * but the sign-in, the kept events of the same day come back as `stale`, with the time they were read. An answer
+ * over 60 KB of JSON leaves out its latest-starting events until it fits (Jelly refuses one over 64 KB); the audit
+ * records how many as a `calendar.today` record's `omitted`.
  */
 
 /** A call this soon after a good read is answered from it, so a view that polls does not reach Google each time. */
@@ -68,7 +70,7 @@ export const CalendarRpc = Rpc.define({
   events: {},
 })
 
-type Reader = Pick<Runtime, "config" | "read">
+type Reader = Pick<Runtime, "config" | "read"> & { readonly audit?: Pick<Runtime["audit"], "emit"> }
 type Kept = { account: string; zone: string; day: string; at: number; events: CalendarEvent[] }
 
 /** The sign-in codes: the kept events are dropped, so a signed-out calendar is never shown as stale. */
@@ -102,7 +104,9 @@ export function calendarToday(runtime: Reader, now: () => number = Date.now) {
 
   const answer = (entry: Kept, state: CalendarToday["state"]): CalendarToday => {
     const at = now()
-    return { account: entry.account, at: iso(entry.at), state, events: entry.events.filter((event) => Date.parse(event.end) > at) }
+    const fitted = fitAnswer({ account: entry.account, at: iso(entry.at), state, events: entry.events.filter((event) => Date.parse(event.end) > at) })
+    if (fitted.omitted > 0) runtime.audit?.emit({ event: "calendar.today", outcome: "success", account: entry.account, category: "read", omitted: fitted.omitted })
+    return fitted.answer
   }
 
   return async (signal?: AbortSignal): Promise<CalendarToday> => {
@@ -113,12 +117,23 @@ export function calendarToday(runtime: Reader, now: () => number = Date.now) {
       })
     if (kept && kept.account !== account) kept = undefined
     if (kept && now() - kept.at < FRESH_MS && dayKey(now(), kept.zone) === kept.day) return answer(kept, "ready")
-    const deadline = AbortSignal.timeout(READ_DEADLINE_MS)
-    reading ??= read(account, signal ? AbortSignal.any([signal, deadline]) : deadline).finally(() => {
-      reading = undefined
+    // The deadline holds even if the read ignores its signal: the call stops waiting, and the next one reads afresh.
+    const deadline = new AbortController()
+    reading ??= read(account, signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal).finally(() => {
+      if (reading === started) reading = undefined
+    })
+    const started = reading
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        const error = new GwsError("TIMEOUT", `the calendar read did not finish within ${READ_DEADLINE_MS / 1000} seconds`, { next: "Retry later." })
+        if (reading === started) reading = undefined
+        deadline.abort(error)
+        reject(error)
+      }, READ_DEADLINE_MS)
     })
     try {
-      kept = await reading
+      kept = await Promise.race([started, late])
       return answer(kept, "ready")
     } catch (error) {
       if (signal?.aborted) throw error
@@ -126,6 +141,8 @@ export function calendarToday(runtime: Reader, now: () => number = Date.now) {
       if (code !== undefined && SIGN_IN.has(code)) kept = undefined
       else if (kept && dayKey(now(), kept.zone) === kept.day) return answer(kept, "stale")
       throw error
+    } finally {
+      clearTimeout(timer)
     }
   }
 }

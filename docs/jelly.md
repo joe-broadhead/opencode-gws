@@ -60,6 +60,7 @@ permission `gws_read` already declares. Jelly calls it on the plugin's RPC named
 `@joe-broadhead/opencode-gws`, through its core plugin's relay, with the input `{}`, and judges `gws.read` against
 the agent's rules before the call reaches the plugin: an RPC call carries no session, so the plugin cannot ask
 OpenCode itself. Outside Jelly, any client of the OpenCode server can call the method, as it can the status RPC.
+The read therefore exposes event titles, locations and meeting links to any client of the OpenCode server, as the tools RPC can already reach `gws_read`, so serving OpenCode beyond localhost needs the server's own authentication.
 
 What it answers: `{ account, at, state, events }`.
 
@@ -74,7 +75,9 @@ What it answers: `{ account, at, state, events }`.
   gives them, `location` (at most 200 characters), `url` (the event's Google Calendar link) and `joinUrl` (the
   event's Meet link, or else the video entry point of its conference). A link is kept only when it is https and
   carries no user name or password. Cancelled entries, entries the person declined and working-location entries are
-  left out. Descriptions, guests and every other field are never read into the answer.
+  left out. Descriptions, guests and every other field are never read into the answer. The whole answer stays
+  within 60 KB of JSON, under Jelly's 64 KB limit: when it would not, the latest-starting events are left out,
+  whole, until it does, and the audit records how many as `omitted` on a `calendar.today` record.
 - `state` is `ready` for a fresh reading. The method keeps its last good reading in memory and answers from it for a
   minute, so a tile that polls does not reach Google each time. When a later read fails, or takes more than eight
   seconds, it answers `stale` with the kept events of the same day and `at`, the time they were read. Nothing is

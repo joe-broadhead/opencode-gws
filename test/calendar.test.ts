@@ -1,11 +1,11 @@
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
-import { CALENDAR_MAX_EVENTS, EVENT_FIELDS, UNTITLED, calendarAccount, dayKey, httpsLink, todayBounds, todayEvents } from "../src/domain/calendar.js"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { CALENDAR_MAX_BYTES, CALENDAR_MAX_EVENTS, EVENT_FIELDS, UNTITLED, calendarAccount, dayKey, httpsLink, todayBounds, todayEvents } from "../src/domain/calendar.js"
 import { loadConfig } from "../src/domain/config.js"
 import { GwsError } from "../src/domain/errors.js"
 import { PACKAGE_NAME } from "../src/domain/version.js"
-import { FRESH_MS, TODAY_INPUT, TODAY_OUTPUT, calendarToday } from "../src/host/calendar.js"
+import { FRESH_MS, READ_DEADLINE_MS, TODAY_INPUT, TODAY_OUTPUT, calendarToday, registerCalendarRpc } from "../src/host/calendar.js"
 import type { Runtime } from "../src/runtime/index.js"
 import { account, accountDir, testRuntime } from "./support/config.js"
 
@@ -166,20 +166,27 @@ describe("Google's events as Jelly reads them", () => {
   })
 })
 
+/** An answer that never comes, whatever the signal says. */
+const NEVER = Symbol("never")
+
 /** A fake read path: answers by operation id, or throws what it is given. */
 function fakeReader(accounts: Record<string, unknown> = { work: account({ services: ["calendar"] }) }) {
   const answers: Record<string, unknown> = {}
   const calls: { account?: string; operation: string; params?: Record<string, unknown> }[] = []
+  const audited: Record<string, unknown>[] = []
   const reader = {
+    audit: { emit: (event: Record<string, unknown>) => audited.push(event) },
+    wait: <T>(start: (signal: AbortSignal) => Promise<T>, signal?: AbortSignal) => start(signal ?? new AbortController().signal),
     config: loadConfig({ accounts }),
     read: async (request: { account?: string; operation: string; params?: Record<string, unknown> }) => {
       calls.push(request)
       const answer = answers[request.operation]
       if (answer instanceof Error) throw answer
+      if (answer === NEVER) return new Promise(() => {})
       return { ok: true, operation: request.operation, category: "read", data: answer, truncated: false, trust: { workspaceContent: "untrusted" } }
     },
   } as unknown as Pick<Runtime, "config" | "read">
-  return { reader, answers, calls }
+  return { reader, answers, calls, audited }
 }
 
 describe("calendar.today's answer", () => {
@@ -251,18 +258,101 @@ describe("calendar.today's answer", () => {
     await expect(today()).rejects.toThrow(/^TIMEOUT: /)
   })
 
-  it("fails with AUTH_REQUIRED when the account is not signed in, and forgets what it kept", async () => {
+  it.each(["AUTH_REQUIRED", "AUTH_SCOPE_MISSING"])("fails with %s when the account must sign in, and forgets what it kept", async (code) => {
     let now = NOW
     const { reader, answers } = fakeReader()
     answers["calendar.calendars.get"] = { timeZone: ZONE }
-    answers["calendar.events.list"] = { items: [] }
+    answers["calendar.events.list"] = { items: [timed("later", "2026-11-12T17:00:00Z", "2026-11-12T18:00:00Z")] }
     const today = calendarToday(reader, () => now)
     await today()
     now += FRESH_MS
-    answers["calendar.calendars.get"] = new Error("AUTH_REQUIRED: 'work' is not signed in to Google Workspace. Next step: Sign in.")
-    await expect(today()).rejects.toThrow(/^AUTH_REQUIRED: /)
+    answers["calendar.calendars.get"] = new Error(`${code}: The sign-in for 'work' cannot read it. Next step: Sign in.`)
+    await expect(today()).rejects.toThrow(new RegExp(`^${code}: `))
+    // A later failure of another kind would answer stale from a kept reading; there is none left.
     answers["calendar.calendars.get"] = new GwsError("TIMEOUT", "gws did not finish")
     await expect(today()).rejects.toThrow(/^TIMEOUT: /)
+  })
+
+  describe("the read's own deadline", () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it("answers stale with the kept events when a read never finishes, at the deadline and not before", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+      let now = NOW
+      const { reader, answers } = fakeReader()
+      answers["calendar.calendars.get"] = { timeZone: ZONE }
+      answers["calendar.events.list"] = { items: [timed("later", "2026-11-12T17:00:00Z", "2026-11-12T18:00:00Z")] }
+      const today = calendarToday(reader, () => now)
+      await today()
+      now += FRESH_MS
+      answers["calendar.events.list"] = NEVER
+      let settled: unknown
+      const pending = today().then((value) => {
+        settled = value
+      })
+      await vi.advanceTimersByTimeAsync(READ_DEADLINE_MS - 1)
+      expect(settled).toBeUndefined()
+      await vi.advanceTimersByTimeAsync(1)
+      await pending
+      expect(settled).toEqual({
+        account: "work",
+        at: "2026-11-12T15:00:00Z",
+        state: "stale",
+        events: [{ id: "later", title: "later", start: "2026-11-12T17:00:00Z", end: "2026-11-12T18:00:00Z" }],
+      })
+    })
+
+    it("fails with the declared error when a read never finishes and nothing is kept", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+      const { reader, answers } = fakeReader()
+      answers["calendar.calendars.get"] = NEVER
+      let handler: ((input: unknown, context: unknown) => Promise<unknown>) | undefined
+      const ctx = {
+        rpc: {
+          register: async (_contract: unknown, handlers: Record<string, typeof handler>) => {
+            handler = handlers["calendar.today"]
+            return { dispose: async () => {} }
+          },
+        },
+      }
+      await registerCalendarRpc(ctx as never, reader as unknown as Runtime)
+      const context = { signal: new AbortController().signal, error: (type: string, message: string, data: unknown) => ({ type, message, data }) }
+      const answer = handler!({}, context)
+      await vi.advanceTimersByTimeAsync(READ_DEADLINE_MS)
+      expect(await answer).toEqual({ type: "failed", message: expect.stringMatching(/^TIMEOUT: The calendar read did not finish within 8 seconds\. Next step: /), data: { code: "TIMEOUT", next: expect.any(String) } })
+    })
+  })
+
+  it("leaves out the latest-starting events, whole, until the answer fits 60 KB, and audits how many", async () => {
+    const { reader, answers, audited } = fakeReader()
+    const cjk = "会議室の予定".repeat(100)
+    const link = (host: string) => `https://${host}/${"a".repeat(2000)}`
+    answers["calendar.calendars.get"] = { timeZone: ZONE }
+    answers["calendar.events.list"] = {
+      items: Array.from({ length: 50 }, (_, index) =>
+        timed(`e${String(index).padStart(2, "0")}`, new Date(NOW + (index + 1) * 60_000).toISOString(), new Date(NOW + (index + 2) * 60_000).toISOString(), {
+          summary: cjk,
+          location: cjk,
+          htmlLink: link("www.google.com"),
+          hangoutLink: link("meet.google.com"),
+        }),
+      ),
+    }
+    const full = todayEvents((answers["calendar.events.list"] as { items: unknown[] }).items, ZONE, NOW)
+    expect(full).toHaveLength(50)
+    const today = calendarToday(reader, () => NOW)
+    for (const answer of [await today(), await today()]) {
+      expect(Buffer.byteLength(JSON.stringify(answer), "utf8")).toBeLessThanOrEqual(CALENDAR_MAX_BYTES)
+      expect(answer.events.length).toBeGreaterThan(0)
+      expect(answer.events.length).toBeLessThan(50)
+      // The earliest events, each exactly as the field caps left it.
+      expect(answer.events).toEqual(full.slice(0, answer.events.length))
+      expect(answer.events[0]?.title).toHaveLength(200)
+    }
+    const kept = (await today()).events.length
+    expect(audited).toEqual(Array(3).fill({ event: "calendar.today", outcome: "success", account: "work", category: "read", omitted: 50 - kept }))
   })
 
   it("fails with CALENDAR_UNAVAILABLE when no account enables calendar, or Google names no time zone", async () => {
