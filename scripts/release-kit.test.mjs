@@ -449,6 +449,8 @@ describe("the calls the kit makes, and no other", () => {
   const TAG_BODY = JSON.stringify({ tag: "v0.0.1", message: "v0.0.1", object: SHA, type: "commit", tagger: { name: ACTIONS_BOT.name, email: ACTIONS_BOT.email, date: "2026-11-12T00:00:00Z" } })
   const REF_BODY = JSON.stringify({ ref: "refs/tags/v0.0.1", sha: SHA })
   const R = { repository: "o/r" }
+  // Absolute local paths, as the workflow passes them ($RUNNER_TEMP/...), built at run time: no machine path is written here.
+  const local = (name) => join(tmpdir(), name)
   const HEADLINE = "chore(release): v0.0.1 with the built dist/ and no lifecycle scripts"
   const commitInput = (change = {}) => ({
     branch: { repositoryNameWithOwner: "o/r", branchName: "release/v0.0.1" },
@@ -552,15 +554,15 @@ describe("the calls the kit makes, and no other", () => {
     assert.equal(forbiddenCall(["api", "graphql", "--input", "-"], COMMIT_BODY, R), undefined)
     assert.match(forbiddenCall(["api", "graphql", "--input", "-"], COMMIT_BODY, { repository: "" }), /another repository than GITHUB_REPOSITORY/)
     assert.match(forbiddenCall(["api", `repos/o/other/commits/${SHA}`], undefined, R), /another repository than o\/r/)
-    assert.match(forbiddenCall(["run", "download", "1", "--repo", "o/other", "--dir", "/tmp/x"], undefined, R), /another repository than o\/r/)
+    assert.match(forbiddenCall(["run", "download", "1", "--repo", "o/other", "--dir", local("x")], undefined, R), /another repository than o\/r/)
     assert.match(forbiddenCall(["api", "graphql", "--input", "-"], commitBody({ fileChanges: { additions: [{ path: "dist/../package.json", contents: "e30=" }] } }), R), /an empty, relative, absolute or control part/)
   })
 
   test("a call on a repository is refused while GITHUB_REPOSITORY is unset or not owner/name", () => {
     for (const repository of ["", "o", "o/r/x", "o/r ", "../r", 7]) {
       assert.match(forbiddenCall(["api", `repos/o/r/commits/${SHA}`], undefined, { repository }), /GITHUB_REPOSITORY is unset or not owner\/name|another repository/, String(repository))
-      assert.ok(forbiddenCall(["run", "download", "1", "--repo", "o/r", "--dir", "/tmp/x"], undefined, { repository }), String(repository))
-      assert.ok(forbiddenCall(["attestation", "verify", "/tmp/a.gz", "--repo", "o/r"], undefined, { repository }), String(repository))
+      assert.ok(forbiddenCall(["run", "download", "1", "--repo", "o/r", "--dir", local("x")], undefined, { repository }), String(repository))
+      assert.ok(forbiddenCall(["attestation", "verify", local("a.gz"), "--repo", "o/r"], undefined, { repository }), String(repository))
     }
     assert.match(forbiddenCall(["api", `repos/o/r/commits/${SHA}`], undefined, { repository: "" }), /GITHUB_REPOSITORY is unset or not owner\/name/)
     assert.equal(forbiddenCall(["api", `repos/o/r/commits/${SHA}`], undefined, R), undefined)
@@ -606,18 +608,18 @@ describe("the calls the kit makes, and no other", () => {
       [["api", `repos/o/r/commits/${SHA}`]],
       [["api", "repos/o/r/releases?per_page=100&page=2"]],
       [["api", `repos/o/r/compare/${SHA}...master`]],
-      [["run", "download", "1", "--repo", "o/r", "--name", "native-manifest", "--dir", "/tmp/x"]],
-      [["run", "download", "1", "--repo", "o/r", "--dir", "/tmp/x"]],
-      [["attestation", "verify", "/tmp/x/a.gz", "--repo", "o/r"]],
+      [["run", "download", "1", "--repo", "o/r", "--name", "native-manifest", "--dir", local("x")]],
+      [["run", "download", "1", "--repo", "o/r", "--dir", local("x")]],
+      [["attestation", "verify", local("x/a.gz"), "--repo", "o/r"]],
       [["api", "-X", "POST", "repos/o/r/git/refs", "-f", "ref=refs/heads/release/v0.0.1", "-f", `sha=${SHA}`]],
       [["api", "-X", "POST", "repos/o/r/git/refs", "--input", "-"], REF_BODY],
       [["api", "-X", "POST", "repos/o/r/git/tags", "--input", "-"], TAG_BODY],
       [["api", "-X", "DELETE", "repos/o/r/git/refs/heads/release/v0.0.1"]],
       [["api", "graphql", "--input", "-"], COMMIT_BODY],
       [["release", "view", "v0.0.1", "--json", "assets,isDraft"]],
-      [["release", "create", "v0.0.1", "--verify-tag", "--title", "v0.0.1", "--notes-file", "/tmp/notes.md", "/tmp/a.tgz", "/tmp/SHA256SUMS"]],
-      [["release", "download", "v0.0.1", "--pattern", "SHA256SUMS", "--dir", "/tmp/x"]],
-      [["release", "upload", "v0.0.1", "/tmp/a.tgz"]],
+      [["release", "create", "v0.0.1", "--verify-tag", "--title", "v0.0.1", "--notes-file", local("notes.md"), local("a.tgz"), local("SHA256SUMS")]],
+      [["release", "download", "v0.0.1", "--pattern", "SHA256SUMS", "--dir", local("x")]],
+      [["release", "upload", "v0.0.1", local("a.tgz")]],
     ]
     for (const [args, input] of allowed) assert.equal(forbiddenCall(args, input, R), undefined, args.join(" "))
   })
