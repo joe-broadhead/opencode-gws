@@ -9,9 +9,10 @@
 // The version is package.json's, and the tag is exactly v<version>. It never pushes. Refuses: a dirty tree, a branch other
 // than master, a head other than --ci-sha, a git identity that is not the GitHub noreply address, a version that is not
 // x.y.z, a tag that already exists, a private package, a CHANGELOG.md not in the release shape for the version
-// (scripts/changelog.mjs), a native run whose head is not the parent, whose conclusion is not success, whose workflow is
-// not native.yml, or whose manifest fails the manifest rules, and any staged path outside the allowed set. The identity
-// is checked by domain only, and no address is printed.
+// (scripts/changelog.mjs), a release that does not move forward from the last published GitHub Release (read with `gh`:
+// its version must be older, and its parent an ancestor of this head), a native run whose head is not the parent, whose
+// conclusion is not success, whose workflow is not native.yml, or whose manifest fails the manifest rules, and any staged
+// path outside the allowed set or not a regular file. The identity is checked by domain only, and no address is printed.
 import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { basename, join } from "node:path"
@@ -19,7 +20,7 @@ import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import { changelogProblems } from "./changelog.mjs"
 import { MANIFEST_PATH, manifestProblems } from "./native-manifest.mjs"
-import { tagFor, versionProblem } from "./release-version.mjs"
+import { compareVersions, isReleaseTag, tagFor, versionProblem } from "./release-version.mjs"
 
 export const NOREPLY_DOMAIN = "users.noreply.github.com"
 /** Lifecycle scripts a git install runs, or that npm runs around install and publish. The release commit drops them. */
@@ -39,9 +40,73 @@ export const LIFECYCLE_SCRIPTS = [
   "postpublish",
 ]
 
-/** The paths the release commit may add or change. The manifest is allowed only for a native plugin. */
+/**
+ * The paths the release commit may add or change. The manifest is allowed only for a native plugin. No package.json
+ * under dist/: one there would change how the host resolves the bundles.
+ */
 export function allowedPath(path, { native = false } = {}) {
-  return path === "package.json" || path.startsWith("dist/") || (native && path === MANIFEST_PATH)
+  if (path.startsWith("dist/")) return !/(^|\/)package\.json$/.test(path.slice("dist/".length))
+  return path === "package.json" || (native && path === MANIFEST_PATH)
+}
+
+/** The one git mode a release path may have: a regular, non-executable file. No symlink, executable or submodule. */
+export const RELEASE_MODE = "100644"
+
+/** The paths, of { path, mode } entries, whose git mode is not RELEASE_MODE, as sentences. */
+export function modeProblems(entries) {
+  const kinds = { "100755": "an executable", "120000": "a symlink", "160000": "a submodule", "000000": "deleted" }
+  return entries.filter(({ mode }) => mode !== RELEASE_MODE).map(({ path, mode }) => `${path} is ${kinds[mode] ?? `mode ${mode}`}, not a regular file`)
+}
+
+/** The tags of the published GitHub Releases, from the Releases API: not drafts, published, and named v<x.y.z>. */
+export function releasedTags(releases) {
+  return releases.filter((release) => release?.draft === false && Boolean(release.published_at) && isReleaseTag(release.tag_name)).map((release) => release.tag_name)
+}
+
+/** Every Release of a repository, page by page, through the GitHub CLI. `gh(args)` returns its output or throws. */
+export function fetchReleases(repository, gh) {
+  const all = []
+  for (let page = 1; ; page++) {
+    const batch = JSON.parse(gh(["api", `repos/${repository}/releases?per_page=100&page=${page}`]))
+    if (!Array.isArray(batch)) throw new Error("the Releases API did not answer with a list")
+    all.push(...batch)
+    if (batch.length < 100) return all
+  }
+}
+
+/** The GitHub CLI's output, or an error with its message. */
+export function ghOutput(args) {
+  const result = spawnSync("gh", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+  if (result.error) throw new Error(`gh could not run: ${result.error.message}`)
+  if (result.status !== 0) throw new Error((result.stderr || `gh exited ${result.status}`).trim().split("\n")[0])
+  return result.stdout
+}
+
+/** owner/name of this checkout's origin, when it is a GitHub remote. */
+export function originRepository() {
+  const result = spawnSync("git", ["remote", "get-url", "origin"], { encoding: "utf8" })
+  return /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/.exec(result.status === 0 ? result.stdout.trim() : "")?.[1]
+}
+
+/**
+ * Whether a release of `tag` on `parent` moves forward from the published Releases (`released`, their tag names): every
+ * other one is an older version, and the newest of them has a parent that is an ancestor of `parent`, or is it. A tag
+ * that never became a Release does not count. Returns { previous, problem }: the last Release, and why the release is
+ * refused, or undefined. The previous Release's tag must be in this checkout, to read its parent.
+ */
+export function releaseOrder({ tag, parent, released }) {
+  const version = tag.slice(1)
+  const others = [...new Set(released)].filter((name) => name !== tag)
+  const newer = others.filter((name) => compareVersions(name.slice(1), version) >= 0)
+  if (newer.length) return { problem: `the published Release ${newer.join(", ")} is not older than ${tag}` }
+  const previous = others.sort((a, b) => compareVersions(b.slice(1), a.slice(1)))[0]
+  if (!previous) return { previous }
+  const read = spawnSync("git", ["rev-parse", "-q", "--verify", `${previous}^{commit}^`], { encoding: "utf8" })
+  if (read.status !== 0) return { previous, problem: `the tag ${previous} is not in this checkout, so its parent cannot be read: fetch the tags` }
+  if (spawnSync("git", ["merge-base", "--is-ancestor", read.stdout.trim(), parent]).status !== 0) {
+    return { previous, problem: `the parent does not descend from the parent of ${previous}, the last Release: the release would ship older source` }
+  }
+  return { previous }
 }
 
 /** package.json with its lifecycle scripts removed. Keys keep their order, and the JSON form stays the repository's. */
@@ -99,10 +164,9 @@ function parseArgs(argv) {
 
 /** owner/name of this repository, from its origin remote. */
 function repositoryOf() {
-  const url = git(["remote", "get-url", "origin"], { allowFailure: true }) ?? ""
-  const match = /github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/.exec(url)
-  if (!match) die("origin is not a GitHub remote, so the native run cannot be checked")
-  return match[1]
+  const repository = originRepository()
+  if (!repository) die("origin is not a GitHub remote, so the published Releases and the native run cannot be checked")
+  return repository
 }
 
 /** Reads the candidate manifest of a native run, after the run's own facts are checked (NATIVE-DESIGN §4, step 3). */
@@ -158,11 +222,22 @@ function main() {
   const changelog = changelogProblems(readFileSync(changelogPath, "utf8"), pkg.version)
   if (changelog.length) die(`CHANGELOG.md is not ready for ${tag}: ${changelog.join("; ")}`)
 
+  // The release moves forward from the last published Release, as the release workflow checks again. Tags that never
+  // became a Release do not count. Without the list of Releases nothing is built or tagged.
+  const repository = repositoryOf()
+  let released
+  try {
+    released = releasedTags(fetchReleases(repository, ghOutput))
+  } catch (error) {
+    die(`the published Releases of ${repository} could not be listed (${error.message}): sign in with gh and run this again`)
+  }
+  const order = releaseOrder({ tag, parent: head, released })
+  if (order.problem) die(order.problem)
+
   // A native run's candidate manifest is read and checked before anything is built or written.
   const native = options.nativeRun !== undefined
   let manifestText
   if (native) {
-    const repository = repositoryOf()
     const candidate = candidateManifest(options.nativeRun, head, repository)
     const problems = manifestProblems(candidate.manifest, { plugin: pkg.name.replace(/^@[^/]+\//, ""), tag, commit: head, repository })
     if (problems.length) die(`the native manifest is not right: ${problems.join("; ")}`)
@@ -185,6 +260,7 @@ function main() {
 
   if (options.dryRun) {
     console.log(`dry run: the release commit on ${head.slice(0, 12)} for ${tag}, nothing is written or committed`)
+    console.log(`  after: ${order.previous ? `${order.previous}, the last published Release` : "no published Release; this is the first"}`)
     console.log(`  add (force): dist/ (${built.length} files)`)
     for (const path of built.slice(0, 20)) console.log(`    ${path}`)
     if (built.length > 20) console.log(`    … ${built.length - 20} more`)
@@ -210,6 +286,11 @@ function main() {
   if (outside.length) {
     git(["reset", "-q"])
     die(`staged paths outside the allowed set: ${outside.join(", ")}`)
+  }
+  const modes = modeProblems((git(["ls-files", "-s", "--", ...staged]) ?? "").split("\n").filter(Boolean).map((line) => ({ mode: line.split(" ")[0], path: line.split("\t")[1] })))
+  if (modes.length) {
+    git(["reset", "-q"])
+    die(`staged paths that are not regular files: ${modes.join("; ")}`)
   }
   if (!staged.includes("package.json") || !staged.some((path) => path.startsWith("dist/"))) die("the release commit must add dist/ and change package.json")
 

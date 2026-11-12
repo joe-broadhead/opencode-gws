@@ -11,7 +11,7 @@ import { after, describe, test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { changelogProblems, releaseNotes, shapeChangelog } from "./changelog.mjs"
 import { publish } from "./publish-release.mjs"
-import { NOREPLY_DOMAIN, releasePackageText, serialise } from "./release-commit.mjs"
+import { allowedPath, fetchReleases, modeProblems, NOREPLY_DOMAIN, releasedTags, releasePackageText, serialise } from "./release-commit.mjs"
 import { namesTarball, readsTarball } from "./release-pack.mjs"
 import { RELEASE_VERSION, tagFor, tagProblem, versionProblem } from "./release-version.mjs"
 
@@ -193,12 +193,44 @@ describe("the version and its tag", () => {
   })
 })
 
-/** A git repository in a scratch folder, with no global or system config, committing as a noreply identity. */
-function repository(files) {
+/** A published GitHub Release of a tag, as the Releases API lists it, and a draft (never published). */
+const published = (tag) => ({ tag_name: tag, draft: false, published_at: "2026-11-10T12:00:00Z" })
+const draft = (tag) => ({ tag_name: tag, draft: true, published_at: null })
+
+/**
+ * A `gh` for the scripts under test: `api repos/<repo>/releases?...&page=1` prints the Releases file, a later page an
+ * empty list, and FAKE_GH_FAIL makes every call fail as a refused request does.
+ */
+const FAKE_GH = `#!/bin/sh
+if [ -n "$FAKE_GH_FAIL" ]; then echo "HTTP 403: Resource not accessible by integration" >&2; exit 1; fi
+case "$*" in
+  "api repos/owner/kit-test/releases?per_page=100&page=1") cat "$FAKE_GH_RELEASES" ;;
+  "api repos/owner/kit-test/releases?per_page=100&page="*) echo "[]" ;;
+  *) echo "fake gh: unexpected call: $*" >&2; exit 1 ;;
+esac
+`
+
+/**
+ * A git repository in a scratch folder, with no global or system config, committing as a noreply identity. Its origin
+ * is owner/kit-test on GitHub, and `gh` is the fake above, answering with `releases`.
+ */
+function repository(files, { releases = [] } = {}) {
   const dir = folder()
   const home = folder()
+  const bin = folder()
   writeFileSync(join(home, ".gitconfig"), "")
-  const env = { ...process.env, HOME: home, GIT_CONFIG_GLOBAL: join(home, ".gitconfig"), GIT_CONFIG_NOSYSTEM: "1" }
+  writeFileSync(join(bin, "gh"), FAKE_GH, { mode: 0o755 })
+  const releasesFile = join(home, "releases.json")
+  const env = {
+    ...process.env,
+    HOME: home,
+    GIT_CONFIG_GLOBAL: join(home, ".gitconfig"),
+    GIT_CONFIG_NOSYSTEM: "1",
+    PATH: `${bin}:${process.env.PATH}`,
+    GITHUB_REPOSITORY: "owner/kit-test",
+    FAKE_GH_RELEASES: releasesFile,
+    FAKE_GH_FAIL: "",
+  }
   const git = (...args) => {
     const result = spawnSync("git", args, { cwd: dir, env, encoding: "utf8" })
     assert.equal(result.status, 0, `git ${args.join(" ")}: ${result.stderr}`)
@@ -209,50 +241,60 @@ function repository(files) {
   git("config", "user.email", `kit-test@${NOREPLY_DOMAIN}`)
   git("config", "commit.gpgsign", "false")
   git("config", "tag.gpgsign", "false")
+  git("remote", "add", "origin", "https://github.com/owner/kit-test.git")
   for (const [path, text] of Object.entries(files)) writeFileSync(join(dir, path), text)
   git("add", ".")
   git("commit", "-q", "-m", "chore: the source")
-  const node = (script, ...args) => spawnSync(process.execPath, [join(SCRIPTS, script), ...args], { cwd: dir, env, encoding: "utf8" })
-  return { dir, git, node, head: git("rev-parse", "HEAD") }
+  const setReleases = (list) => writeFileSync(releasesFile, JSON.stringify(list))
+  setReleases(releases)
+  const node = (script, args, extra = {}) => spawnSync(process.execPath, [join(SCRIPTS, script), ...args], { cwd: dir, env: { ...env, ...extra }, encoding: "utf8" })
+  return { dir, git, node, setReleases, head: git("rev-parse", "HEAD") }
 }
 
-describe("check-release-shape.mjs", () => {
-  test("refuses a tag that is not v<package.json version>, and accepts the one that is", () => {
-    const repo = repository({ "package.json": serialise({ name: "kit-test", version: "0.0.1" }), "CHANGELOG.md": TWO })
-    repo.git("tag", "-a", "v0.0.2", "-m", "v0.0.2")
-    repo.git("tag", "-a", "v0.0.1", "-m", "v0.0.1")
-    writeFileSync(join(repo.dir, "..", "signers"), "")
-    const signers = ["--verify", "git", "--allowed-signers", join(repo.dir, "..", "signers"), "--branch", "master"]
+/** A later commit on master, so a release can have older source than another. Returns its sha. */
+function laterCommit(repo, name = "later.txt") {
+  writeFileSync(join(repo.dir, name), `${name}\n`)
+  repo.git("add", name)
+  repo.git("commit", "-q", "-m", `chore: ${name}`)
+  return repo.git("rev-parse", "HEAD")
+}
 
-    const wrong = repo.node("check-release-shape.mjs", "--tag", "v0.0.2", ...signers)
-    assert.equal(wrong.status, 1)
-    assert.match(wrong.stdout, /FAIL the version: the tag is v0\.0\.2, and package\.json's version 0\.0\.1 releases only as v0\.0\.1/)
-
-    const right = repo.node("check-release-shape.mjs", "--tag", "v0.0.1", ...signers)
-    assert.match(right.stdout, /ok {3}the tag is v0\.0\.1, and the version is 0\.0\.1/)
-    assert.doesNotMatch(right.stdout, /FAIL the version/)
-  })
-})
-
-/** A release commit on `from`: dist/ and the given package.json text, tagged (annotated), then back to master. */
-function releaseOn(repo, { tag, pkgText, from }) {
+/**
+ * A release commit on `from`: dist/ and the given package.json text, tagged (annotated), then back to master. `tweak`
+ * changes the index before the commit (a mode, a symlink, an extra file).
+ */
+function releaseOn(repo, { tag, pkgText, from, tweak }) {
   repo.git("checkout", "-q", "--detach", from ?? repo.git("rev-parse", "master"))
   mkdirSync(join(repo.dir, "dist"), { recursive: true })
   writeFileSync(join(repo.dir, "dist", "index.js"), "export default 1\n")
   writeFileSync(join(repo.dir, "dist", "tui.js"), "export default 2\n")
   writeFileSync(join(repo.dir, "package.json"), pkgText)
   repo.git("add", "-f", "dist", "package.json")
+  tweak?.(repo)
   repo.git("commit", "-q", "-m", `chore(release): ${tag}`)
   repo.git("tag", "-a", tag, "-m", tag)
-  repo.git("checkout", "-q", "master")
+  repo.git("checkout", "-q", "-f", "master")
 }
 
 /** check-release-shape.mjs on a tag, with no allowed signers: the signature checks fail, and the others are read. */
-function shapeOf(repo, tag) {
-  const signers = join(repo.dir, "signers")
+function shapeOf(repo, tag, extra) {
+  const signers = join(repo.dir, "..", `signers-${made++}`)
   writeFileSync(signers, "")
-  return repo.node("check-release-shape.mjs", "--tag", tag, "--verify", "git", "--allowed-signers", signers, "--branch", "master").stdout
+  return repo.node("check-release-shape.mjs", ["--tag", tag, "--verify", "git", "--allowed-signers", signers, "--branch", "master"], extra).stdout
 }
+
+describe("check-release-shape.mjs: the tag is v<package.json version>", () => {
+  test("refuses a tag that is not v<package.json version>, and accepts the one that is", () => {
+    const repo = repository({ "package.json": serialise({ name: "kit-test", version: "0.0.1" }), "CHANGELOG.md": TWO })
+    repo.git("tag", "-a", "v0.0.2", "-m", "v0.0.2")
+    repo.git("tag", "-a", "v0.0.1", "-m", "v0.0.1")
+    const wrong = shapeOf(repo, "v0.0.2")
+    assert.match(wrong, /FAIL the version: the tag is v0\.0\.2, and package\.json's version 0\.0\.1 releases only as v0\.0\.1/)
+    const right = shapeOf(repo, "v0.0.1")
+    assert.match(right, /ok {3}the tag is v0\.0\.1, and the version is 0\.0\.1/)
+    assert.doesNotMatch(right, /FAIL the version/)
+  })
+})
 
 describe("check-release-shape.mjs: package.json is exactly the parent's without its lifecycle scripts", () => {
   const SOURCE = { name: "kit-test", version: "0.0.1", main: "dist/index.js", scripts: { build: "node build.mjs", test: "node --test" } }
@@ -286,43 +328,129 @@ describe("check-release-shape.mjs: package.json is exactly the parent's without 
   })
 })
 
-describe("check-release-shape.mjs: releases move forward", () => {
+describe("check-release-shape.mjs: regular files only, and no package.json in dist/", () => {
+  const SOURCE = { name: "kit-test", version: "0.0.1", scripts: { build: "node build.mjs" } }
+  const caseOf = (tweak) => {
+    const repo = repository({ "package.json": serialise(SOURCE), "CHANGELOG.md": TWO })
+    releaseOn(repo, { tag: "v0.0.1", pkgText: releasePackageText(SOURCE), tweak })
+    return shapeOf(repo, "v0.0.1")
+  }
+  const symlink = (path, to) => (repo) => {
+    const blob = spawnSync("git", ["hash-object", "-w", "--stdin"], { cwd: repo.dir, input: to, encoding: "utf8" }).stdout.trim()
+    repo.git("update-index", "--add", "--cacheinfo", `120000,${blob},${path}`)
+  }
+
+  test("accepts regular files", () => {
+    assert.match(caseOf(), /ok {3}every path it changes is a regular file/)
+  })
+
+  test("refuses an executable or a symlink in dist/", () => {
+    assert.match(caseOf((repo) => repo.git("update-index", "--chmod=+x", "dist/index.js")), /FAIL the file modes: dist\/index\.js is an executable, not a regular file/)
+    assert.match(caseOf(symlink("dist/tui.js", "../../outside.js")), /FAIL the file modes: dist\/tui\.js is a symlink, not a regular file/)
+  })
+
+  test("refuses a package.json that is executable or a symlink, before reading it", () => {
+    assert.match(caseOf((repo) => repo.git("update-index", "--chmod=+x", "package.json")), /FAIL package\.json: package\.json is an executable, not a regular file/)
+    const linked = caseOf(symlink("package.json", "dist/index.js"))
+    assert.match(linked, /FAIL package\.json: package\.json is a symlink, not a regular file/)
+  })
+
+  test("refuses a package.json added anywhere under dist/", () => {
+    for (const path of ["dist/package.json", "dist/browser/package.json"]) {
+      const out = caseOf((repo) => {
+        mkdirSync(join(repo.dir, path, ".."), { recursive: true })
+        writeFileSync(join(repo.dir, path), '{ "type": "commonjs" }\n')
+        repo.git("add", "-f", path)
+      })
+      assert.match(out, new RegExp(`FAIL the change from the parent: paths outside the allowed set: ${path.replaceAll(".", "\\.")}`), path)
+    }
+  })
+
+  test("allowedPath keeps dist/ files and refuses a nested package.json; modeProblems names each mode", () => {
+    assert.equal(allowedPath("dist/index.js"), true)
+    assert.equal(allowedPath("dist/browser/vega.js"), true)
+    assert.equal(allowedPath("dist/package.json"), false)
+    assert.equal(allowedPath("dist/a/package.json"), false)
+    assert.equal(allowedPath("dist/package.json.map"), true)
+    assert.deepEqual(modeProblems([{ path: "a", mode: "100644" }, { path: "b", mode: "100755" }, { path: "c", mode: "120000" }, { path: "d", mode: "160000" }]), [
+      "b is an executable, not a regular file",
+      "c is a symlink, not a regular file",
+      "d is a submodule, not a regular file",
+    ])
+  })
+})
+
+describe("check-release-shape.mjs: releases move forward from the last published Release", () => {
   const PKG = (version) => releasePackageText({ name: "kit-test", version })
   const twoCommits = () => {
     const repo = repository({ "package.json": serialise({ name: "kit-test", version: "0.0.0" }), "CHANGELOG.md": ONE })
-    const first = repo.head
-    writeFileSync(join(repo.dir, "later.txt"), "a later master commit\n")
-    repo.git("add", "later.txt")
-    repo.git("commit", "-q", "-m", "chore: later")
-    return { repo, first, second: repo.git("rev-parse", "HEAD") }
+    return { repo, first: repo.head, second: laterCommit(repo) }
   }
 
-  test("accepts the first release, and one whose parent descends from the last release's parent", () => {
+  test("accepts the first Release, and one whose parent descends from the last Release's parent", () => {
     const { repo, first, second } = twoCommits()
     releaseOn(repo, { tag: "v0.0.0", pkgText: PKG("0.0.0"), from: first })
-    assert.match(shapeOf(repo, "v0.0.0"), /ok {3}v0\.0\.0 is the first release/)
+    assert.match(shapeOf(repo, "v0.0.0"), /ok {3}v0\.0\.0 is the first published Release/)
+    repo.setReleases([published("v0.0.0")])
     releaseOn(repo, { tag: "v0.0.1", pkgText: PKG("0.0.1"), from: second })
-    assert.match(shapeOf(repo, "v0.0.1"), /ok {3}the parent descends from the parent of v0\.0\.0, the release before/)
+    assert.match(shapeOf(repo, "v0.0.1"), /ok {3}the parent descends from the parent of v0\.0\.0, the last published Release/)
   })
 
-  test("refuses a release built on older source than the last release", () => {
+  test("refuses a release built on older source than the last Release", () => {
     const { repo, first, second } = twoCommits()
     releaseOn(repo, { tag: "v0.0.0", pkgText: PKG("0.0.0"), from: second })
+    repo.setReleases([published("v0.0.0")])
     releaseOn(repo, { tag: "v0.0.1", pkgText: PKG("0.0.1"), from: first })
-    assert.match(shapeOf(repo, "v0.0.1"), /FAIL the release order: the parent does not descend from the parent of v0\.0\.0/)
+    assert.match(shapeOf(repo, "v0.0.1"), /FAIL the release order: the parent does not descend from the parent of v0\.0\.0, the last Release/)
   })
 
-  test("refuses a version that is not newer than every earlier release", () => {
+  test("refuses a version that is not newer than a published Release", () => {
     const { repo, second } = twoCommits()
     releaseOn(repo, { tag: "v0.0.2", pkgText: PKG("0.0.2"), from: second })
+    repo.setReleases([published("v0.0.2")])
     releaseOn(repo, { tag: "v0.0.1", pkgText: PKG("0.0.1"), from: second })
-    assert.match(shapeOf(repo, "v0.0.1"), /FAIL the release order: v0\.0\.2 is not older than v0\.0\.1/)
+    assert.match(shapeOf(repo, "v0.0.1"), /FAIL the release order: the published Release v0\.0\.2 is not older than v0\.0\.1/)
+  })
+
+  test("is not blocked by a stray higher tag with no Release, or by a draft", () => {
+    const { repo, first, second } = twoCommits()
+    releaseOn(repo, { tag: "v0.0.0", pkgText: PKG("0.0.0"), from: first })
+    releaseOn(repo, { tag: "v9.9.9", pkgText: PKG("9.9.9"), from: second })
+    releaseOn(repo, { tag: "v0.0.2", pkgText: PKG("0.0.2"), from: second })
+    repo.setReleases([published("v0.0.0"), draft("v0.0.2"), { ...published("v0.0.3"), draft: true }])
+    releaseOn(repo, { tag: "v0.0.1", pkgText: PKG("0.0.1"), from: second })
+    const out = shapeOf(repo, "v0.0.1")
+    assert.match(out, /ok {3}the parent descends from the parent of v0\.0\.0, the last published Release/)
+    assert.doesNotMatch(out, /FAIL the release order/)
+  })
+
+  test("refuses, and never passes, when the Releases cannot be listed", () => {
+    const { repo, first } = twoCommits()
+    releaseOn(repo, { tag: "v0.0.1", pkgText: PKG("0.0.1"), from: first })
+    const out = shapeOf(repo, "v0.0.1", { FAKE_GH_FAIL: "1" })
+    assert.match(out, /FAIL the release order: the published Releases could not be listed \(HTTP 403: Resource not accessible by integration\), so the order is not checked/)
+    assert.doesNotMatch(out, /ok {3}.*(first published Release|descends from)/)
+  })
+
+  test("releasedTags keeps published, non-draft v<x.y.z> Releases; fetchReleases reads every page", () => {
+    assert.deepEqual(releasedTags([published("v0.0.0"), draft("v0.0.1"), { ...published("v0.0.2"), published_at: null }, published("v1.0.0-rc.1"), published("nightly")]), ["v0.0.0"])
+    const calls = []
+    const pages = { 1: Array.from({ length: 100 }, (_, i) => published(`v0.0.${i}`)), 2: [published("v0.1.0")] }
+    const gh = (args) => {
+      calls.push(args[1])
+      return JSON.stringify(pages[Number(/page=(\d+)$/.exec(args[1])[1])] ?? [])
+    }
+    assert.equal(fetchReleases("owner/kit-test", gh).length, 101)
+    assert.deepEqual(calls, ["repos/owner/kit-test/releases?per_page=100&page=1", "repos/owner/kit-test/releases?per_page=100&page=2"])
+    assert.throws(() => fetchReleases("owner/kit-test", () => '{"message":"Not Found"}'), /did not answer with a list/)
   })
 })
 
 describe("release-commit.mjs", () => {
   const source = (version, changelog = TWO) => ({ "package.json": serialise({ name: "kit-test", version }), "CHANGELOG.md": changelog })
-  const run = (repo) => repo.node("release-commit.mjs", "--ci-sha", repo.head, "--dry-run")
+  const run = (repo, extra) => repo.node("release-commit.mjs", ["--ci-sha", repo.git("rev-parse", "HEAD"), "--dry-run"], extra)
+  // The refusal after every version, tag, CHANGELOG and release-order check: a package with no build script.
+  const PAST = /release-commit: package\.json has no "build" script/
 
   test("refuses a version that is not x.y.z", () => {
     const repo = repository(source("0.0.1-rc.1"))
@@ -343,9 +471,35 @@ describe("release-commit.mjs", () => {
     assert.match(run(repository(source("0.0.0"))).stderr, /CHANGELOG\.md is not ready for v0\.0\.0: ## \[0\.0\.0\] is not the newest release heading/)
   })
 
-  test("takes the version from package.json, past every version check", () => {
-    // The next refusal, a package with no build script, comes after the version, tag and CHANGELOG checks.
-    assert.match(run(repository(source("0.0.1"))).stderr, /release-commit: package\.json has no "build" script/)
+  test("takes the version from package.json, past every version check, as the first Release", () => {
+    assert.match(run(repository(source("0.0.1"))).stderr, PAST)
+  })
+
+  test("refuses, before any commit or tag, a release that does not move forward from the last published Release", () => {
+    const newer = repository(source("0.0.1"), { releases: [published("v0.0.2")] })
+    assert.match(run(newer).stderr, /release-commit: the published Release v0\.0\.2 is not older than v0\.0\.1/)
+
+    // v0.0.0 was released on a later commit than the master head this release would be built on.
+    const stale = repository(source("0.0.1"), { releases: [published("v0.0.0")] })
+    stale.git("checkout", "-q", "-b", "side")
+    const later = laterCommit(stale)
+    releaseOn(stale, { tag: "v0.0.0", pkgText: releasePackageText({ name: "kit-test", version: "0.0.0" }), from: later })
+    const result = run(stale)
+    assert.match(result.stderr, /release-commit: the parent does not descend from the parent of v0\.0\.0, the last Release/)
+    assert.equal(stale.git("tag", "--list", "v0.0.1"), "")
+
+    const missing = repository(source("0.0.1"), { releases: [published("v0.0.0")] })
+    assert.match(run(missing).stderr, /the tag v0\.0\.0 is not in this checkout, so its parent cannot be read: fetch the tags/)
+  })
+
+  test("goes past the order check after the last Release, despite a stray tag; refuses when the Releases cannot be listed", () => {
+    const repo = repository(source("0.0.1"), { releases: [published("v0.0.0"), draft("v0.0.5")] })
+    const first = repo.head
+    releaseOn(repo, { tag: "v0.0.0", pkgText: releasePackageText({ name: "kit-test", version: "0.0.0" }), from: first })
+    releaseOn(repo, { tag: "v9.9.9", pkgText: releasePackageText({ name: "kit-test", version: "9.9.9" }), from: first })
+    laterCommit(repo)
+    assert.match(run(repo).stderr, PAST)
+    assert.match(run(repo, { FAKE_GH_FAIL: "1" }).stderr, /release-commit: the published Releases of owner\/kit-test could not be listed \(HTTP 403: Resource not accessible by integration\)/)
   })
 })
 

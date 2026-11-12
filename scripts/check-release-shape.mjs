@@ -10,21 +10,36 @@
 //
 // The tag defaults to v<version> of the checkout's package.json. Checks, in order: the tag is annotated and signed by
 // the owner; its name is exactly v<version>, where the version is the x.y.z of the tagged commit's package.json; the
-// commit and tag identities are the GitHub noreply domain; the commit has one parent, which is on the branch and
-// descends from the parent of the newest earlier release, whose version is older; the paths it changes from its parent
-// are exactly the allowed set; package.json is exactly the parent's without its lifecycle scripts, as release-commit.mjs
-// writes it, and is not private; dist/ is committed. Emails are checked by domain and never printed.
+// commit and tag identities are the GitHub noreply domain; the commit has one parent, which is on the branch; the
+// release moves forward from the last published GitHub Release (an older version, whose parent is an ancestor of this
+// one); package.json is exactly the parent's without its lifecycle scripts, as release-commit.mjs writes it, and is not
+// private; the paths it changes from its parent are exactly the allowed set, each a regular file (mode 100644, no
+// symlink or executable); dist/ is committed. Emails are checked by domain and never printed.
 //
-// The parent need not be the branch's head when the tag is checked: the branch can move while a release waits for its
-// approval, and the release job runs this check again, so a head rule would refuse a release that is right.
+// The published Releases are read with `gh api` from GITHUB_REPOSITORY, or from the origin remote; a tag that never
+// became a Release, or a draft, does not count. When they cannot be listed, the order check fails: it never passes
+// without them. The parent need not be the branch's head when the tag is checked: the branch can move while a release
+// waits for its approval, and the release job runs this check again, so a head rule would refuse a release that is right.
 import { execFileSync, spawnSync } from "node:child_process"
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
-import { allowedPath, LIFECYCLE_SCRIPTS, NOREPLY_DOMAIN, releasePackageText } from "./release-commit.mjs"
+import {
+  allowedPath,
+  fetchReleases,
+  ghOutput,
+  LIFECYCLE_SCRIPTS,
+  modeProblems,
+  NOREPLY_DOMAIN,
+  originRepository,
+  RELEASE_MODE,
+  releaseOrder,
+  releasePackageText,
+  releasedTags,
+} from "./release-commit.mjs"
 import { MANIFEST_PATH, manifestProblems } from "./native-manifest.mjs"
 import { changelogProblems, releaseNotes } from "./changelog.mjs"
-import { compareVersions, isReleaseTag, tagFor, tagProblem } from "./release-version.mjs"
+import { isReleaseTag, tagFor, tagProblem } from "./release-version.mjs"
 
 function parseArgs(argv) {
   const options = { tag: undefined, branch: "master", allow: [], verify: "git", allowedSigners: undefined, rebuilt: undefined, notes: undefined }
@@ -74,10 +89,17 @@ function main() {
   else fail("the tag is annotated", "the tag is a lightweight tag, not an annotated one")
 
   const target = git(["rev-parse", `${tag}^{commit}`])
-  const pkgText = gitBuffer(["show", `${target}:package.json`])?.toString("utf8")
-  const pkg = pkgText ? JSON.parse(pkgText) : undefined
+  // package.json is a regular file before it is read: a symlink's blob is its target's path, not the package.
+  const pkgMode = (git(["ls-tree", target, "--", "package.json"]) ?? "").split(" ")[0]
+  const pkgText = pkgMode === RELEASE_MODE ? gitBuffer(["show", `${target}:package.json`])?.toString("utf8") : undefined
+  let pkg
+  try {
+    pkg = pkgText ? JSON.parse(pkgText) : undefined
+  } catch {
+    pkg = undefined
+  }
   if (!pkg) {
-    fail("package.json", "the tagged commit has no package.json")
+    fail("package.json", pkgMode && pkgMode !== RELEASE_MODE ? modeProblems([{ path: "package.json", mode: pkgMode }])[0] : "the tagged commit has no package.json that parses")
     process.exit(1)
   }
 
@@ -124,19 +146,23 @@ function main() {
     if (onBranch) ok(`the parent ${parent.slice(0, 12)} is on ${options.branch}`)
     else fail("the parent", `the parent is not on ${options.branch}`)
 
-    // Releases move forward: every earlier release tag is an older version, and the newest one's parent is an ancestor
-    // of this parent (or is it), so a release never ships source older than the last one.
-    const earlier = (git(["tag", "--list", "v*"]) ?? "").split("\n").filter((name) => name !== tag && isReleaseTag(name))
-    const version = tag.slice(1)
+    // Releases move forward from the last published Release, so a release never ships source older than it. Only
+    // published Releases count: a v* tag cannot be deleted, so a stray one must not block every later release.
     if (isReleaseTag(tag)) {
-      const newer = earlier.filter((name) => compareVersions(name.slice(1), version) >= 0)
-      const previous = earlier.filter((name) => !newer.includes(name)).sort((a, b) => compareVersions(b.slice(1), a.slice(1)))[0]
-      const previousParent = previous && git(["rev-parse", "-q", "--verify", `${previous}^{commit}^`])
-      if (newer.length) fail("the release order", `${newer.join(", ")} is not older than ${tag}`)
-      else if (!previous) ok(`${tag} is the first release`)
-      else if (!previousParent) fail("the release order", `the parent of ${previous} cannot be read`)
-      else if (spawnSync("git", ["merge-base", "--is-ancestor", previousParent, parent]).status === 0) ok(`the parent descends from the parent of ${previous}, the release before`)
-      else fail("the release order", `the parent does not descend from the parent of ${previous}: the release would ship older source`)
+      const repository = process.env.GITHUB_REPOSITORY || originRepository()
+      let released
+      try {
+        if (!repository) throw new Error("neither GITHUB_REPOSITORY nor a GitHub origin names the repository")
+        released = releasedTags(fetchReleases(repository, ghOutput))
+      } catch (error) {
+        fail("the release order", `the published Releases could not be listed (${error.message}), so the order is not checked`)
+      }
+      if (released) {
+        const order = releaseOrder({ tag, parent, released })
+        if (order.problem) fail("the release order", order.problem)
+        else if (order.previous) ok(`the parent descends from the parent of ${order.previous}, the last published Release`)
+        else ok(`${tag} is the first published Release`)
+      }
     }
 
     // package.json is exactly what release-commit.mjs writes from the parent's: nothing added, removed or reordered.
@@ -153,10 +179,17 @@ function main() {
 
     // The change from the parent is exactly the allowed set. The manifest is in the set only when the commit carries one.
     const native = spawnSync("git", ["cat-file", "-e", `${target}:${MANIFEST_PATH}`]).status === 0
-    const changed = (git(["diff", "--name-only", parent, target]) ?? "").split("\n").filter(Boolean)
+    // `--raw` lines read ":<old mode> <new mode> <old blob> <new blob> <status>\t<path>"; the new mode is the tag's.
+    const raw = (git(["diff", "--raw", "--no-renames", "-z", parent, target]) ?? "").split("\0").filter(Boolean)
+    const changes = []
+    for (let i = 0; i + 1 < raw.length; i += 2) changes.push({ mode: raw[i].split(" ")[1], path: raw[i + 1] })
+    const changed = changes.map((change) => change.path)
     const outside = changed.filter((path) => !allowedPath(path, { native }) && !options.allow.includes(path))
     if (changed.length && !outside.length) ok(`the change from the parent is the allowed set (${changed.length} paths${native ? ", with the native manifest" : ""})`)
     else fail("the change from the parent", changed.length ? `paths outside the allowed set: ${outside.join(", ")}` : "the release commit changes nothing")
+    const modes = modeProblems(changes)
+    if (!modes.length) ok("every path it changes is a regular file")
+    else fail("the file modes", modes.join("; "))
 
     // A native plugin's manifest: where its binaries come from, and the run that built them. The run is checked on GitHub.
     if (native) {

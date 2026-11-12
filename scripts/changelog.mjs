@@ -8,6 +8,11 @@
 //   node scripts/changelog.mjs release [--date YYYY-MM-DD]   turns `## [Unreleased]` into `## [<version>] - <date>`, for
 //                                                           package.json's version (the date is today's, UTC, by default)
 //   node scripts/changelog.mjs check                        prints what the release of package.json's version would refuse
+//
+// Known limits: the Markdown scan follows CommonMark for fences at the top level only (up to three spaces of
+// indentation), and for `## ` headings at the start of a line. It does not read container blocks, so a fence inside a
+// list item indented by four or more spaces is not seen as a fence. It does not read setext headings (a line of text
+// underlined with `---` or `===`), or ATX headings written with a tab or with closing `#`s.
 import { readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { compareVersions, RELEASE_VERSION, VERSION_SOURCE } from "./release-version.mjs"

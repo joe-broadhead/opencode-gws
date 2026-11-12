@@ -75,10 +75,11 @@ a `## [x.y.z] - YYYY-MM-DD` heading below it, newest first, and the npm history 
 2. Push that commit to `master`, and wait for CI to pass on it.
 3. Run the `native` workflow on that commit. It builds the release files for `v<version>`.
 4. In a clean checkout of `master` at that commit, run
-   `node scripts/release-commit.mjs --ci-sha <its full sha> --native-run <the native run id>`. It refuses a version that
-   is not `x.y.z`, a tag that already exists, and a CHANGELOG whose newest release is not this version. It builds
-   `dist/`, removes the lifecycle scripts, copies the native manifest, and creates the signed commit and the signed
-   annotated tag `v<version>`. It never pushes; `--dry-run` shows the change first.
+   `node scripts/release-commit.mjs --ci-sha <its full sha> --native-run <the native run id>`, with `gh` signed in and the
+   tags fetched. It refuses a version that is not `x.y.z`, a tag that already exists, a CHANGELOG whose newest release
+   is not this version, and a release that does not move forward from the last published Release. It builds `dist/`,
+   removes the lifecycle scripts, copies the native manifest, and creates the signed commit and the signed annotated tag
+   `v<version>`. It never pushes; `--dry-run` shows the change first.
 5. Push the tag only: `git push origin v<version>`.
 6. Approve the run in the `release` environment. The release workflow refuses a tag that is not exactly
    `v<package.json version>`, checks the tag and its commit, installs the tag on each stock OpenCode host (2.2.3 to
@@ -88,11 +89,18 @@ a `## [x.y.z] - YYYY-MM-DD` heading below it, newest first, and the npm history 
 The repository's tag ruleset keeps a pushed `v*` tag from being moved or deleted, so check `--dry-run` before step 5.
 
 The workflow also checks that the release commit is exactly what step 4 writes: its `package.json` is the parent's
-without the lifecycle scripts, byte for byte, and `dist/` is a fresh build of the parent. It checks that releases move
-forward: the version is newer than every earlier release tag, and the parent is on `master` and descends from the parent
-of the release before. It does not require the parent to be `master`'s head when the tag is checked: `master` can move
-while the release waits for its approval, and the release job runs the check again, so that rule would refuse a release
-that is right. Step 4 checks the head instead, with `--ci-sha`.
+without the lifecycle scripts, byte for byte, every path it changes is a regular file, and `dist/` is a fresh build of
+the parent, with no `package.json` in it. It checks that releases move forward: the parent is on `master`, the version is
+newer than every published GitHub Release, and the parent descends from the parent of the last one. It reads the
+Releases with the workflow's token, and refuses the release when it cannot list them. It does not require the parent to
+be `master`'s head when the tag is checked: `master` can move while the release waits for its approval, and the release
+job runs the check again, so that rule would refuse a release that is right. Step 4 checks the head instead, with
+`--ci-sha`.
+
+A stray `v*` tag, one that never became a Release (pushed by mistake, or refused by the workflow), does not block later
+releases: only published Releases count, and drafts do not. Its version cannot be released, so release the next one.
+To remove the tag anyway, an admin disables the `release tags` ruleset, deletes the tag, and restores the ruleset
+exactly as it was.
 
 The release kit is these files, the same in every plugin: `scripts/release-commit.mjs`, `scripts/check-release-shape.mjs`,
 `scripts/changelog.mjs`, `scripts/release-version.mjs`, `scripts/release-pack.mjs`, `scripts/publish-release.mjs`,
