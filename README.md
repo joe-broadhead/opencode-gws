@@ -18,7 +18,7 @@ opencode plugin add github:joe-broadhead/opencode-gws#v0.0.0
 
 Run `opencode reload`, or restart OpenCode, then run `/gws-status`.
 
-Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:joe-broadhead/opencode-gws#v0.0.0`, then add the new tag with `opencode plugin add github:joe-broadhead/opencode-gws#v<version>`.
+Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:joe-broadhead/opencode-gws#v<old version>`, then add the new tag with `opencode plugin add github:joe-broadhead/opencode-gws#v<version>`.
 
 Or add the plugin to `opencode.json` instead, with the same spec:
 

@@ -10,7 +10,6 @@ All notable changes to this project are documented here. The format follows [Kee
 - `/gws-install` names gws once: "gws 0.22.5 is installed and verified.", not "gws gws 0.22.5 …". The version it reports is the binary's own `--version` line, which already starts with `gws`, as `/gws-status`, `gws_status` and the status dialog show it. (#29)
 
 ## [0.0.0] - 2026-11-10
-<!-- kit-release: the GitHub release v0.0.0 -->
 
 ### Changed
 

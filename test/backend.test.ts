@@ -20,7 +20,8 @@ const provenance = JSON.parse(readFileSync(join(root, "native/provenance.json"),
 const platform = currentPlatform()
 const target = gwsTarget(platform)
 const REPO = "joe-broadhead/opencode-gws"
-const TAG = "v0.0.0"
+const { version: VERSION } = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version: string }
+const TAG = `v${VERSION}`
 
 const dirs: string[] = []
 function temporary(base = tmpdir()) {
@@ -46,7 +47,7 @@ function release(overrides: { gz?: Buffer; executableSha?: string; withManifest?
   const root2 = temporary()
   const pkg = join(root2, "dist")
   mkdirSync(pkg, { recursive: true })
-  writeFileSync(join(root2, "package.json"), JSON.stringify({ name: "github:joe-broadhead/opencode-gws#v0.0.0", version: "0.0.0" }))
+  writeFileSync(join(root2, "package.json"), JSON.stringify({ name: `github:${REPO}#${TAG}`, version: VERSION }))
   const gz = overrides.gz ?? gzip()
   const exe = pinnedBinary()
   if (overrides.withManifest !== false) {
