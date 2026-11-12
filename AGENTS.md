@@ -130,13 +130,17 @@ Also never: imported OAuth grants, credentials from `gws auth login`, or a
   imports, no runtime dependencies, no peers, no `.d.ts`. The version comes
   from `package.json` at build time.
 - `files` is a whitelist. The package carries no gws binary: the plugin downloads the pinned executable on first use from its GitHub Release (`manifest/native.json`, checked against `native/provenance.json`). The only other backend is an explicit `binary.path`.
-- Releases come only from `.github/workflows/release.yml` on a `vX.Y.Z` tag,
-  after the `release` environment is approved. Never publish by hand. The
-  tag is exactly `v` and the `version` in `package.json`; the workflow refuses
-  any other ("Releasing" in [CONTRIBUTING.md](CONTRIBUTING.md)). Never re-run
-  the older `apply-release-kit.mjs`: it would revert the release kit.
-- No personal email in anything we publish. Every commit, tag and package is authored and committed as
-  `joe-broadhead <91376460+joe-broadhead@users.noreply.github.com>`. Before committing or tagging, check
+- Releases come only from `.github/workflows/release.yml`, started by hand on
+  `master` with the sha CI passed (and the native run's id), after the owner
+  approves the `release` environment. Never publish, commit a release or tag by
+  hand. The tag is exactly `v` and the `version` in `package.json`; the workflow
+  makes it after the approval ("Releasing" in [CONTRIBUTING.md](CONTRIBUTING.md)).
+  Agents never approve a release, never call the deployment-approval API, and
+  never bypass a ruleset or the environment. Never re-run the older
+  `apply-release-kit.mjs`: it would revert the release kit.
+- No personal email in anything we publish. Every commit is authored as
+  `joe-broadhead <91376460+joe-broadhead@users.noreply.github.com>`, except the
+  release commit and tag, which the release workflow makes as `github-actions[bot]`. Before committing or tagging, check
   that `git config user.email` is that address: a fresh clone inherits the machine's global identity, which
   is not that address. Never commit, tag or publish with a work or personal address, or with a local hostname.
 
