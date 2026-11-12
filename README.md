@@ -56,6 +56,8 @@ Ask the agent for what you need. It works in four steps:
 
 `gws_events_list` is for Memory's collector, not for answering questions: it lists the Gmail messages that arrived since a cursor as normalised events (sender and recipients, subject, thread link, system labels, and the message's own text without quoted replies or signature, at most 4,096 characters), oldest first, leaving out spam, trash, drafts, Promotions and Social. It only reads and never asks. It is this plugin's side of the shared `events_list` source contract ([configuration](https://github.com/joe-broadhead/opencode-gws/blob/HEAD/docs/configuration.md#events-list)).
 
+In Jelly, the plugin also answers `calendar.today`, a read-only RPC method that lists today's events on one account's primary calendar for Jelly's calendar and the **Today** Home tile. It reads with that account's own sign-in, never writes, and returns no descriptions or guests ([In Jelly](https://github.com/joe-broadhead/opencode-gws/blob/HEAD/docs/jelly.md#todays-calendar)).
+
 ### Scripts
 
 A script or a cron job can call the read tools with no model, through `opencode api`: `status`, `catalog`, `schema`, `read`, `plan` and `events_list`. It runs as a session and its agent, under that agent's permission rules, which default to allowing every method. The commit tools are not methods, so a script plans a change but never commits it, unless the host turns on `rpcCommits` because it confirms changes itself. A rule that `ask`s is refused, because no one can answer it:
@@ -252,6 +254,7 @@ Generated from `src/domain/errors.ts` by `npm run docs:coverage`. Do not edit th
 | `AUTH_WRITE_UNCONFIRMED` | Read and write access was chosen in the sign-in form without confirming the write scopes. | Sign in again and confirm the write scopes, or choose Read-only. |
 | `API_DISABLED` | The Google API is not enabled in the Google Cloud project of the OAuth client. | Ask the user to enable the API in the Google Cloud console, wait about a minute, and retry. |
 | `GWS_API_ERROR` | Google returned an error; the message carries Google's text. | Fix the ids or parameters once from the message; if it fails again, tell the user Google's message. |
+| `CALENDAR_UNAVAILABLE` | The read Jelly's calendar makes, calendar.today, has no answer: no configured account enables calendar, or Google's answer for the primary calendar named no time zone. | Add calendar to an account's enabledServices; if it is enabled, retry later. |
 | `GWS_DISCOVERY_ERROR` | gws could not load the API description (the Discovery document) it builds requests from. | Check that this machine can reach www.googleapis.com, then retry. |
 | `GWS_INTERNAL_ERROR` | gws failed unexpectedly. | Retry once; if it fails again, report the message. |
 | `TIMEOUT` | gws did not finish within execution.timeoutMs. | Narrow the request with fields, a smaller page size, maxPages, or maxItems, then retry. |

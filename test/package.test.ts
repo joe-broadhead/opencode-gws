@@ -68,6 +68,7 @@ describe("main package", () => {
       "manifest/generated.json",
       "manifest/native.json",
       "licenses/gws",
+      "views/calendar.html",
       "views/gmail-thread.html",
       "views/jelly-view.js",
       "README.md",

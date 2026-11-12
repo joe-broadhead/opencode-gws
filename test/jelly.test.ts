@@ -33,13 +33,14 @@ describe("the jelly declaration", () => {
     expect(settings[0]?.default).toBe(loadConfig({}).access)
   })
   it("follows the plugin authors' standard, with the effects the plugin's own default rules give", () => {
-    expect(
-      declarationProblems(ROOT, {
-        effectOf: effectFromRules(RULES),
-        registered: [...READS, ...CHANGING_ACTIONS],
-        actionPermissions: true,
-      }),
-    ).toEqual([])
+    const problems = declarationProblems(ROOT, {
+      effectOf: effectFromRules(RULES),
+      registered: [...READS, ...CHANGING_ACTIONS],
+      actionPermissions: true,
+    })
+    // The shared kit's key list predates Jelly's `nativeData` (hey-jelly protocol/contracts/src/plugin-contract.ts,
+    // `PluginDeclarationSchema`); test/calendar.test.ts holds that field to Jelly's rules. Any other problem fails.
+    expect(problems.filter((problem) => problem !== "jelly.nativeData is not a key Jelly knows")).toEqual([])
   })
 
   it("marks exactly the reads read-only", () => {

@@ -69,3 +69,5 @@ An account entry is `{ alias, mode, services, integrationID?, connected, needsAu
 The status RPC cannot approve or commit. A commit happens when the agent calls a commit tool, which runs without a prompt at the default `access` and needs the permission prompt's allow at `ask-changes`, or, only with `rpcCommits`, when a script calls a commit method of the tools RPC ([scripting.md](scripting.md#committing-from-a-script-rpccommits)).
 
 Scripts call the tools through a separate RPC, `google-workspace.gws.tools`: see [Scripting](scripting.md).
+
+A third RPC, named after the package (`@joe-broadhead/opencode-gws`), has one read-only method, `calendar.today`, for Jelly's calendar: see [In Jelly](jelly.md#todays-calendar).

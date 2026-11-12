@@ -3,7 +3,7 @@ import { dirname } from "node:path"
 import { GwsError, isErrorCode } from "./errors.js"
 import { commandIndex } from "./manifest.js"
 
-const EVENTS = new Set(["plugin.loaded", "operation.read", "helper.read", "operation.plan", "operation.commit"])
+const EVENTS = new Set(["plugin.loaded", "operation.read", "helper.read", "operation.plan", "operation.commit", "calendar.today"])
 const CATEGORIES = new Set(["read", "write", "send", "share", "delete", "export", "admin"])
 /** Recorded for an error that is not a plugin error. */
 const UNKNOWN_ERROR = "UNKNOWN_ERROR"
@@ -23,6 +23,8 @@ interface AuditEvent {
   errorCode?: string
   /** `rpc` for a read, plan or commit a script made through the tools RPC; absent for a tool call. */
   caller?: "rpc"
+  /** `calendar.today`: how many of today's events were left out so the answer fits Jelly's 64 KB. */
+  omitted?: number
 }
 
 type Writer = (line: string, signal: AbortSignal) => Promise<void>
@@ -75,6 +77,7 @@ export class Audit {
       durationMs: Number.isFinite(event.durationMs) && event.durationMs! >= 0 ? Math.round(event.durationMs!) : undefined,
       errorCode: event.errorCode === undefined ? undefined : isErrorCode(event.errorCode) ? event.errorCode : UNKNOWN_ERROR,
       caller: event.caller === "rpc" ? "rpc" : undefined,
+      omitted: Number.isSafeInteger(event.omitted) && event.omitted! > 0 ? event.omitted : undefined,
     })}\n`)
     this.pump()
   }

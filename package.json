@@ -64,6 +64,7 @@
     "manifest/generated.json",
     "manifest/native.json",
     "licenses/gws",
+    "views/calendar.html",
     "views/gmail-thread.html",
     "views/jelly-view.js",
     "README.md",
@@ -187,7 +188,102 @@
       "opencode-gws",
       "opencode-gws-recipes"
     ],
-    "rpc": [],
+    "rpc": [
+      {
+        "name": "calendar.today",
+        "label": "read today's calendar",
+        "permission": "gws.read",
+        "readOnly": true,
+        "input": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "account",
+            "at",
+            "state",
+            "events"
+          ],
+          "properties": {
+            "account": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "at": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "ready",
+                "stale"
+              ]
+            },
+            "events": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "title",
+                  "start",
+                  "end"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "start": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "end": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "allDay": {
+                    "type": "boolean"
+                  },
+                  "location": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "joinUrl": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
     "views": [
       {
         "v": 1,
@@ -201,6 +297,28 @@
         "grants": [
           "data"
         ]
+      },
+      {
+        "v": 1,
+        "id": "calendar-native",
+        "place": "home-widget",
+        "size": "m",
+        "title": "Today",
+        "page": "views/calendar.html",
+        "grants": [
+          "rpc"
+        ],
+        "rpc": [
+          "calendar.today"
+        ]
+      }
+    ],
+    "nativeData": [
+      {
+        "v": 1,
+        "capability": "calendar",
+        "view": "calendar-native",
+        "read": "calendar.today"
       }
     ],
     "signIns": [

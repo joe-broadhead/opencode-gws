@@ -12,6 +12,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Status shows whether `rpcCommits` is on: `rpcCommits` in `gws_status` and the status RPC, and a **Script commits** row in `/gws-status` and the status dialog. When it is on, the row, `gws_status` (`rpcCommitsUnguardedAgents`) and each commit method's `describe` description name the agents without the default rules, whose scripts commit without asking; the status RPC names them in `unguardedAgents`.
 
+- `calendar.today`, a read-only method for Jelly's calendar, on an RPC named after the package (`@joe-broadhead/opencode-gws`), where Jelly calls a view's methods. It takes `{}` and answers `{ account, at, state, events }`: today's entries on one account's primary calendar (the implicit `default` account, or else the first account that enables `calendar`), today being midnight to midnight in that calendar's own time zone, at most 50, not yet ended, each with its id, title, start, end, `allDay`, location and https links only. It reads through the plugin's own read path with the account's sign-in, never writes, never downloads gws, and returns no descriptions or guests. A reading is kept in memory for a minute, and when a later read fails its events of the same day come back as `stale`; an answer stays within 60 KB of JSON (Jelly refuses one over 64 KB) by leaving out its latest-starting events, which the audit counts as `omitted` on a `calendar.today` record; a read that takes more than eight seconds is abandoned; with nothing kept, it fails with the plugin's code, `AUTH_REQUIRED` when the account must sign in, or the new `CALENDAR_UNAVAILABLE` when no account enables `calendar`.
+
+- The `jelly` declaration names it: `rpc` declares `calendar.today` read-only under the existing `gws.read` permission, a **Today** Home tile (`views/calendar.html`, a sealed page with only the `rpc` grant) calls it, and `nativeData` points Jelly's native calendar at that tile's read ([In Jelly](docs/jelly.md#todays-calendar)).
+
 ### Fixed
 
 - A commit's audit record carries `caller: "rpc"` when a script made it, as a script's reads and plans already did.
