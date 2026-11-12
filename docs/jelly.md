@@ -46,6 +46,51 @@ skill ids collide with another plugin's or the agent's own.
   made inside a Code Mode script. A thread read with `fields` narrow enough to stay under Jelly's
   64 KB copy, such as `messages(id,internalDate,snippet,payload(headers,mimeType,parts(mimeType,body/data)))`,
   is shown; a larger one is not offered.
+- **Today** (`views/calendar.html`, a sealed Home tile, size `m`, grant `rpc` for `calendar.today` only). It
+  calls `calendar.today` every five minutes while it is shown and lists the entries not yet ended: all-day ones
+  first, then by start, with each one's time and place. A stale answer, or one read more than 15 minutes ago, says
+  "not up to date"; a missing or malformed answer says the calendar is not available, never that the day is empty.
+
+## Today's calendar
+
+`jelly.nativeData` is `[{ "v": 1, "capability": "calendar", "view": "calendar-native", "read": "calendar.today" }]`:
+Jelly's own calendar reads the same method the **Today** tile calls, and draws it natively. `calendar.today` is
+declared in `jelly.rpc` with `readOnly: true`, the label "read today's calendar", and the permission `gws.read`, the
+permission `gws_read` already declares. Jelly calls it on the plugin's RPC named after the package,
+`@joe-broadhead/opencode-gws`, through its core plugin's relay, with the input `{}`, and judges `gws.read` against
+the agent's rules before the call reaches the plugin: an RPC call carries no session, so the plugin cannot ask
+OpenCode itself. Outside Jelly, any client of the OpenCode server can call the method, as it can the status RPC.
+
+What it answers: `{ account, at, state, events }`.
+
+- `account` is the alias of the account that answers: the implicit `default` account, or else the first configured
+  account that enables `calendar`, interactive accounts before headless ones. It reads that account's primary
+  calendar only and never says it checked another.
+- Today is midnight to midnight in the primary calendar's own time zone, which the method reads from Google
+  (`calendar.calendars.get`), not the machine's. A day with a clock change is 23 or 25 hours long.
+- `events` are the entries of today not yet ended, at most 50, the earliest kept: `id` (Google's, or `sha256:<hex>`
+  of one longer than 128 characters), `title` (at most 200 characters; "(No title)" when Google has none), `start`
+  and `end` in UTC, `allDay: true` for an all-day entry (from the calendar's midnight to the next), and, when Google
+  gives them, `location` (at most 200 characters), `url` (the event's Google Calendar link) and `joinUrl` (the
+  event's Meet link, or else the video entry point of its conference). A link is kept only when it is https and
+  carries no user name or password. Cancelled entries, entries the person declined and working-location entries are
+  left out. Descriptions, guests and every other field are never read into the answer.
+- `state` is `ready` for a fresh reading. The method keeps its last good reading in memory and answers from it for a
+  minute, so a tile that polls does not reach Google each time. When a later read fails, or takes more than eight
+  seconds, it answers `stale` with the kept events of the same day and `at`, the time they were read. Nothing is
+  written to disk.
+- With nothing of today kept, a failure is the declared error `failed`, with the plugin's code and next step:
+  `AUTH_REQUIRED` or `AUTH_SCOPE_MISSING` when the account must sign in (these also drop the kept reading, so a
+  signed-out calendar is never shown as stale), `CALENDAR_UNAVAILABLE` when no account enables `calendar`, and
+  the read's own code otherwise. Jelly shows any failure as "not available".
+
+The method runs two reads through the plugin's read path, with the account's own sign-in and the read policy, as
+`gws_read` does: `calendar.calendars.get` (`fields: timeZone`) and one page of `calendar.events.list` (single
+events in start order, at most 250, with a field mask). It never downloads gws: when no verified copy is cached yet, the
+method fails with `GWS_UNAVAILABLE`. A day with more than 250 entries is cut at 250.
+
+`test/calendar.test.ts` checks the declaration against Jelly's native data rules, and the method against fake
+Calendar answers; `test/host/calendar.test.ts` calls it on a real OpenCode host.
 
 ## Signing in
 
@@ -64,4 +109,4 @@ Jelly folds the declared sign-ins into this plugin's one card, which shows each 
 Jelly's curated catalogue pins an exact version. Publish each release under a new version so a
 review in Jelly can tell the two apart.
 
-The declaration test runs the shared kit, `test/support/jelly-kit.ts`, which checks the declaration and this page against Jelly's plugin authors' standard. `scripts/check-copies.mjs` holds the kit equal to the copy every plugin carries.
+The declaration test runs the shared kit, `test/support/jelly-kit.ts`, which checks the declaration and this page against Jelly's plugin authors' standard. `scripts/check-copies.mjs` holds the kit equal to the copy every plugin carries. The kit's list of keys does not yet name `nativeData`, so `test/jelly.test.ts` accepts that one finding and `test/calendar.test.ts` checks the field instead.

@@ -47,6 +47,7 @@ src/
     commands.ts     /gws-status, /gws-doctor
     rpc.ts          status implementation
     tools-rpc.ts    tools RPC: every tool spec as a method, for a script running as a session
+    calendar.ts     calendar.today, the read Jelly's native calendar makes, on the RPC named after the package
   domain/           pure logic; imports only domain/
     contract.ts     tool schemas
     config.ts       options
@@ -55,6 +56,7 @@ src/
     errors.ts       the error table; the Errors section of docs/configuration.md is generated from it
     manifest.ts     catalog and coverage
     gmail.ts        what events_list takes from a message: noise, people, text
+    calendar.ts     today's calendar: the answering account, today's bounds, events in Jelly's shape
   process/          the only spawn site
   auth/             OAuth client, form, setup, doctor; no host import
 ```

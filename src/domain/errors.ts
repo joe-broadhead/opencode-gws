@@ -146,6 +146,11 @@ export const ErrorCode = {
     meaning: "Google returned an error; the message carries Google's text.",
     next: "Fix the ids or parameters once from the message; if it fails again, tell the user Google's message.",
   },
+  CALENDAR_UNAVAILABLE: {
+    meaning:
+      "The read Jelly's calendar makes, calendar.today, has no answer: no configured account enables calendar, or Google's answer for the primary calendar named no time zone.",
+    next: "Add calendar to an account's enabledServices; if it is enabled, retry later.",
+  },
   GWS_DISCOVERY_ERROR: {
     meaning: "gws could not load the API description (the Discovery document) it builds requests from.",
     next: "Check that this machine can reach www.googleapis.com, then retry.",

@@ -4,6 +4,7 @@ import { GwsError } from "./domain/errors.js"
 import { HOST_RANGE, checkHost } from "./domain/host.js"
 import { PLUGIN_ID, PLUGIN_VERSION } from "./domain/version.js"
 import { agentLister, registerApprovalRules } from "./host/agents.js"
+import { registerCalendarRpc } from "./host/calendar.js"
 import { planSummary, registerCommands } from "./host/commands.js"
 import { integrationAuthReporter, integrationConnection, integrationIds, integrationTokenProvider, registerIntegrations } from "./host/integrations.js"
 import { registerRpc, statusSource } from "./host/rpc.js"
@@ -17,8 +18,8 @@ import { Runtime } from "./runtime/index.js"
  *
  * Setup performs local work only: config validation, trusted binary
  * resolution, a no-network version probe, and integration, tool, skill,
- * RPC (status and tools), and command registration. It never calls a
- * Google API and never fetches Discovery.
+ * RPC (status, tools and the calendar read Jelly makes), and command
+ * registration. It never calls a Google API and never fetches Discovery.
  */
 export default Plugin.define({
   id: PLUGIN_ID,
@@ -48,12 +49,14 @@ async function start(ctx: Plugin.Context): Promise<() => Promise<void>> {
 
   let stopRpc: (() => Promise<void>) | undefined
   let stopToolsRpc: (() => Promise<void>) | undefined
+  let stopCalendarRpc: (() => Promise<void>) | undefined
   let stopCommands: (() => Promise<void>) | undefined
   const close = async () => {
     const settled = runtime.close()
     try {
       await stopCommands?.()
       await stopToolsRpc?.()
+      await stopCalendarRpc?.()
       await stopRpc?.()
     } finally {
       await settled
@@ -66,6 +69,7 @@ async function start(ctx: Plugin.Context): Promise<() => Promise<void>> {
     await registerTools(ctx, runtime, status)
     await registerSkills(ctx, config)
     stopRpc = await registerRpc(ctx, runtime, status)
+    stopCalendarRpc = await registerCalendarRpc(ctx, runtime)
     stopToolsRpc = await registerToolsRpc(ctx, {
       methods: [...METHODS, ...scriptMethods({ runtime, assert: (request) => ctx.permission.assert(request as never), status, listAgents: agentLister(ctx) })],
     })
