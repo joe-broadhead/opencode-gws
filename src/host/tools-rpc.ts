@@ -35,7 +35,7 @@ import { Rpc } from "@opencode/plugin/rpc"
 
 import * as z from "zod"
 import { GwsError } from "../domain/errors.js"
-import { RPC_ID } from "../rpc.js"
+import { RPC_ID, unguardedCommitsText } from "../rpc.js"
 import type { Runtime } from "../runtime/index.js"
 import { nativeGate } from "./permissions.js"
 import type { StatusSource } from "./rpc.js"
@@ -70,27 +70,45 @@ export interface MethodSources {
 
 export function scriptMethods(sources: MethodSources): readonly MethodSpec[] {
   const commits = sources.runtime.config.rpcCommits
-  return toolSpecs(sources.runtime, sources.assert, sources.status).filter((spec) => commits || spec.class === "read").map(
-    (spec): PluginMethod => ({
-      kind: "plugin",
-      name: spec.name,
-      action: spec.action,
-      class: spec.class satisfies ToolClass,
-      ...(spec.exposure.codemode ? {} : { directOnly: true }),
-      description: spec.description,
-      input: schemaOf(spec.input, "input"),
-      output: schemaOf(spec.output, "output"),
-      async run(input, call) {
-        // The tool's own input check, its policy, its asserts and its error mapping are the model path's: a script
-        // calls the same spec. A script call still carries a tool source id, so this RPC's evaluate hook can refuse
-        // an inner ask instead of leaving a prompt no one answers.
-        const host = { sessionID: call.sessionID, agent: call.agent, messageID: call.messageID, id: call.id }
-        const runtime = { sessionId: call.sessionID, agentId: call.agent, signal: call.signal, caller: "rpc" as const, mayDownload: nativeGate(host, sources.assert) }
-        const outcome = await spec.run(parse(spec.input, input), { host, runtime })
-        return outcome.output
-      },
-    }),
-  )
+  return toolSpecs(sources.runtime, sources.assert, sources.status)
+    .filter((spec) => commits || spec.class === "read")
+    .map((spec): PluginMethod => {
+      // A commit method's describe names the agents without the default rules, whose scripts commit without asking.
+      // describe awaits `available` and then reads `description`, so `available` refreshes the names it reads.
+      let unguarded: readonly string[] = []
+      return {
+        kind: "plugin",
+        name: spec.name,
+        action: spec.action,
+        class: spec.class satisfies ToolClass,
+        ...(spec.exposure.codemode ? {} : { directOnly: true }),
+        get description() {
+          return unguarded.length > 0 ? `${spec.description} Note: ${unguardedCommitsText(unguarded)}.` : spec.description
+        },
+        ...(spec.class === "read"
+          ? {}
+          : {
+              async available() {
+                unguarded = await sources.status().then(
+                  (status) => status.unguardedAgents,
+                  () => [],
+                )
+                return undefined
+              },
+            }),
+        input: schemaOf(spec.input, "input"),
+        output: schemaOf(spec.output, "output"),
+        async run(input, call) {
+          // The tool's own input check, its policy, its asserts and its error mapping are the model path's: a script
+          // calls the same spec. A script call still carries a tool source id, so this RPC's evaluate hook can refuse
+          // an inner ask instead of leaving a prompt no one answers.
+          const host = { sessionID: call.sessionID, agent: call.agent, messageID: call.messageID, id: call.id }
+          const runtime = { sessionId: call.sessionID, agentId: call.agent, signal: call.signal, caller: "rpc" as const, mayDownload: nativeGate(host, sources.assert) }
+          const outcome = await spec.run(parse(spec.input, input), { host, runtime })
+          return outcome.output
+        },
+      }
+    })
 }
 
 /**

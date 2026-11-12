@@ -10,7 +10,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Status names each interactive account's signed-in `email` (when Google has verified it) and Workspace `domain` (Google's `hd`; absent for a consumer account), read from the `id_token` of the sign-in and of each refresh, only when its claims check out: `iss` is Google's, `aud` is the OAuth client the sign-in used, and `exp` has not passed. `gws_status` and the status RPC carry them; `/gws-status` and the status dialog do not show them. A sign-in from before this release shows them once a token refresh returns an `id_token`, or after signing in again.
 
-- Status shows whether `rpcCommits` is on: `rpcCommits` in `gws_status` and the status RPC, and a **Script commits** row in `/gws-status` and the status dialog.
+- Status shows whether `rpcCommits` is on: `rpcCommits` in `gws_status` and the status RPC, and a **Script commits** row in `/gws-status` and the status dialog. When it is on, the row, `gws_status` (`rpcCommitsUnguardedAgents`) and each commit method's `describe` description name the agents without the default rules, whose scripts commit without asking; the status RPC names them in `unguardedAgents`.
 
 ### Fixed
 

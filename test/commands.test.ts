@@ -138,6 +138,10 @@ describe("commands", () => {
   })
 })
 
+const ON = "on: a script can commit a plan when its agent's rules allow the commit, and the plugin asks no one first (rpcCommits)"
+const OFF = "off: a script can plan a change but not commit it (rpcCommits)"
+const UN = "a script running as notes commits without asking, because that agent lacks the default rules"
+
 describe("/gws-status", () => {
   it("names a config-only agent and gives the per-agent block, first in its own permissions", () => {
     const status: GwsStatus = { version: "1", host: TESTED, state: "connected" as const, access: "all", rpcCommits: false, nextStep: "Nothing to do.", gws: { path: "/bin/gws", version: "gws 0.22.5" }, services: [], accounts: [], unguardedAgents: ["notes"], permissionsBlock: '{"agents":{"notes":{"permissions":[{"action":"gws.write","resource":"*","effect":"ask"}]}}}' }
@@ -195,7 +199,17 @@ describe("/gws-status", () => {
   it("shows whether rpcCommits lets a script commit, after Permissions", () => {
     const status: GwsStatus = { version: "1", host: TESTED, state: "connected", access: "all", rpcCommits: false, nextStep: "Nothing to do.", gws: { path: "/bin/gws", version: "gws 0.22.5" }, services: [], accounts: [], unguardedAgents: [] }
     expect(formatStatus(status)).toMatch(/\nPermissions: .+\nScript commits: off: a script can plan a change but not commit it \(rpcCommits\)\n/)
-    expect(formatStatus({ ...status, rpcCommits: true })).toContain("Script commits: on: a script can commit a plan when its agent's rules allow the commit, and the plugin asks no one first (rpcCommits)")
+    expect(formatStatus({ ...status, rpcCommits: true })).toContain("Script commits: on: a script can commit a plan when its agent's rules allow the commit, and the plugin asks no one first (rpcCommits)\n")
+  })
+
+  it("names the agents without the default rules in the Script commits row only when rpcCommits is on", () => {
+    const status: GwsStatus = { version: "1", host: TESTED, state: "connected", access: "ask-changes", rpcCommits: true, nextStep: "Nothing to do.", gws: { path: "/bin/gws", version: "gws 0.22.5" }, services: [], accounts: [], unguardedAgents: ["notes"], permissionsBlock: "{}" }
+    expect(formatStatus(status)).toContain(`Script commits: ${ON}; ${UN}\n`)
+    expect(formatStatus({ ...status, unguardedAgents: ["notes", "drafts"] })).toContain("; a script running as notes, drafts commits without asking, because those agents lack the default rules\n")
+    // All guarded: the row says only that it is on.
+    expect(formatStatus({ ...status, unguardedAgents: [] })).toContain(`Script commits: ${ON}\n`)
+    // Off: the row is unchanged, whatever agents lack the rules.
+    expect(formatStatus({ ...status, rpcCommits: false })).toContain(`Script commits: ${OFF}\n`)
   })
 
   it("summarises status in one transcript line", () => {

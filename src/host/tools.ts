@@ -135,6 +135,7 @@ async function compactStatus(status: StatusSource, signal?: AbortSignal): Promis
   const count = unguardedAgents.length
   return {
     ...rest,
+    ...(rest.rpcCommits && count > 0 ? { rpcCommitsUnguardedAgents: unguardedAgents } : {}),
     auditDegraded: auditDegraded === true,
     unguardedAgentCount: count,
     ...(count > 0 ? { permissions: `${count} agent${count === 1 ? " lacks" : "s lack"} the default rules, so commits there run without asking; /gws-status names them and shows the rules.` } : {}),

@@ -34,8 +34,10 @@ prompt left waiting.
 A script gets the same default as the model: every method is allowed, because the agent's block allows the reads. A rule
 on the agent or the session can still deny a method, and a denied method is refused before anything runs. Without
 `rpcCommits` a script never commits a plan, so the plugin's `access` option restricts the model's commits, not the
-script's calls. With it, `access` decides the script's commits too: allowed at `"all"`, refused at `"ask-changes"`
-(the ask has no one to answer it) and at `"read-only"`.
+script's calls. With it, `access` decides the script's commits too: allowed at `"all"`; at `"ask-changes"` (the ask
+has no one to answer it) and at `"read-only"` refused unless a rule explicitly allows the action. The last matching
+rule wins, and the session's rules come after the agent's, which come after the plugin's block, so an allow on the
+agent or the session overrides the block's ask or deny, and a deny there overrides an allow.
 
 A saved **Always allow** does not authorise an ad-hoc script. It is not part of the agent's or the session's rules, so
 the resolve never sees it. That is deliberate: a script's permission must be reviewable in config. The supported way to
@@ -124,7 +126,8 @@ A host that shows its own confirmation for each change, before it calls the RPC,
 - it commits once (`PLAN_ALREADY_USED`), and only through its own category's method (`CATEGORY_MISMATCH`, which leaves
   the plan ready for the right one);
 - the method's action (`gws.send`, …) is resolved like any other, so at `access: "ask-changes"` a commit is refused with
-  `PERMISSION_DENIED` and no gws call, and at `"read-only"` it is denied;
+  `PERMISSION_DENIED` and no gws call, and at `"read-only"` it is denied, unless a later rule on the agent or the
+  session allows the action;
 - a reply, a draft or an event's guests are read again at the commit, as on the model path.
 
 The plugin asks no one before such a commit: the host's confirmation is the only one. Leave the option off unless the
@@ -142,8 +145,25 @@ opencode api post /api/session -d '{"title":"replies","agent":"build","location"
 ]}'
 ```
 
-A rule that denies the action, on the agent or the session, refuses the commit at any `access`, and at `"read-only"`
-every commit is denied.
+The same holds at `"read-only"`: the block denies every commit, but the last matching rule wins, so an explicit allow
+on the agent or the session still lets a script commit. A rule that denies the action, on the agent or the session,
+refuses the commit at any `access`, unless a later rule (the session's comes last) allows it again.
+
+**`rpcCommits` trusts every caller of the OpenCode server.** The permission check guards which session a call runs
+as, not who makes the call: any caller of the server API can create a session, choose its agent, and give it session
+rules that allow every commit, then plan and commit in it. So `access` and the rules hold back the model and a
+well-behaved script, not a caller of the server. Turn the option on only where every caller of the server is trusted:
+a local server, or one behind authentication you control.
+
+**A plan is bound to its session and agent, not to whether a script or the model made it.** A script that is given the
+id of a model's session, and runs as that session's agent, can commit the plans pending in it, if the commit's action
+resolves to `allow` there. Keep session ids to the callers that may act for that session.
+
+**Agents without the default rules.** An agent defined only in the user's config misses the plugin's block (see
+[Approvals](configuration.md#approvals)); with a generic allow, its commits are allowed with no ask, for a script too.
+With `rpcCommits` on, status names those agents: `rpcCommitsUnguardedAgents` in `gws_status`, `unguardedAgents` in the
+status RPC, the **Script commits** row in `/gws-status` and the status dialog, and a note in each commit method's
+`describe` description.
 
 ```sh
 opencode api post /api/rpc/google-workspace.gws.tools/plan \

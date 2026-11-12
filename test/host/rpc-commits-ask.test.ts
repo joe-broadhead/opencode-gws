@@ -14,7 +14,7 @@ const Tools = Rpc.define({
   id: "google-workspace.gws.tools",
   methods: {
     describe: { input: open, output: open },
-    ...Object.fromEntries(["plan", "write", "send", "share", "delete", "export", "admin"].map((name) => [name, { input: open, output: open, errors: { failed: open } }])),
+    ...Object.fromEntries(["status", "plan", "write", "send", "share", "delete", "export", "admin"].map((name) => [name, { input: open, output: open, errors: { failed: open } }])),
   },
   events: {},
 })
@@ -24,7 +24,11 @@ let sessionID: string
 let trusted: string
 
 beforeAll(async () => {
-  host = await startHost({ options: { rpcCommits: true, access: "ask-changes" } })
+  host = await startHost({
+    options: { rpcCommits: true, access: "ask-changes" },
+    // A config-only agent with a generic allow misses the default rules, so a script running as it commits unasked.
+    agents: { notes: { permissions: [{ action: "*", resource: "*", effect: "allow" }] } },
+  })
   sessionID = (await host.opencode.sessions.create({ location: host.location, agent: "build" } as never)).id
   // An explicit allow on the action, for every resource, is what lets a script commit at ask-changes. Session rules
   // come after the agent's, so this session of the guarded build agent may send, and nothing else changes.
@@ -80,6 +84,16 @@ describe("rpcCommits: true, access: ask-changes", () => {
     expect(changes()).toBe(before + 1)
     // The allow covers only gws.send: the session's other commits still ask, so they are refused.
     expect(await run("write", { planId: "plan_made_up_0000000000000000" }, trusted)).toMatchObject({ type: "failed", code: "PERMISSION_DENIED" })
+  })
+
+  it("names the agents without the default rules in status and in each commit method's describe", async () => {
+    const status = await run("status", {})
+    expect(status.value, status.message).toMatchObject({ rpcCommits: true, unguardedAgentCount: 1, rpcCommitsUnguardedAgents: ["notes"] })
+    const described = (await host.opencode.rpc(Tools).describe({}, { location: host.location })) as { methods: Array<{ name: string; class: string; description: string }> }
+    for (const method of described.methods) {
+      if (method.class === "read") expect(method.description, method.name).not.toContain("notes")
+      else expect(method.description, method.name).toContain("Note: a script running as notes commits without asking, because that agent lacks the default rules.")
+    }
   })
 
   it("refuses every commit method with PERMISSION_DENIED, whatever the planId", async () => {

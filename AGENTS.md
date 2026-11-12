@@ -63,8 +63,12 @@ Also never: imported OAuth grants, credentials from `gws auth login`, or a
   itself. Then a script whose session resolves the commit's action to
   `allow` can commit a `planId` from `plan`; plan-then-commit still holds,
   and `access` and agent and session rules still decide (an `ask` is
-  refused, a `deny` is refused). Status shows the flag (`rpcCommits`, the
-  **Script commits** row).
+  refused, a `deny` is refused, and a later allow on the agent or session
+  wins over the block). Status shows the flag (`rpcCommits`, the
+  **Script commits** row, which names the agents without the default
+  rules). It trusts every caller of the OpenCode server, who can choose a
+  session's agent and rules; plans bind to a session, not to script or
+  model.
 - The last matching rule wins, so user rules and saved Always override the
   block and a stricter agent is never weakened.
 - Each commit asserts `gws.<category>` on `<account>:<operation>`. Only write

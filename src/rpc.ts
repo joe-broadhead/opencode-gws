@@ -231,9 +231,15 @@ export function accessText(status: Pick<GwsStatus, "access">): string {
 
 /** The Script commits row: whether a script can commit a plan through the tools RPC, from the `rpcCommits` option. */
 export const SCRIPT_COMMITS_LABEL = "Script commits"
-export function scriptCommitsText(status: Pick<GwsStatus, "rpcCommits">): string {
+export function scriptCommitsText(status: Pick<GwsStatus, "rpcCommits" | "unguardedAgents">): string {
   if (!status.rpcCommits) return "off: a script can plan a change but not commit it (rpcCommits)"
-  return "on: a script can commit a plan when its agent's rules allow the commit, and the plugin asks no one first (rpcCommits)"
+  const on = "on: a script can commit a plan when its agent's rules allow the commit, and the plugin asks no one first (rpcCommits)"
+  return status.unguardedAgents.length === 0 ? on : `${on}; ${unguardedCommitsText(status.unguardedAgents)}`
+}
+
+/** With rpcCommits on, the agents without the default rules, whose scripts commit with no rule holding them back. */
+export function unguardedCommitsText(agents: readonly string[]): string {
+  return `a script running as ${agents.join(", ")} commits without asking, because ${agents.length === 1 ? "that agent lacks" : "those agents lack"} the default rules`
 }
 
 /** The row naming services that need domain-wide delegation. */

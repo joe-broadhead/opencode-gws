@@ -266,6 +266,13 @@ describe("status dialog", () => {
     expect(view).not.toContain("Granted")
   })
 
+  it("names the agents without the default rules in the Script commits row when rpcCommits is on", async () => {
+    const on = (await open(status([ACCOUNTS.signedIn], { rpcCommits: true, access: "ask-changes", unguardedAgents: ["notes"], permissionsBlock: "{}" }))).view()
+    expect(on).toContain(`Script commits\non: a script can commit a plan when its agent's rules allow the commit, and the plugin asks no one first (rpcCommits); a script running as notes commits without asking, because that agent lacks the default rules`)
+    const off = (await open(status([ACCOUNTS.signedIn], { rpcCommits: false, access: "ask-changes", unguardedAgents: ["notes"], permissionsBlock: "{}" }))).view()
+    expect(off).toContain("Script commits\noff: a script can plan a change but not commit it (rpcCommits)\n")
+  })
+
   it("shows when rpcCommits lets a script commit", async () => {
     const view = (await open(status([ACCOUNTS.signedIn], { rpcCommits: true }))).view()
     expect(view).toContain("Script commits\non: a script can commit a plan when its agent's rules allow the commit, and the plugin asks no one first (rpcCommits)")

@@ -22,20 +22,25 @@ const Tools = Rpc.define({
 
 let host: Harness
 let sessionID: string
+let allowed: string
 
 beforeAll(async () => {
   host = await startHost({ options: { rpcCommits: true, access: "read-only" } })
   sessionID = (await host.opencode.sessions.create({ location: host.location, agent: "build" } as never)).id
+  // The last matching rule wins: a session's own allow comes after the block's deny.
+  allowed = (
+    await host.opencode.sessions.create({ location: host.location, agent: "build", permissions: [{ action: "gws.send", resource: "*", effect: "allow" }] } as never)
+  ).id
 }, 120_000)
 
 afterAll(async () => {
   await host?.close()
 })
 
-async function run(method: string, input: unknown): Promise<Record<string, any>> {
+async function run(method: string, input: unknown, session = sessionID): Promise<Record<string, any>> {
   const tools = host.opencode.rpc(Tools) as unknown as Record<string, (input: unknown, options: unknown) => Promise<unknown>>
   try {
-    return { value: await tools[method]!({ sessionID, input }, { location: host.location }) }
+    return { value: await tools[method]!({ sessionID: session, input }, { location: host.location }) }
   } catch (error) {
     const e = error as Record<string, any>
     return { type: e.type ?? e._tag, code: e.data?.code, message: String(e.message ?? e) }
@@ -50,7 +55,11 @@ describe("rpcCommits: true, access: read-only", () => {
     const permissions = Object.fromEntries(described.methods.map((method) => [method.name, method.permission]))
     for (const name of COMMITS) expect(permissions[name], name).toBe("deny")
     expect(permissions.plan).toBe("allow")
-    expect((await run("status", {})).value).toMatchObject({ access: "read-only", rpcCommits: true })
+    const status = (await run("status", {})).value
+    expect(status).toMatchObject({ access: "read-only", rpcCommits: true, unguardedAgentCount: 0 })
+    // Every agent has the default rules, so status and describe name none.
+    expect(status).not.toHaveProperty("rpcCommitsUnguardedAgents")
+    for (const method of (described as unknown as { methods: Array<{ description: string }> }).methods) expect(method.description).not.toContain("Note:")
   })
 
   it("refuses a planned commit with PERMISSION_DENIED and no gws call", async () => {
@@ -60,5 +69,13 @@ describe("rpcCommits: true, access: read-only", () => {
     expect(await run("send", { planId: planned.value.planId })).toMatchObject({ type: "failed", code: "PERMISSION_DENIED" })
     for (const method of COMMITS) expect(await run(method, { planId: planned.value.planId }), method).toMatchObject({ type: "failed", code: "PERMISSION_DENIED" })
     expect(changes()).toBe(before)
+  })
+
+  it("still lets a session's explicit allow commit: the last matching rule wins over the block's deny", async () => {
+    const planned = await run("plan", request("gmail.reply", { input: { messageId: "m-1", body: "hi" } }), allowed)
+    expect(planned.value, planned.message).toMatchObject({ ok: true, category: "send" })
+    const committed = await run("send", { planId: planned.value.planId }, allowed)
+    expect(committed.value, committed.message).toMatchObject({ ok: true, category: "send" })
+    expect(await run("write", { planId: "plan_made_up_0000000000000000" }, allowed)).toMatchObject({ type: "failed", code: "PERMISSION_DENIED" })
   })
 })
