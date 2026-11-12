@@ -80,9 +80,12 @@ a `## [x.y.z] - YYYY-MM-DD` heading below it, newest first, and the npm history 
 4. Start the release with that commit's full sha and the native run's id:
    `gh workflow run release.yml --ref master -f sha=<full sha> -f native_run=<native run id>`, or from Actions → release →
    Run workflow, on `master`.
-5. Read the run's summary, then approve the `release` environment. Only the owner approves a release. Agents never
-   approve one, never call the deployment-approval API, and never bypass a ruleset or the environment; the kit's scripts
-   refuse those calls.
+5. Read the run's summary, then approve the `release` environment. The summary is on the run page, under the `stage`
+   job: the tag, the parent and its CI run, the release commit and its tree, the sha256 of `SHA256SUMS` and the staged
+   artifact's id, `SHA256SUMS` itself, and the notes. Open the release commit on `release/v<version>` and read them
+   before approving: the approval releases exactly those bytes. Only the owner approves a release. Agents never approve
+   one, never call the deployment-approval API, and never bypass a ruleset or the environment; the kit's scripts make
+   only their own GitHub calls and refuse every other.
 6. Check the published Release: not a draft, its notes, and every asset against `SHA256SUMS`.
 
 Before the approval, the workflow:
@@ -99,10 +102,14 @@ Before the approval, the workflow:
   without the lifecycle scripts, only regular files in the allowed paths, no `package.json` under `dist/`, and a second,
   independent build of the parent equal to the committed `dist/` byte for byte;
 - **installs** the release commit with `plugin add` on each stock OpenCode host (2.2.3 to 2.2.6);
-- **stages** the Release: packs the commit, runs the pack stage against that tarball, verifies the attested native files,
-  writes `SHA256SUMS` and the notes (the version's CHANGELOG section), and shows them all in the run summary.
+- **stages** the Release: verifies the attested native files, packs the commit, runs the pack stage against that tarball,
+  writes `SHA256SUMS` and the notes (the version's CHANGELOG section), and shows them all in the run summary with the
+  sha256 of `SHA256SUMS`.
 
-After the approval, it checks the staged files against `SHA256SUMS`, checks everything again, creates the annotated tag
+No step that runs repository or dependency code (`npm ci`, the build, the pack stage) holds a token.
+
+After the approval, it downloads the staged artifact by the id the summary names, and refuses unless `SHA256SUMS` has
+the sha256 the summary shows and every staged file matches it. Then it checks everything again, creates the annotated tag
 `v<version>` on the release commit (tagger `github-actions[bot]`, unsigned), checks the tag, creates the Release with the
 notes, the tarball, the native files and `SHA256SUMS`, and deletes `release/v<version>`. The tag keeps the commit.
 
@@ -125,6 +132,12 @@ The repository's tag ruleset keeps a `v*` tag from being moved or deleted. A str
 Release, does not block later releases: only published Releases count, and drafts do not. Its version cannot be
 released, so release the next one. To remove the tag anyway, an admin disables the `release tags` ruleset, deletes the
 tag, and restores the ruleset exactly as it was.
+
+**Known limit: a `v*` tag pushed by hand.** No ruleset limits who creates a `v*` tag, so anyone with write access can
+push one by hand, pointing at any commit. Such a tag has no published Release, the forward-only check ignores it, and
+Jelly installs only a published Release whose `SHA256SUMS` it verifies. But a user who installs
+`github:joe-broadhead/opencode-gws#v<x>` directly gets whatever that tag points at. Only the release workflow makes
+release tags; never push one by hand.
 
 The release kit is these files, the same in every plugin: `scripts/release-rules.mjs`, `scripts/release-commit.mjs`,
 `scripts/release-github.mjs`, `scripts/check-release-shape.mjs`, `scripts/changelog.mjs`, `scripts/release-version.mjs`,

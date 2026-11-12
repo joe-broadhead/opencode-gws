@@ -54,6 +54,7 @@ jobs:
       mode: ${{ steps.plan.outputs.mode }}
       commit: ${{ steps.plan.outputs.commit }}
       ci_run: ${{ steps.plan.outputs.ci_run }}
+      manifest_sha256: ${{ steps.plan.outputs.manifest_sha256 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -150,7 +151,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.plan.outputs.tag }}
           NATIVE: ${{ needs.plan.outputs.native }}
-        run: node scripts/release-github.mjs commit --files "$RUNNER_TEMP/release-files" --parent "$PARENT" --tag "$TAG" --native "$NATIVE"
+          MANIFEST_SHA256: ${{ needs.plan.outputs.manifest_sha256 }}
+        run: node scripts/release-github.mjs commit --files "$RUNNER_TEMP/release-files" --parent "$PARENT" --tag "$TAG" --native "$NATIVE" --manifest-sha256 "$MANIFEST_SHA256"
 
   # A fresh runner checks the release commit, then rebuilds the parent on its own and compares dist/ byte for byte.
   verify:
@@ -181,7 +183,7 @@ jobs:
         with:
           bun-version: 1.4.4 # the Bun that every stock OpenCode host in TESTED_HOSTS bundles; a repo's build may run bun
           no-cache: true
-      - name: Check the release commit (GitHub-verified, by the workflow, one parent on master, the allowed change, no lifecycle scripts, the native manifest), and rebuild its parent byte for byte
+      - name: Check the release commit (GitHub-verified, by the workflow, one parent on master, the allowed change, no lifecycle scripts, the native manifest)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -189,8 +191,16 @@ jobs:
           # shellcheck disable=SC2086
           node scripts/check-release-shape.mjs $target --branch origin/master --verify github-api --identity github-actions
           [ "$(git rev-parse "$COMMIT^")" = "$PARENT" ] || { echo "::error::the release commit's parent is not $PARENT"; exit 1; }
+      # Dependency code runs here, in a step with no token.
+      - name: Rebuild the parent on its own
+        run: |
           git worktree add --detach "$RUNNER_TEMP/parent" "$PARENT"
           (cd "$RUNNER_TEMP/parent" && npm ci --ignore-scripts && npm run build)
+      - name: Compare the rebuilt dist/ with the release commit's, byte for byte
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$MODE" = "resume" ]; then target="--tag $TAG"; else target="--commit $COMMIT --tag-name $TAG"; fi
           # shellcheck disable=SC2086
           node scripts/check-release-shape.mjs $target --branch origin/master --verify github-api --identity github-actions --rebuilt "$RUNNER_TEMP/parent"
 
@@ -240,6 +250,9 @@ jobs:
       contents: read
       actions: read # the native run's artifacts
       attestations: read # the attestation of each native file
+    outputs:
+      sums_sha256: ${{ steps.sums.outputs.sha256 }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
     env:
       COMMIT: ${{ needs.commit.outputs.commit || needs.plan.outputs.commit }}
       TAG: ${{ needs.plan.outputs.tag }}
@@ -259,23 +272,23 @@ jobs:
         with:
           bun-version: 1.4.4 # the Bun that every stock OpenCode host in TESTED_HOSTS bundles
           no-cache: true
+      # Native plugins only (a release commit with no manifest/native.json skips this step). Before any repository or
+      # dependency code runs: the run is the one the manifest pins, its artifacts must match the manifest's sizes and
+      # sha256, the gzips must hold the pinned executables, and each file must carry a verified attestation.
+      - name: Verify and stage the pinned native binaries and licence files
+        if: hashFiles('manifest/native.json') != ''
+        run: node scripts/attach-native.mjs --out "$RUNNER_TEMP/assets/release/native"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      # Dependency code runs here, in a step with no token.
       - name: Pack the release commit and run the repository's own pack stage against that exact tarball
         run: |
           npm ci --ignore-scripts
           mkdir -p "$RUNNER_TEMP/assets/release"
           npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/assets/release"
           node scripts/release-pack.mjs --tarball "$(ls "$RUNNER_TEMP"/assets/release/*.tgz)"
-      # Native plugins only (a release commit with no manifest/native.json skips this step). The run is the one the
-      # manifest pins: its artifacts must match the manifest's sizes and sha256, the gzips must hold the pinned
-      # executables, and each file must carry a verified attestation. Nothing is built here.
-      - name: Verify and stage the pinned native binaries and licence files
-        if: hashFiles('manifest/native.json') != ''
-        run: node scripts/attach-native.mjs --out "$RUNNER_TEMP/assets/release/native"
-        env:
-          GH_TOKEN: ${{ github.token }}
-      - name: Write SHA256SUMS and the release notes
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - id: sums
+        name: Write SHA256SUMS, and its own sha256 for the approver
         run: |
           cd "$RUNNER_TEMP/assets/release"
           list="$RUNNER_TEMP/sums-list.txt"
@@ -284,15 +297,30 @@ jobs:
           while IFS= read -r file; do sha256sum "$file" | sed "s#  .*/#  #"; done < "$list" > "$RUNNER_TEMP/SHA256SUMS"
           mv "$RUNNER_TEMP/SHA256SUMS" SHA256SUMS
           cat SHA256SUMS
-          cd "$GITHUB_WORKSPACE"
+          echo "sha256=$(sha256sum SHA256SUMS | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Write the release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
           if [ "$MODE" = "resume" ]; then target="--tag $TAG"; else target="--commit $COMMIT --tag-name $TAG"; fi
           # shellcheck disable=SC2086
           node scripts/check-release-shape.mjs $target --branch origin/master --verify github-api --identity github-actions --notes "$RUNNER_TEMP/assets/notes.md"
+      - id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/assets
+          if-no-files-found: error
+      # The approver reads this on the run page. publish downloads exactly this artifact and refuses unless its
+      # SHA256SUMS has exactly this sha256 and every file matches SHA256SUMS.
       - name: Summarise what the approval releases
         env:
           TREE: ${{ needs.commit.outputs.tree }}
           NATIVE_RUN: ${{ inputs.native_run }}
           CI_RUN: ${{ needs.plan.outputs.ci_run }}
+          SUMS_SHA256: ${{ steps.sums.outputs.sha256 }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.upload.outputs.artifact-digest }}
         run: |
           server="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
           {
@@ -304,6 +332,8 @@ jobs:
             echo "| Parent (master, CI passed) | [\`$PARENT\`]($server/commit/$PARENT), CI run [$CI_RUN]($server/actions/runs/$CI_RUN) |"
             echo "| Release commit | [\`$COMMIT\`]($server/commit/$COMMIT)$([ "$MODE" = "new" ] && echo " on [\`release/$TAG\`]($server/tree/release/$TAG), tree \`$TREE\`") |"
             if [ -n "$NATIVE_RUN" ]; then echo "| Native run | [$NATIVE_RUN]($server/actions/runs/$NATIVE_RUN) |"; fi
+            echo "| sha256 of SHA256SUMS | \`$SUMS_SHA256\` (publish refuses any other) |"
+            echo "| Staged artifact | \`release-assets\`, id $ARTIFACT_ID, digest \`$ARTIFACT_DIGEST\` |"
             echo
             echo "### SHA256SUMS"
             echo
@@ -315,11 +345,6 @@ jobs:
             echo
             cat "$RUNNER_TEMP/assets/notes.md"
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: release-assets
-          path: ${{ runner.temp }}/assets
-          if-no-files-found: error
 
   # The gate: the owner approves the `release` environment. Then the staged bytes are checked, everything is checked
   # again, and the tag and the Release are created. Builds nothing and runs no repository script.
@@ -348,12 +373,20 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+      - name: Refuse a stage that named no artifact
+        env:
+          ARTIFACT_ID: ${{ needs.stage.outputs.artifact_id }}
+        run: |
+          case "$ARTIFACT_ID" in ''|*[!0-9]*) echo "::error::the stage job named no release-assets artifact"; exit 1 ;; esac
+      # Exactly the artifact the stage job uploaded and the summary names, by its id: not one with the same name.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: release-assets
+          artifact-ids: ${{ needs.stage.outputs.artifact_id }}
           path: ${{ runner.temp }}/assets
-      - name: Check the staged files against SHA256SUMS
-        run: node scripts/release-github.mjs sums --dir "$RUNNER_TEMP/assets/release"
+      - name: Check that SHA256SUMS is the one in the run summary, and every staged file against it
+        env:
+          SUMS_SHA256: ${{ needs.stage.outputs.sums_sha256 }}
+        run: node scripts/release-github.mjs sums --dir "$RUNNER_TEMP/assets/release" --sums-sha256 "$SUMS_SHA256"
       - name: Check again, then create the tag on the release commit (or reuse the kit's tag there)
         env:
           GH_TOKEN: ${{ github.token }}

@@ -8,7 +8,6 @@
 // Per file: size and sha256 equal the manifest; the attestation verifies with `gh attestation verify`. Per module, the
 // gzip decompresses to the executable the manifest pins (size and sha256). Any mismatch stops the release. A repository
 // with no manifest has nothing to attach: the script says so and exits 0.
-import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { gunzipSync } from "node:zlib"
@@ -16,6 +15,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import { assetUrl, manifestProblems, MANIFEST_PATH } from "./native-manifest.mjs"
+import { ghOutput } from "./release-rules.mjs"
 
 function parseArgs(argv) {
   const options = { out: undefined, repo: process.env.GITHUB_REPOSITORY, manifest: MANIFEST_PATH }
@@ -54,7 +54,7 @@ function main() {
   if (!options.repo) throw new Error("the repository is not known: set GITHUB_REPOSITORY or pass --repo")
 
   const downloads = mkdtempSync(join(tmpdir(), "native-artifacts-"))
-  execFileSync("gh", ["run", "download", String(manifest.built.run), "--repo", options.repo, "--dir", downloads], { stdio: "inherit" })
+  ghOutput(["run", "download", String(manifest.built.run), "--repo", options.repo, "--dir", downloads], { inherit: true })
   const found = filesByName(downloads)
   mkdirSync(options.out, { recursive: true })
 
@@ -76,7 +76,7 @@ function main() {
       if (executable.length !== entry.executable.bytes) throw new Error(`${label}: the executable is ${executable.length} bytes; the manifest pins ${entry.executable.bytes}`)
       if (sha256(executable) !== entry.executable.sha256) throw new Error(`${label}: the executable does not match the manifest's sha256`)
     }
-    execFileSync("gh", ["attestation", "verify", path, "--repo", options.repo], { stdio: "inherit" })
+    ghOutput(["attestation", "verify", path, "--repo", options.repo], { inherit: true })
     copyFileSync(path, join(options.out, entry.name))
     console.log(`ok   ${label}: ${entry.name} (${bytes.length} bytes, attested) from ${assetUrl(manifest, entry)}`)
   }
