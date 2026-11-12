@@ -62,6 +62,7 @@ export function statusSource(runtime: Runtime, listAgents: AgentList, listSkills
       accounts: base.accounts,
       auditDegraded: base.auditDegraded,
       access,
+      rpcCommits: runtime.config.rpcCommits,
       ...(shadowed.length > 0 ? { shadowedSkills: shadowed } : {}),
       ...(shell.length > 0 ? { shellSkills: shell } : {}),
       unguardedAgents: agents,

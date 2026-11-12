@@ -5,6 +5,7 @@ import { grantedScopes } from "../domain/scopes.js"
 import type { AccessLevel } from "../domain/types.js"
 import type { ClientChoice } from "./client.js"
 import { readSignIn, signInClient, signInMetadata } from "./credential.js"
+import { idTokenIdentity, type IdTokenExpectation, type SignInIdentity } from "./identity.js"
 
 /**
  * Google OAuth for the Workspace integration.
@@ -180,6 +181,8 @@ interface TokenSet {
   expiresIn: number
   /** The granted scopes, when the response lists them. */
   scopes?: string[]
+  /** The signed-in account, when the response has an id_token that names it. */
+  identity?: SignInIdentity
 }
 
 function tokenError(status: number, json: Record<string, unknown>, secrets: readonly string[]): Error {
@@ -208,6 +211,7 @@ async function postToken(
   body: URLSearchParams,
   fetchImpl: typeof globalThis.fetch,
   secrets: readonly string[],
+  idToken: IdTokenExpectation,
 ): Promise<TokenSet> {
   let response: Response
   try {
@@ -247,7 +251,8 @@ async function postToken(
   const refresh = typeof json["refresh_token"] === "string" && json["refresh_token"] ? json["refresh_token"] : undefined
   const rawExpires = typeof json["expires_in"] === "number" ? json["expires_in"] : Number(json["expires_in"])
   const expiresIn = Number.isFinite(rawExpires) && rawExpires > 0 ? Math.floor(rawExpires) : 3600
-  return { access, refresh, expiresIn, scopes: grantedScopes(json["scope"]) }
+  const identity = idTokenIdentity(json["id_token"], idToken)
+  return { access, refresh, expiresIn, scopes: grantedScopes(json["scope"]), ...(identity ? { identity } : {}) }
 }
 
 function stateMatches(actual: string, expected: string): boolean {
@@ -430,7 +435,7 @@ export async function authorizeGoogle(input: GoogleAuthorizeInput): Promise<Goog
           redirect_uri: redirectUri,
           code_verifier: pkce.verifier,
         })
-        const token = await postToken(tokenEndpoint, body, fetchImpl, [code, pkce.verifier, client.clientSecret])
+        const token = await postToken(tokenEndpoint, body, fetchImpl, [code, pkce.verifier, client.clientSecret], { clientId: client.clientId, now: now() })
         if (!token.refresh) {
           throw new Error(
             "Google did not return a refresh token. Remove this app's access at https://myaccount.google.com/permissions and sign in again.",
@@ -444,7 +449,7 @@ export async function authorizeGoogle(input: GoogleAuthorizeInput): Promise<Goog
           expires: Math.floor(now() + token.expiresIn * 1000),
           // Google lists the granted scopes, which can be fewer than requested
           // when the user unticks some on the consent screen.
-          metadata: signInMetadata({ client: input.client, access: input.access, requestedScopes: scopes, grantedScopes: token.scopes ?? scopes }),
+          metadata: signInMetadata({ client: input.client, access: input.access, requestedScopes: scopes, grantedScopes: token.scopes ?? scopes, identity: token.identity }),
         }
         if (!finished) {
           respond(response, 200, "Google Workspace connected", "<p>Authentication is complete. You can close this window.</p>")
@@ -536,13 +541,14 @@ export async function refreshGoogle(input: GoogleRefreshInput): Promise<OAuthCre
     client_id: client.clientId,
     client_secret: client.clientSecret,
   })
-  const token = await postToken(tokenEndpoint, body, fetchImpl, [input.credential.refresh, input.credential.access, client.clientSecret])
+  const token = await postToken(tokenEndpoint, body, fetchImpl, [input.credential.refresh, input.credential.access, client.clientSecret], { clientId: client.clientId, now: now() })
   return {
     type: "oauth",
     methodID: input.credential.methodID,
     refresh: token.refresh ?? input.credential.refresh,
     access: token.access,
     expires: Math.floor(now() + token.expiresIn * 1000),
-    metadata: { ...signIn, grantedScopes: token.scopes ?? signIn.grantedScopes },
+    // A refresh's id_token names the same account; without one, the identity from the sign-in stays.
+    metadata: { ...signIn, grantedScopes: token.scopes ?? signIn.grantedScopes, ...(token.identity ? { email: token.identity.email, domain: token.identity.domain } : {}) },
   }
 }

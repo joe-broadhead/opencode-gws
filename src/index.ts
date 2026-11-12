@@ -67,7 +67,7 @@ async function start(ctx: Plugin.Context): Promise<() => Promise<void>> {
     await registerSkills(ctx, config)
     stopRpc = await registerRpc(ctx, runtime, status)
     stopToolsRpc = await registerToolsRpc(ctx, {
-      methods: [...METHODS, ...scriptMethods({ runtime, assert: (request) => ctx.permission.assert(request as never), status })],
+      methods: [...METHODS, ...scriptMethods({ runtime, assert: (request) => ctx.permission.assert(request as never), status, listAgents: agentLister(ctx) })],
     })
     stopCommands = await registerCommands(ctx, {
       status,

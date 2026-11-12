@@ -85,7 +85,7 @@ const ACCOUNTS = {
 } satisfies Record<string, GwsAccount>
 
 function status(accounts: readonly GwsAccount[], extra: Partial<GwsStatus> = {}): GwsStatus {
-  return { version: "1.2.3", host: { version: "2.2.3", range: ">=2.2.3 <2.3.0", tested: true }, state: "connected", access: "all", nextStep: "Nothing to do.", gws: { path: "/fixture/gws", version: "gws 0.22.5" }, services: SERVICES, accounts: [...accounts], auditDegraded: false, unguardedAgents: [], ...extra }
+  return { version: "1.2.3", host: { version: "2.2.3", range: ">=2.2.3 <2.3.0", tested: true }, state: "connected", access: "all", rpcCommits: false, nextStep: "Nothing to do.", gws: { path: "/fixture/gws", version: "gws 0.22.5" }, services: SERVICES, accounts: [...accounts], auditDegraded: false, unguardedAgents: [], ...extra }
 }
 
 function fake({ location }: { readonly location: Location | undefined } = { location: LOCATION }) {
@@ -255,6 +255,7 @@ describe("status dialog", () => {
         "Services\ngmail, drive, calendar, docs, sheets",
         "Tools\ngws tools for gmail, drive, calendar, docs, sheets (gws 0.22.5)",
         "Permissions\nevery tool runs without asking, the six commit tools included (all)",
+        "Script commits\noff: a script can plan a change but not commit it (rpcCommits)",
         "Agents without default rules\nnone",
         "OpenCode\n2.2.3 (tested)",
         `Next step\nSign in: ${CONNECT}`,
@@ -263,6 +264,18 @@ describe("status dialog", () => {
     expect(view.match(/Next step/g)).toHaveLength(1)
     expect(view).not.toContain("Loading")
     expect(view).not.toContain("Granted")
+  })
+
+  it("names the agents without the default rules in the Script commits row when rpcCommits is on", async () => {
+    const on = (await open(status([ACCOUNTS.signedIn], { rpcCommits: true, access: "ask-changes", unguardedAgents: ["notes"], permissionsBlock: "{}" }))).view()
+    expect(on).toContain(`Script commits\non: a script can commit a plan when its agent's rules allow the commit, and the plugin asks no one first (rpcCommits); a script running as notes commits without asking, because that agent lacks the default rules`)
+    const off = (await open(status([ACCOUNTS.signedIn], { rpcCommits: false, access: "ask-changes", unguardedAgents: ["notes"], permissionsBlock: "{}" }))).view()
+    expect(off).toContain("Script commits\noff: a script can plan a change but not commit it (rpcCommits)\n")
+  })
+
+  it("shows when rpcCommits lets a script commit", async () => {
+    const view = (await open(status([ACCOUNTS.signedIn], { rpcCommits: true }))).view()
+    expect(view).toContain("Script commits\non: a script can commit a plan when its agent's rules allow the commit, and the plugin asks no one first (rpcCommits)")
   })
 
   it("shows a connected read-only account with its client and granted scopes, and Nothing to do.", async () => {

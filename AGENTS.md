@@ -57,6 +57,18 @@ Also never: imported OAuth grants, credentials from `gws auth login`, or a
 - `plan-then-commit` is unchanged: a commit still needs a `planId` from
   `plan`, bound to the session, agent and account. The default allow is a
   permission default, not a shortcut past the plan.
+- The tools RPC's methods are the six reads. The `rpcCommits` option, off
+  by default, makes the six commits methods too (`write`, `send`, `share`,
+  `delete`, `export`, `admin`), for a host that confirms each change
+  itself. Then a script whose session resolves the commit's action to
+  `allow` can commit a `planId` from `plan`; plan-then-commit still holds,
+  and `access` and agent and session rules still decide (an `ask` is
+  refused, a `deny` is refused, and a later allow on the agent or session
+  wins over the block). Status shows the flag (`rpcCommits`, the
+  **Script commits** row, which names the agents without the default
+  rules). It trusts every caller of the OpenCode server, who can choose a
+  session's agent and rules; plans bind to a session, not to script or
+  model.
 - The last matching rule wins, so user rules and saved Always override the
   block and a stricter agent is never weakened.
 - Each commit asserts `gws.<category>` on `<account>:<operation>`. Only write
@@ -93,7 +105,9 @@ Also never: imported OAuth grants, credentials from `gws auth login`, or a
   service, a reason, the ask and `gws_admin`.
 - Every change is a `gws --dry-run` plan, committed only by its category's
   commit tool with `{ planId }`. The RPC, TUI and commands never approve or
-  commit.
+  commit, except the tools RPC's commit methods, which exist only when the
+  `rpcCommits` option is on (off by default; for a host that confirms each
+  change itself).
 - Only `src/process/**` spawns `gws`, with an argv array and `shell: false`.
 - Never log or preview bodies, tokens, credentials or file contents.
   Workspace content is untrusted data.

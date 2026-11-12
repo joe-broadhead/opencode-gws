@@ -30,6 +30,10 @@ export interface GwsAccount {
   clientSource?: "account" | "plugin" | "pasted"
   /** Scopes Google granted to the current sign-in. */
   grantedScopes?: string[]
+  /** The signed-in account's verified email address, from the sign-in's id_token. */
+  email?: string
+  /** The signed-in account's Workspace domain (Google's `hd`); absent for a consumer account. */
+  domain?: string
   /** Scopes the enabled services need at this access level that were not granted. */
   missingScopes?: string[]
   /** Enabled services that need domain-wide delegation the account's scopes do not add, so none of their methods can run. */
@@ -50,6 +54,8 @@ export interface GwsStatus {
   state: GwsState
   /** What the generated default rules allow: `all`, `ask-changes` or `read-only`. */
   access: "all" | "ask-changes" | "read-only"
+  /** The `rpcCommits` option: whether the six commit tools are also tools RPC methods, so a script can commit a plan. */
+  rpcCommits: boolean
   gws: { path: string; version: string; problem?: string }
   services: string[]
   accounts: GwsAccount[]
@@ -88,6 +94,8 @@ const account = object(
     access: { enum: ACCESS },
     clientSource: { enum: CLIENT_SOURCES },
     grantedScopes: texts,
+    email: text,
+    domain: text,
     missingScopes: texts,
     delegationRequired: texts,
     nextStep: text,
@@ -101,6 +109,7 @@ const status = object(
     host: object({ version: { type: ["string", "null"] }, range: text, tested: { type: "boolean" } }, ["version", "range", "tested"]),
     state: { enum: STATES },
     access: { enum: POLICY_ACCESS },
+    rpcCommits: { type: "boolean" },
     gws: object({ path: text, version: text, problem: text }, ["path", "version"]),
     services: texts,
     accounts: { type: "array", items: account },
@@ -111,7 +120,7 @@ const status = object(
     permissionsBlock: text,
     nextStep: text,
   },
-  ["version", "host", "state", "access", "gws", "services", "accounts", "unguardedAgents", "nextStep"],
+  ["version", "host", "state", "access", "rpcCommits", "gws", "services", "accounts", "unguardedAgents", "nextStep"],
 )
 
 export const Gws = Rpc.define({
@@ -144,6 +153,8 @@ function isAccount(value: unknown): value is GwsAccount {
     optional(value["access"], (entry) => ACCESS.includes(entry)) &&
     optional(value["clientSource"], (entry) => CLIENT_SOURCES.includes(entry)) &&
     optional(value["grantedScopes"], isStrings) &&
+    optional(value["email"], isText) &&
+    optional(value["domain"], isText) &&
     optional(value["missingScopes"], isStrings) &&
     optional(value["delegationRequired"], isStrings) &&
     optional(value["nextStep"], isText)
@@ -161,6 +172,7 @@ export function isStatus(value: unknown): value is GwsStatus {
     typeof value["host"]["tested"] === "boolean" &&
     STATES.includes(value["state"]) &&
     POLICY_ACCESS.includes(value["access"]) &&
+    typeof value["rpcCommits"] === "boolean" &&
     isRecord(value["gws"]) &&
     isText(value["gws"]["path"]) &&
     isText(value["gws"]["version"]) &&
@@ -215,6 +227,19 @@ export function accessText(status: Pick<GwsStatus, "access">): string {
   if (status.access === "read-only") return "reads run; every commit is denied until you change access (read-only)"
   if (status.access === "ask-changes") return "reads run; each commit asks first (ask-changes)"
   return "every tool runs without asking, the six commit tools included (all)"
+}
+
+/** The Script commits row: whether a script can commit a plan through the tools RPC, from the `rpcCommits` option. */
+export const SCRIPT_COMMITS_LABEL = "Script commits"
+export function scriptCommitsText(status: Pick<GwsStatus, "rpcCommits" | "unguardedAgents">): string {
+  if (!status.rpcCommits) return "off: a script can plan a change but not commit it (rpcCommits)"
+  const on = "on: a script can commit a plan when its agent's rules allow the commit, and the plugin asks no one first (rpcCommits)"
+  return status.unguardedAgents.length === 0 ? on : `${on}; ${unguardedCommitsText(status.unguardedAgents)}`
+}
+
+/** With rpcCommits on, the agents without the default rules, whose scripts commit with no rule holding them back. */
+export function unguardedCommitsText(agents: readonly string[]): string {
+  return `a script running as ${agents.join(", ")} commits without asking, because ${agents.length === 1 ? "that agent lacks" : "those agents lack"} the default rules`
 }
 
 /** The row naming services that need domain-wide delegation. */
