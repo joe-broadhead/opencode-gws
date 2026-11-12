@@ -133,7 +133,8 @@ Also never: imported OAuth grants, credentials from `gws auth login`, or a
 - Releases come only from `.github/workflows/release.yml` on a `vX.Y.Z` tag,
   after the `release` environment is approved. Never publish by hand. The
   tag is exactly `v` and the `version` in `package.json`; the workflow refuses
-  any other ("Releasing" in [CONTRIBUTING.md](CONTRIBUTING.md)).
+  any other ("Releasing" in [CONTRIBUTING.md](CONTRIBUTING.md)). Never re-run
+  the older `apply-release-kit.mjs`: it would revert the release kit.
 - No personal email in anything we publish. Every commit, tag and package is authored and committed as
   `joe-broadhead <91376460+joe-broadhead@users.noreply.github.com>`. Before committing or tagging, check
   that `git config user.email` is that address: a fresh clone inherits the machine's global identity, which

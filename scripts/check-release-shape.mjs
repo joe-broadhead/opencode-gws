@@ -9,17 +9,22 @@
 //                        then the README's Known limits. The CHANGELOG must be in the release shape (scripts/changelog.mjs).
 //
 // The tag defaults to v<version> of the checkout's package.json. Checks, in order: the tag is annotated and signed by
-// the owner; its name is exactly v<version>, where the version is the x.y.z of the tagged commit's package.json; its
-// commit has one parent, which is on the branch; the commit and tag identities are the GitHub noreply domain; the paths
-// it changes from its parent are exactly the allowed set; package.json has no lifecycle scripts and is not private;
-// dist/ is committed. Emails are checked by domain and never printed.
+// the owner; its name is exactly v<version>, where the version is the x.y.z of the tagged commit's package.json; the
+// commit and tag identities are the GitHub noreply domain; the commit has one parent, which is on the branch and
+// descends from the parent of the newest earlier release, whose version is older; the paths it changes from its parent
+// are exactly the allowed set; package.json is exactly the parent's without its lifecycle scripts, as release-commit.mjs
+// writes it, and is not private; dist/ is committed. Emails are checked by domain and never printed.
+//
+// The parent need not be the branch's head when the tag is checked: the branch can move while a release waits for its
+// approval, and the release job runs this check again, so a head rule would refuse a release that is right.
 import { execFileSync, spawnSync } from "node:child_process"
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
-import { allowedPath, LIFECYCLE_SCRIPTS, NOREPLY_DOMAIN, tagFor, tagProblem } from "./release-commit.mjs"
+import { allowedPath, LIFECYCLE_SCRIPTS, NOREPLY_DOMAIN, releasePackageText } from "./release-commit.mjs"
 import { MANIFEST_PATH, manifestProblems } from "./native-manifest.mjs"
 import { changelogProblems, releaseNotes } from "./changelog.mjs"
+import { compareVersions, isReleaseTag, tagFor, tagProblem } from "./release-version.mjs"
 
 function parseArgs(argv) {
   const options = { tag: undefined, branch: "master", allow: [], verify: "git", allowedSigners: undefined, rebuilt: undefined, notes: undefined }
@@ -118,6 +123,33 @@ function main() {
     const onBranch = spawnSync("git", ["merge-base", "--is-ancestor", parent, options.branch]).status === 0
     if (onBranch) ok(`the parent ${parent.slice(0, 12)} is on ${options.branch}`)
     else fail("the parent", `the parent is not on ${options.branch}`)
+
+    // Releases move forward: every earlier release tag is an older version, and the newest one's parent is an ancestor
+    // of this parent (or is it), so a release never ships source older than the last one.
+    const earlier = (git(["tag", "--list", "v*"]) ?? "").split("\n").filter((name) => name !== tag && isReleaseTag(name))
+    const version = tag.slice(1)
+    if (isReleaseTag(tag)) {
+      const newer = earlier.filter((name) => compareVersions(name.slice(1), version) >= 0)
+      const previous = earlier.filter((name) => !newer.includes(name)).sort((a, b) => compareVersions(b.slice(1), a.slice(1)))[0]
+      const previousParent = previous && git(["rev-parse", "-q", "--verify", `${previous}^{commit}^`])
+      if (newer.length) fail("the release order", `${newer.join(", ")} is not older than ${tag}`)
+      else if (!previous) ok(`${tag} is the first release`)
+      else if (!previousParent) fail("the release order", `the parent of ${previous} cannot be read`)
+      else if (spawnSync("git", ["merge-base", "--is-ancestor", previousParent, parent]).status === 0) ok(`the parent descends from the parent of ${previous}, the release before`)
+      else fail("the release order", `the parent does not descend from the parent of ${previous}: the release would ship older source`)
+    }
+
+    // package.json is exactly what release-commit.mjs writes from the parent's: nothing added, removed or reordered.
+    const parentPkg = gitBuffer(["show", `${parent}:package.json`])?.toString("utf8")
+    let expected
+    try {
+      expected = parentPkg === undefined ? undefined : releasePackageText(JSON.parse(parentPkg))
+    } catch {
+      expected = undefined
+    }
+    if (expected === undefined) fail("package.json", "the parent has no package.json that parses")
+    else if (pkgText === expected) ok("package.json is the parent's without its lifecycle scripts")
+    else fail("package.json", "it is not exactly the parent's without its lifecycle scripts: release-commit.mjs writes nothing else")
 
     // The change from the parent is exactly the allowed set. The manifest is in the set only when the commit carries one.
     const native = spawnSync("git", ["cat-file", "-e", `${target}:${MANIFEST_PATH}`]).status === 0

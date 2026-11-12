@@ -87,6 +87,19 @@ a `## [x.y.z] - YYYY-MM-DD` heading below it, newest first, and the npm history 
 
 The repository's tag ruleset keeps a pushed `v*` tag from being moved or deleted, so check `--dry-run` before step 5.
 
+The workflow also checks that the release commit is exactly what step 4 writes: its `package.json` is the parent's
+without the lifecycle scripts, byte for byte, and `dist/` is a fresh build of the parent. It checks that releases move
+forward: the version is newer than every earlier release tag, and the parent is on `master` and descends from the parent
+of the release before. It does not require the parent to be `master`'s head when the tag is checked: `master` can move
+while the release waits for its approval, and the release job runs the check again, so that rule would refuse a release
+that is right. Step 4 checks the head instead, with `--ci-sha`.
+
+The release kit is these files, the same in every plugin: `scripts/release-commit.mjs`, `scripts/check-release-shape.mjs`,
+`scripts/changelog.mjs`, `scripts/release-version.mjs`, `scripts/release-pack.mjs`, `scripts/publish-release.mjs`,
+`scripts/attach-native.mjs`, `scripts/native-manifest.mjs`, `scripts/tested-hosts.mjs`,
+`scripts/check-release-plugin-add.sh`, `scripts/release-kit.test.mjs` and `.github/workflows/release.yml`. Do not re-run
+the older `apply-release-kit.mjs`: it writes back the kit that could release only `v0.0.0`.
+
 Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:joe-broadhead/opencode-gws#v<old version>`, then add the new tag with `opencode plugin add github:joe-broadhead/opencode-gws#v<version>`.
 
 Or add the plugin to `opencode.json` instead, with the same spec:

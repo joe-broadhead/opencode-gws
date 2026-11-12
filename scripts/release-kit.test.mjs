@@ -4,15 +4,16 @@
 //   node --test scripts/release-kit.test.mjs
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { after, describe, test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { changelogProblems, releaseNotes, shapeChangelog } from "./changelog.mjs"
 import { publish } from "./publish-release.mjs"
-import { NOREPLY_DOMAIN, serialise, tagFor, tagProblem, versionProblem } from "./release-commit.mjs"
+import { NOREPLY_DOMAIN, releasePackageText, serialise } from "./release-commit.mjs"
 import { namesTarball, readsTarball } from "./release-pack.mjs"
+import { RELEASE_VERSION, tagFor, tagProblem, versionProblem } from "./release-version.mjs"
 
 const SCRIPTS = fileURLToPath(new URL(".", import.meta.url))
 const scratch = mkdtempSync(join(tmpdir(), "release-kit-test-"))
@@ -122,6 +123,56 @@ describe("shapeChangelog", () => {
   })
 })
 
+describe("code fences, as CommonMark reads them", () => {
+  const fenced = (...lines) => `${lines.join("\n")}\n`
+
+  test("refuse a CHANGELOG whose fence is never closed: it would swallow every later section", () => {
+    const open = doc(V001 + fenced("```md", "- code"), V000, EARLIER)
+    assert.match(changelogProblems(open, "0.0.1").join("; "), /the code fence on line \d+ is never closed/)
+    assert.throws(() => releaseNotes(open, "0.0.1"), /is never closed/)
+    assert.throws(() => shapeChangelog(doc(UNRELEASED + fenced("~~~"), V000), { version: "0.0.1", date: "2026-11-12" }), /is never closed/)
+  })
+
+  test("close only with the same character, at least as many: a ``` fence does not end at ~~~", () => {
+    // The ~~~ line is code; the ``` after it closes the fence, so the ## [0.0.2] below is a real heading, out of order.
+    const text = doc(V001 + fenced("```md", "~~~", "```"), "## [0.0.2] - 2026-11-13\n\n- Hidden before.\n", V000)
+    assert.match(changelogProblems(text, "0.0.1").join("; "), /"## \[0\.0\.1\] - 2026-11-12" is above "## \[0\.0\.2\] - 2026-11-13"/)
+    // Inside a ~~~ fence, ``` is code, and so is the ## line; ~~~ closes it.
+    const tilde = doc(V001 + fenced("~~~", "```", "## [9.9.9] - code", "~~~"), V000)
+    assert.deepEqual(changelogProblems(tilde, "0.0.1"), [])
+    assert.match(releaseNotes(tilde, "0.0.1"), /## \[9\.9\.9\] - code\n~~~$/)
+    // A longer fence needs a closing fence as long; one with an info string does not close.
+    assert.deepEqual(changelogProblems(doc(V001 + fenced("````", "```", "## [9.9.9] - code", "````"), V000), "0.0.1"), [])
+    assert.deepEqual(changelogProblems(doc(V001 + fenced("```", "```js", "## [9.9.9] - code", "```"), V000), "0.0.1"), [])
+  })
+
+  test("recognise a fence indented by up to three spaces, and not by four", () => {
+    assert.deepEqual(changelogProblems(doc(V001 + fenced("   ```", "## [9.9.9] - code", "   ```"), V000), "0.0.1"), [])
+    assert.match(changelogProblems(doc(V001 + fenced("    ```", "## [9.9.9] - code", "    ```"), V000), "0.0.1").join("; "), /9\.9\.9/)
+    // A backtick fence's info string has no backtick, so this line opens nothing.
+    assert.match(changelogProblems(doc(V001 + fenced("``` a`b", "## [9.9.9] - code"), V000), "0.0.1").join("; "), /9\.9\.9/)
+  })
+
+  test("refuse a heading indented by spaces, which renders as a heading but is not one here", () => {
+    assert.match(changelogProblems(doc(V001 + fenced("  ## [0.0.2] - 2026-11-13"), V000), "0.0.1").join("; "), /heading indented by spaces/)
+  })
+})
+
+describe("one version pattern", () => {
+  test("x.y.z with no leading zeros and no prerelease or build part, in every kit script", () => {
+    for (const version of ["0.0.0", "0.0.1", "1.20.3", "10.0.0"]) assert.match(version, RELEASE_VERSION)
+    for (const version of ["01.0.0", "0.01.0", "0.0.01", "0.0.1-rc.1", "0.0.1+build", "0.0", "v0.0.1"]) assert.doesNotMatch(version, RELEASE_VERSION)
+    assert.match(changelogProblems(doc("## [01.0.0] - 2026-11-12\n\n- A fix.\n", V000), "0.0.0").join("; "), /"## \[01\.0\.0\] - 2026-11-12" is not a heading the release shape knows/)
+    assert.deepEqual(changelogProblems(ONE, "00.0.0"), ['the version "00.0.0" is not x.y.z'])
+    assert.throws(() => shapeChangelog(doc(UNRELEASED, V000), { version: "0.0.01", date: "2026-11-12" }), /is not x\.y\.z/)
+    for (const script of ["changelog.mjs", "release-commit.mjs", "check-release-shape.mjs"]) {
+      const source = readFileSync(join(SCRIPTS, script), "utf8")
+      assert.match(source, /from "\.\/release-version\.mjs"/, script)
+      assert.doesNotMatch(source, /\\d\+\\\.|\[1-9\]\\d\*/, `${script} has a version pattern of its own`)
+    }
+  })
+})
+
 describe("the version and its tag", () => {
   test("the tag is exactly v<version>, for an x.y.z version", () => {
     assert.equal(tagFor("0.0.1"), "v0.0.1")
@@ -180,6 +231,92 @@ describe("check-release-shape.mjs", () => {
     const right = repo.node("check-release-shape.mjs", "--tag", "v0.0.1", ...signers)
     assert.match(right.stdout, /ok {3}the tag is v0\.0\.1, and the version is 0\.0\.1/)
     assert.doesNotMatch(right.stdout, /FAIL the version/)
+  })
+})
+
+/** A release commit on `from`: dist/ and the given package.json text, tagged (annotated), then back to master. */
+function releaseOn(repo, { tag, pkgText, from }) {
+  repo.git("checkout", "-q", "--detach", from ?? repo.git("rev-parse", "master"))
+  mkdirSync(join(repo.dir, "dist"), { recursive: true })
+  writeFileSync(join(repo.dir, "dist", "index.js"), "export default 1\n")
+  writeFileSync(join(repo.dir, "dist", "tui.js"), "export default 2\n")
+  writeFileSync(join(repo.dir, "package.json"), pkgText)
+  repo.git("add", "-f", "dist", "package.json")
+  repo.git("commit", "-q", "-m", `chore(release): ${tag}`)
+  repo.git("tag", "-a", tag, "-m", tag)
+  repo.git("checkout", "-q", "master")
+}
+
+/** check-release-shape.mjs on a tag, with no allowed signers: the signature checks fail, and the others are read. */
+function shapeOf(repo, tag) {
+  const signers = join(repo.dir, "signers")
+  writeFileSync(signers, "")
+  return repo.node("check-release-shape.mjs", "--tag", tag, "--verify", "git", "--allowed-signers", signers, "--branch", "master").stdout
+}
+
+describe("check-release-shape.mjs: package.json is exactly the parent's without its lifecycle scripts", () => {
+  const SOURCE = { name: "kit-test", version: "0.0.1", main: "dist/index.js", scripts: { build: "node build.mjs", test: "node --test" } }
+  const RELEASED = JSON.parse(releasePackageText(SOURCE))
+  const caseOf = (pkgText, tag = "v0.0.1") => {
+    const repo = repository({ "package.json": serialise(SOURCE), "CHANGELOG.md": TWO })
+    releaseOn(repo, { tag, pkgText })
+    return shapeOf(repo, tag)
+  }
+
+  test("accepts what release-commit.mjs writes", () => {
+    assert.deepEqual(RELEASED.scripts, { test: "node --test" })
+    assert.match(caseOf(releasePackageText(SOURCE)), /ok {3}package\.json is the parent's without its lifecycle scripts/)
+  })
+
+  test("refuses an added dependency, a changed main or version, reordered keys, a kept build script and another form", () => {
+    const { name, ...rest } = RELEASED
+    const cases = {
+      "an added dependency": serialise({ ...RELEASED, dependencies: { "left-pad": "1.3.0" } }),
+      "a changed main": serialise({ ...RELEASED, main: "dist/tui.js" }),
+      "reordered keys": serialise({ ...rest, name }),
+      "a kept build script": serialise(SOURCE),
+      "another JSON form": `${JSON.stringify(RELEASED, null, "\t")}\n`,
+    }
+    for (const [label, pkgText] of Object.entries(cases)) {
+      assert.match(caseOf(pkgText), /FAIL package\.json: it is not exactly the parent's without its lifecycle scripts/, label)
+    }
+    const version = caseOf(serialise({ ...RELEASED, version: "0.0.2" }), "v0.0.2")
+    assert.match(version, /ok {3}the tag is v0\.0\.2/)
+    assert.match(version, /FAIL package\.json: it is not exactly the parent's/)
+  })
+})
+
+describe("check-release-shape.mjs: releases move forward", () => {
+  const PKG = (version) => releasePackageText({ name: "kit-test", version })
+  const twoCommits = () => {
+    const repo = repository({ "package.json": serialise({ name: "kit-test", version: "0.0.0" }), "CHANGELOG.md": ONE })
+    const first = repo.head
+    writeFileSync(join(repo.dir, "later.txt"), "a later master commit\n")
+    repo.git("add", "later.txt")
+    repo.git("commit", "-q", "-m", "chore: later")
+    return { repo, first, second: repo.git("rev-parse", "HEAD") }
+  }
+
+  test("accepts the first release, and one whose parent descends from the last release's parent", () => {
+    const { repo, first, second } = twoCommits()
+    releaseOn(repo, { tag: "v0.0.0", pkgText: PKG("0.0.0"), from: first })
+    assert.match(shapeOf(repo, "v0.0.0"), /ok {3}v0\.0\.0 is the first release/)
+    releaseOn(repo, { tag: "v0.0.1", pkgText: PKG("0.0.1"), from: second })
+    assert.match(shapeOf(repo, "v0.0.1"), /ok {3}the parent descends from the parent of v0\.0\.0, the release before/)
+  })
+
+  test("refuses a release built on older source than the last release", () => {
+    const { repo, first, second } = twoCommits()
+    releaseOn(repo, { tag: "v0.0.0", pkgText: PKG("0.0.0"), from: second })
+    releaseOn(repo, { tag: "v0.0.1", pkgText: PKG("0.0.1"), from: first })
+    assert.match(shapeOf(repo, "v0.0.1"), /FAIL the release order: the parent does not descend from the parent of v0\.0\.0/)
+  })
+
+  test("refuses a version that is not newer than every earlier release", () => {
+    const { repo, second } = twoCommits()
+    releaseOn(repo, { tag: "v0.0.2", pkgText: PKG("0.0.2"), from: second })
+    releaseOn(repo, { tag: "v0.0.1", pkgText: PKG("0.0.1"), from: second })
+    assert.match(shapeOf(repo, "v0.0.1"), /FAIL the release order: v0\.0\.2 is not older than v0\.0\.1/)
   })
 })
 

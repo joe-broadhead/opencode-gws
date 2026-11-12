@@ -1,6 +1,7 @@
 import { globSync, readFileSync } from "node:fs"
 import { matchesGlob } from "node:path"
 import { describe, expect, it } from "vitest"
+import { RELEASE_VERSION } from "../scripts/release-version.mjs"
 import { GWS_TARGETS } from "../src/domain/backend.js"
 
 /**
@@ -20,7 +21,7 @@ describe("main package", () => {
   })
 
   it("has a plain x.y.z version, which the release tag v<version> names (D19)", () => {
-    expect(pkg.version).toMatch(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/)
+    expect(pkg.version).toMatch(RELEASE_VERSION)
   })
 
   it("declares no runtime, bundled or host peer dependencies and no engines or overrides", () => {

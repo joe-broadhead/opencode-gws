@@ -3,31 +3,54 @@
 // While a release is being prepared, its notes sit under `## [Unreleased]`, above the released ones. The npm history
 // stays under `## Earlier releases on npm`, the last section, as `### npm <version> - <date>` headings. The release
 // notes are the section of the version being released. check-release-shape.mjs and release-commit.mjs read the notes
-// and the problems; it works on text only and has no dependencies.
+// and the problems; it works on text only.
 //
 //   node scripts/changelog.mjs release [--date YYYY-MM-DD]   turns `## [Unreleased]` into `## [<version>] - <date>`, for
 //                                                           package.json's version (the date is today's, UTC, by default)
 //   node scripts/changelog.mjs check                        prints what the release of package.json's version would refuse
 import { readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
+import { compareVersions, RELEASE_VERSION, VERSION_SOURCE } from "./release-version.mjs"
 
 export const UNRELEASED_HEADING = "## [Unreleased]"
 export const EARLIER_HEADING = "## Earlier releases on npm"
 
-const VERSION = /^\d+\.\d+\.\d+$/
-const VERSION_HEADING = /^## \[(\d+\.\d+\.\d+)\](?: - (.+))?$/
+const VERSION_HEADING = new RegExp(`^## \\[(${VERSION_SOURCE})\\](?: - (.+))?$`)
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
-const FENCE = /^(```|~~~)/
+// CommonMark fences: up to three spaces of indentation, then three or more backticks or tildes. A backtick fence's info
+// string has no backtick. The closing fence uses the same character, at least as many, and nothing after but spaces.
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/
+const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/
+const INDENTED_HEADING = /^ {1,3}## /
 
-/** Indexes of the `## ` heading lines, skipping fenced code. */
-function headingIndexes(lines) {
-  const found = []
-  let fenced = false
+/**
+ * The `## ` heading lines outside fenced code, the `## ` headings indented by one to three spaces (CommonMark renders
+ * them as headings too), and the line of a fence that is never closed (CommonMark runs it to the end of the file).
+ */
+function scan(lines) {
+  const headings = []
+  const indented = []
+  let fence
   lines.forEach((line, index) => {
-    if (FENCE.test(line)) fenced = !fenced
-    else if (!fenced && line.startsWith("## ")) found.push(index)
+    if (fence) {
+      const close = FENCE_CLOSE.exec(line)
+      if (close && close[1][0] === fence.char && close[1].length >= fence.length) fence = undefined
+      return
+    }
+    const open = FENCE_OPEN.exec(line)
+    if (open && !(open[1][0] === "`" && open[2].includes("`"))) fence = { char: open[1][0], length: open[1].length, line: index }
+    else if (line.startsWith("## ")) headings.push(index)
+    else if (INDENTED_HEADING.test(line)) indented.push(index)
   })
-  return found
+  return { headings, indented, unclosed: fence?.line }
+}
+
+/** What the text's Markdown structure hides from the release shape: an unclosed fence, or an indented heading. */
+function structureProblems(lines, { indented, unclosed }) {
+  const problems = []
+  if (unclosed !== undefined) problems.push(`the code fence on line ${unclosed + 1} is never closed, so everything after it is code`)
+  for (const index of indented) problems.push(`line ${index + 1} is a heading indented by spaces: start "${lines[index].trim()}" at the line's beginning`)
+  return problems
 }
 
 function trimBlank(lines) {
@@ -52,23 +75,17 @@ function classify(heading, body) {
   return { kind: "other", heading, body }
 }
 
-/** -1, 0 or 1, comparing two x.y.z versions by number. */
-function compareVersions(a, b) {
-  const [x, y] = [a, b].map((version) => version.split(".").map(Number))
-  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1
-  return 0
-}
-
-/** The lines before the first `## ` heading, and one section per `## ` heading. */
+/** The lines before the first `## ` heading, one section per `## ` heading, and what the structure hides. */
 export function parseChangelog(text) {
   const lines = text.split("\n")
-  const starts = headingIndexes(lines)
+  const found = scan(lines)
+  const starts = found.headings
   const preamble = lines.slice(0, starts.length ? starts[0] : lines.length)
   const sections = starts.map((start, i) => {
     const end = i + 1 < starts.length ? starts[i + 1] : lines.length
     return classify(lines[start], lines.slice(start + 1, end))
   })
-  return { preamble, sections }
+  return { preamble, sections, structure: structureProblems(lines, found) }
 }
 
 /**
@@ -79,9 +96,10 @@ export function parseChangelog(text) {
  * release newer than the version.
  */
 export function shapeChangelog(text, { version, date }) {
-  if (!VERSION.test(version ?? "")) throw new Error(`the version ${JSON.stringify(version)} is not x.y.z`)
+  if (!RELEASE_VERSION.test(version ?? "")) throw new Error(`the version ${JSON.stringify(version)} is not x.y.z`)
   if (!ISO_DATE.test(date ?? "")) throw new Error(`the date ${JSON.stringify(date)} is not YYYY-MM-DD`)
-  const { preamble, sections } = parseChangelog(text)
+  const { preamble, sections, structure } = parseChangelog(text)
+  if (structure.length) throw new Error(`${structure[0]}: edit CHANGELOG.md by hand`)
   const unknown = sections.find((s) => s.kind === "other")
   if (unknown) throw new Error(`"${unknown.heading}" is not a heading the release shape knows: edit CHANGELOG.md by hand`)
   const unreleased = sections.filter((s) => s.kind === "unreleased")
@@ -107,9 +125,9 @@ export function shapeChangelog(text, { version, date }) {
 
 /** What the release of `version` would refuse about a CHANGELOG (empty means it is in shape). */
 export function changelogProblems(text, version) {
-  if (!VERSION.test(version ?? "")) return [`the version ${JSON.stringify(version)} is not x.y.z`]
-  const { sections } = parseChangelog(text)
-  const problems = []
+  if (!RELEASE_VERSION.test(version ?? "")) return [`the version ${JSON.stringify(version)} is not x.y.z`]
+  const { sections, structure } = parseChangelog(text)
+  const problems = [...structure]
   for (const section of sections.filter((s) => s.kind === "other")) {
     problems.push(`"${section.heading}" is not a heading the release shape knows`)
   }
@@ -141,7 +159,10 @@ export function changelogProblems(text, version) {
 /** The release notes of `version`: its `## [x.y.z]` section, up to the next `## ` heading (fenced code is not a heading). */
 export function releaseNotes(text, version) {
   const lines = text.split("\n")
-  const starts = headingIndexes(lines)
+  const found = scan(lines)
+  const structure = structureProblems(lines, found)
+  if (structure.length) throw new Error(`CHANGELOG.md: ${structure[0]}`)
+  const starts = found.headings
   const start = starts.find((index) => VERSION_HEADING.exec(lines[index])?.[1] === version)
   if (start === undefined) throw new Error(`CHANGELOG.md has no "## [${version}]" heading`)
   const next = starts.find((index) => index > start)

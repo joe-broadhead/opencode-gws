@@ -19,9 +19,8 @@ import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import { changelogProblems } from "./changelog.mjs"
 import { MANIFEST_PATH, manifestProblems } from "./native-manifest.mjs"
+import { tagFor, versionProblem } from "./release-version.mjs"
 
-/** A release version: x.y.z, numbers without leading zeros, and no prerelease or build part. */
-const RELEASE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 export const NOREPLY_DOMAIN = "users.noreply.github.com"
 /** Lifecycle scripts a git install runs, or that npm runs around install and publish. The release commit drops them. */
 export const LIFECYCLE_SCRIPTS = [
@@ -58,20 +57,8 @@ export function withoutLifecycle(pkg) {
 
 export const serialise = (pkg) => `${JSON.stringify(pkg, null, 2)}\n`
 
-/** The release tag of a version: exactly v<version>. */
-export const tagFor = (version) => `v${version}`
-
-/** Why package.json's version cannot be released, or undefined. */
-export function versionProblem(version) {
-  return typeof version === "string" && RELEASE_VERSION.test(version) ? undefined : `package.json version ${JSON.stringify(version)} is not x.y.z`
-}
-
-/** Why a tag cannot release package.json's version, or undefined: the tag must be exactly v<version>. */
-export function tagProblem(tag, version) {
-  const problem = versionProblem(version)
-  if (problem) return problem
-  return tag === tagFor(version) ? undefined : `the tag is ${tag}, and package.json's version ${version} releases only as ${tagFor(version)}`
-}
+/** The release commit's package.json, exactly: the parent's, without its lifecycle scripts, in the canonical form. */
+export const releasePackageText = (pkg) => serialise(withoutLifecycle(pkg).next)
 
 function die(message) {
   console.error(`release-commit: ${message}`)
@@ -193,8 +180,8 @@ function main() {
   const built = (git(["ls-files", "--others", "--ignored", "--exclude-standard", "--", "dist"], { allowFailure: true }) ?? "").split("\n").filter(Boolean)
   if (!built.length) die("the build produced no dist/ files")
 
-  const { next, removed } = withoutLifecycle(pkg)
-  const nextText = serialise(next)
+  const { removed } = withoutLifecycle(pkg)
+  const nextText = releasePackageText(pkg)
 
   if (options.dryRun) {
     console.log(`dry run: the release commit on ${head.slice(0, 12)} for ${tag}, nothing is written or committed`)
