@@ -17,6 +17,9 @@
 //   cleanup --tag <tag> --parent <P> [--commit <C>]
 //           Deletes release/<tag> when it points at P, at C, or (C unknown) at a release commit the kit made on P.
 //           Never touches another branch, or the branch at any other commit.
+//   native  --dir <dir> --commit <C>
+//           Checks the staged Release files against C's manifest/native.json: each native file's size and sha256, each
+//           gzip's executable, nothing unpinned, nothing missing, and only SHA256SUMS and one tarball besides.
 //   sums    --dir <dir> --sums-sha256 <digest>
 //           Checks that the staged SHA256SUMS has the digest the approver saw in the run summary, and every staged
 //           Release file against it.
@@ -27,6 +30,7 @@
 import { spawnSync } from "node:child_process"
 import { appendFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
+import { gunzipSync } from "node:zlib"
 import { basename, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { changelogProblems } from "./changelog.mjs"
@@ -423,6 +427,55 @@ export function sumsProblems(dir, { sumsSha256 } = {}) {
   return problems
 }
 
+/**
+ * The problems with the staged Release files against the manifest the release commit carries (`manifest`, parsed, or
+ * undefined for a plugin that is not native). The publish job runs it after the approval, where no repository or
+ * dependency code has run: every file under native/ is one the manifest pins, with its size and sha256, every gzip
+ * decompresses to the executable the manifest pins (size and sha256), every pinned file is there, and outside native/
+ * there is only SHA256SUMS and one tarball.
+ */
+export function nativeAssetProblems({ dir, manifest }) {
+  const problems = []
+  const files = walkFiles(dir)
+  const outside = files.filter((path) => !path.startsWith("native/") && path !== "SHA256SUMS")
+  if (outside.length !== 1 || !/^[^/]+\.tgz$/.test(outside[0])) problems.push(`outside native/ the staged files must be SHA256SUMS and one tarball, and they are ${outside.join(", ") || "none"}`)
+  const native = files.filter((path) => path.startsWith("native/"))
+  if (!manifest) {
+    if (native.length) problems.push(`the release commit has no ${MANIFEST_PATH}, and native files are staged: ${native.join(", ")}`)
+    return problems
+  }
+  const expected = new Map()
+  for (const [module, platforms] of Object.entries(manifest.modules ?? {})) {
+    for (const [platform, entry] of Object.entries(platforms ?? {})) expected.set(entry?.name, { label: `${module} ${platform}`, entry, gzipped: true })
+  }
+  for (const licence of manifest.licences ?? []) expected.set(licence?.name, { label: `licence ${licence?.name}`, entry: licence, gzipped: false })
+  for (const path of native) if (!expected.has(path.slice("native/".length))) problems.push(`${path} is staged, and the manifest does not pin it`)
+  for (const [name, { label, entry, gzipped }] of expected) {
+    const path = `native/${name}`
+    if (!native.includes(path)) {
+      problems.push(`${label}: ${path} is not staged`)
+      continue
+    }
+    const bytes = readFileSync(join(dir, path))
+    if (bytes.length !== entry.bytes || sha256(bytes) !== entry.sha256) {
+      problems.push(`${label}: ${name} is not the file the manifest pins (${bytes.length} bytes; the manifest pins ${entry.bytes} and its sha256)`)
+      continue
+    }
+    if (!gzipped) continue
+    let executable
+    try {
+      executable = gunzipSync(bytes)
+    } catch {
+      problems.push(`${label}: ${name} does not decompress`)
+      continue
+    }
+    if (executable.length !== entry.executable?.bytes || sha256(executable) !== entry.executable?.sha256) {
+      problems.push(`${label}: ${name} does not hold the executable the manifest pins (${executable.length} bytes; the manifest pins ${entry.executable?.bytes} and its sha256)`)
+    }
+  }
+  return problems
+}
+
 const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 
 function parseFlags(argv) {
@@ -464,7 +517,18 @@ function main(argv) {
     const problems = sumsProblems(flags.dir, { sumsSha256: flags["sums-sha256"] })
     if (problems.length) refuse(`the staged Release files are not the approved ones: ${problems.join("; ")}`)
     console.log(`sums: SHA256SUMS is ${flags["sums-sha256"]}, the digest in the run summary, and every staged file matches it`)
-  } else refuse(`unknown command ${command ?? "(none)"}: plan, commit, tag, cleanup or sums`)
+  } else if (command === "native") {
+    if (!SHA1.test(flags.commit ?? "")) refuse("--commit must be the release commit's full sha")
+    const text = gitIn(cwd, ["show", `${flags.commit}:${MANIFEST_PATH}`], { allowFailure: true })
+    const manifest = text === undefined ? undefined : JSON.parse(text)
+    if (manifest) {
+      const structure = manifestProblems(manifest, { repository: env.GITHUB_REPOSITORY })
+      if (structure.length) refuse(`the release commit's ${MANIFEST_PATH} is not right: ${structure.join("; ")}`)
+    }
+    const problems = nativeAssetProblems({ dir: flags.dir, manifest })
+    if (problems.length) refuse(`the staged Release files are not the ones the release commit pins: ${problems.join("; ")}`)
+    console.log(manifest ? `native: every staged native file is the one ${MANIFEST_PATH} pins, executables included` : "native: no native files, as the release commit has no manifest")
+  } else refuse(`unknown command ${command ?? "(none)"}: plan, commit, tag, cleanup, sums or native`)
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

@@ -170,17 +170,78 @@ const READS = [
   `repos/${REPO}/compare/${SHA}\\.\\.\\.master`,
 ].map(exact)
 
-/** A JSON object with exactly these keys, or undefined. */
+/**
+ * JSON.parse that also refuses a key repeated in one object. `gh` sends the raw text, and GitHub may read a repeated key
+ * differently from JSON.parse (which keeps the last), so a body the kit checks must have one meaning only.
+ */
+export function strictJson(text) {
+  if (typeof text !== "string") throw new Error("the body is not text")
+  const value = JSON.parse(text)
+  const stack = []
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (c === '"') {
+      let j = i + 1
+      for (;;) {
+        const quote = text.indexOf('"', j)
+        let slashes = 0
+        while (text[quote - 1 - slashes] === "\\") slashes++
+        if (slashes % 2 === 0) {
+          j = quote
+          break
+        }
+        j = quote + 1
+      }
+      const top = stack.at(-1)
+      if (top?.object && top.expectKey) {
+        const key = JSON.parse(text.slice(i, j + 1))
+        if (top.keys.has(key)) throw new Error(`the key ${JSON.stringify(key)} appears twice in one object`)
+        top.keys.add(key)
+        top.expectKey = false
+      }
+      i = j
+    } else if (c === "{") stack.push({ object: true, keys: new Set(), expectKey: true })
+    else if (c === "[") stack.push({ object: false })
+    else if (c === "}" || c === "]") stack.pop()
+    else if (c === "," && stack.at(-1)?.object) stack.at(-1).expectKey = true
+  }
+  return value
+}
+
+/** Whether a value is a plain object with exactly these keys. */
+const hasKeys = (value, keys) =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key))
+
+/** A JSON object with exactly these keys and no repeated key, or undefined. */
 function bodyWith(input, keys) {
   let body
   try {
-    body = JSON.parse(input)
+    body = strictJson(input)
   } catch {
     return undefined
   }
-  if (!body || typeof body !== "object" || Array.isArray(body)) return undefined
-  const found = Object.keys(body).sort()
-  return found.length === keys.length && found.every((key, index) => key === [...keys].sort()[index]) ? body : undefined
+  return hasKeys(body, keys) ? body : undefined
+}
+
+/**
+ * Why a GraphQL body is not the release commit's createCommitOnBranch, or undefined: the kit's mutation, on
+ * `repository`'s release/v<version> branch, at an expected head, with the release headline, adding only paths a release
+ * commit may change, and deleting nothing.
+ */
+function commitRequestProblem(input, repository) {
+  const body = bodyWith(input, ["query", "variables"])
+  if (body?.query !== COMMIT_MUTATION) return "a GraphQL request other than the release commit's createCommitOnBranch"
+  const commit = hasKeys(body.variables, ["input"]) ? body.variables.input : undefined
+  if (!hasKeys(commit, ["branch", "message", "fileChanges", "expectedHeadOid"])) return "a createCommitOnBranch whose input is not the release commit's shape"
+  if (!repository || !hasKeys(commit.branch, ["repositoryNameWithOwner", "branchName"]) || commit.branch.repositoryNameWithOwner !== repository) return "a createCommitOnBranch on another repository than GITHUB_REPOSITORY"
+  const match = exact(`release/(${TAG})`).exec(String(commit.branch.branchName))
+  if (!match) return "a createCommitOnBranch on a branch other than release/v<version>"
+  if (!SHA_EXACT.test(String(commit.expectedHeadOid))) return "a createCommitOnBranch without an expected head"
+  if (!hasKeys(commit.message, ["headline"]) || commit.message.headline !== releaseHeadline(match[1])) return "a createCommitOnBranch without the release headline"
+  if (!hasKeys(commit.fileChanges, ["additions"]) || !Array.isArray(commit.fileChanges.additions) || !commit.fileChanges.additions.length) return "a createCommitOnBranch that deletes, or adds nothing"
+  const paths = commit.fileChanges.additions.map((file) => (hasKeys(file, ["path", "contents"]) && typeof file.contents === "string" ? file.path : undefined))
+  if (paths.some((path) => typeof path !== "string" || !allowedPath(path, { native: true })) || new Set(paths).size !== paths.length) return "a createCommitOnBranch that writes a path outside the release's allowed set"
+  return undefined
 }
 
 /** A plain local path argument: not an option, not empty. */
@@ -193,17 +254,16 @@ const plainPath = (arg) => typeof arg === "string" && arg !== "" && !arg.startsW
  * environments, rulesets, their bypasses and branch protection included, in any spelling: the release approval is the
  * owner's alone (CONTRIBUTING.md, "Releasing").
  */
-export function forbiddenCall(args, input) {
+export function forbiddenCall(args, input, { repository = process.env.GITHUB_REPOSITORY } = {}) {
   if (!Array.isArray(args) || !args.every((arg) => typeof arg === "string")) return "arguments that are not strings"
   const [command, sub] = args
+  const otherRepository = (name) => Boolean(repository) && name !== repository
   if (command === "api") {
-    if (args.length === 4 && sub === "graphql" && args[2] === "--input" && args[3] === "-") {
-      const body = bodyWith(input, ["query", "variables"])
-      return body?.query === COMMIT_MUTATION ? undefined : "a GraphQL request other than the release commit's createCommitOnBranch"
-    }
+    if (args.length === 4 && sub === "graphql" && args[2] === "--input" && args[3] === "-") return commitRequestProblem(input, repository)
     const method = sub === "-X" ? args[2] : "GET"
     const path = sub === "-X" ? args[3] : sub
     if (typeof path !== "string" || /[%#\\\s]|\/\/|^\//.test(path) || path.split(/[/?]/).some((part) => part === "." || part === "..")) return "a path with encoded, empty or relative parts"
+    if (otherRepository(path.split("/").slice(1, 3).join("/"))) return `a call on another repository than ${repository}`
     const rest = args.slice(sub === "-X" ? 4 : 2)
     if (method === "GET") return rest.length === 0 && READS.some((pattern) => pattern.test(path)) ? undefined : `GET ${path}, which the kit never reads`
     if (method === "DELETE") return rest.length === 0 && exact(`repos/${REPO}/git/refs/heads/release/${TAG}`).test(path) ? undefined : `DELETE ${path}`
@@ -219,6 +279,7 @@ export function forbiddenCall(args, input) {
     }
     return `POST ${path}`
   }
+  if ((command === "run" || command === "attestation") && args.includes("--repo") && otherRepository(args[args.indexOf("--repo") + 1])) return `a call on another repository than ${repository}`
   if (command === "run" && sub === "download" && /^\d+$/.test(args[2] ?? "") && args[3] === "--repo" && REPO_EXACT.test(args[4] ?? "")) {
     const rest = args.slice(5)
     if (rest.length === 4 && rest[0] === "--name" && rest[1] === "native-manifest" && rest[2] === "--dir" && plainPath(rest[3])) return undefined
@@ -239,12 +300,14 @@ export function forbiddenCall(args, input) {
 
 /**
  * Runs `gh`, only for a call the kit makes (forbiddenCall), and returns its output, or throws with its message. `input`
- * is sent on stdin. With `inherit`, gh's output goes to this process's, and nothing is returned.
+ * is sent on stdin, re-serialised from the checked body, so gh sends exactly what was checked. With `inherit`, gh's
+ * output goes to this process's, and nothing is returned.
  */
 export function ghOutput(args, { input, inherit = false } = {}) {
   const forbidden = forbiddenCall(args, input)
   if (forbidden) throw new Error(`refused: the release kit makes only its own GitHub calls, and not ${forbidden}; only the owner approves a release`)
-  const result = spawnSync("gh", args, { encoding: "utf8", input, maxBuffer: 256 * 1024 * 1024, stdio: inherit ? ["pipe", "inherit", "inherit"] : "pipe" })
+  const sent = input === undefined ? undefined : JSON.stringify(strictJson(input))
+  const result = spawnSync("gh", args, { encoding: "utf8", input: sent, maxBuffer: 256 * 1024 * 1024, stdio: inherit ? ["pipe", "inherit", "inherit"] : "pipe" })
   if (result.error) throw new Error(`gh could not run: ${result.error.message}`)
   if (result.status !== 0) throw new Error(inherit ? `gh ${args.slice(0, 2).join(" ")} failed (exit ${result.status})` : ghError(result.stderr, result.status))
   return inherit ? "" : result.stdout

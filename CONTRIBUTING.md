@@ -100,16 +100,19 @@ Before the approval, the workflow:
   that GitHub does not verify, or whose parent or tree is not the one the files give;
 - **verifies** on a fresh runner: the commit's identity, one parent on `master`, `package.json` exactly the parent's
   without the lifecycle scripts, only regular files in the allowed paths, no `package.json` under `dist/`, and a second,
-  independent build of the parent equal to the committed `dist/` byte for byte;
+  independent build of the parent (its own job) equal to the committed `dist/` byte for byte;
 - **installs** the release commit with `plugin add` on each stock OpenCode host (2.2.3 to 2.2.6);
-- **stages** the Release: verifies the attested native files, packs the commit, runs the pack stage against that tarball,
-  writes `SHA256SUMS` and the notes (the version's CHANGELOG section), and shows them all in the run summary with the
-  sha256 of `SHA256SUMS`.
+- **packs** the commit before installing anything and keeps that tarball, then runs the pack stage against a copy;
+- **stages** the Release: verifies the attested native files, writes `SHA256SUMS` and the notes (the version's CHANGELOG
+  section), and shows them all in the run summary with the sha256 of `SHA256SUMS`.
 
-No step that runs repository or dependency code (`npm ci`, the build, the pack stage) holds a token.
+A job either runs repository or dependency code (`npm ci`, the build, the pack stage, a host install) and holds no
+token, or holds a token and runs only the kit's scripts on a fresh checkout. Jobs pass files as artifacts downloaded by
+the id the uploading job gave, and each is checked again on arrival.
 
 After the approval, it downloads the staged artifact by the id the summary names, and refuses unless `SHA256SUMS` has
-the sha256 the summary shows and every staged file matches it. Then it checks everything again, creates the annotated tag
+the sha256 the summary shows and every staged file matches it, and every native file is the one the release commit's
+`manifest/native.json` pins, size and sha256, with each gzip holding the pinned executable. Then it checks everything again, creates the annotated tag
 `v<version>` on the release commit (tagger `github-actions[bot]`, unsigned), checks the tag, creates the Release with the
 notes, the tarball, the native files and `SHA256SUMS`, and deletes `release/v<version>`. The tag keeps the commit.
 

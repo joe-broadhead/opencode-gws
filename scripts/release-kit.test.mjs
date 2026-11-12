@@ -9,13 +9,14 @@ import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
+import { gunzipSync, gzipSync } from "node:zlib"
 import { dirname, join } from "node:path"
 import { after, describe, test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { changelogProblems, releaseNotes, shapeChangelog } from "./changelog.mjs"
 import { publish } from "./publish-release.mjs"
 import { pathsText } from "./release-commit.mjs"
-import { cleanup, commit, MAX_FILE, MAX_PAYLOAD, plan, releaseFiles, sumsProblems, tagRelease } from "./release-github.mjs"
+import { cleanup, commit, MAX_FILE, MAX_PAYLOAD, nativeAssetProblems, plan, releaseFiles, sumsProblems, tagRelease } from "./release-github.mjs"
 import {
   ACTIONS_BOT,
   allowedPath,
@@ -25,6 +26,7 @@ import {
   forbiddenCall,
   ghOutput,
   modeProblems,
+  strictJson,
   releasedTags,
   releasePackageText,
   serialise,
@@ -446,7 +448,17 @@ describe("the calls the kit makes, and no other", () => {
   const SHA = "a".repeat(40)
   const TAG_BODY = JSON.stringify({ tag: "v0.0.1", message: "v0.0.1", object: SHA, type: "commit", tagger: { name: ACTIONS_BOT.name, email: ACTIONS_BOT.email, date: "2026-11-12T00:00:00Z" } })
   const REF_BODY = JSON.stringify({ ref: "refs/tags/v0.0.1", sha: SHA })
-  const COMMIT_BODY = JSON.stringify({ query: COMMIT_MUTATION, variables: { input: { message: { headline: "approveDeployments(" } } } })
+  const R = { repository: "o/r" }
+  const HEADLINE = "chore(release): v0.0.1 with the built dist/ and no lifecycle scripts"
+  const commitInput = (change = {}) => ({
+    branch: { repositoryNameWithOwner: "o/r", branchName: "release/v0.0.1" },
+    message: { headline: HEADLINE },
+    fileChanges: { additions: [{ path: "dist/index.js", contents: "YQ==" }, { path: "package.json", contents: "e30=" }, { path: "manifest/native.json", contents: "e30=" }] },
+    expectedHeadOid: SHA,
+    ...change,
+  })
+  const commitBody = (change) => JSON.stringify({ query: COMMIT_MUTATION, variables: { input: commitInput(change) } })
+  const COMMIT_BODY = commitBody()
 
   test("approving or rejecting a deployment, environments, rulesets, bypasses and protection are refused before gh runs, reads included", () => {
     const refused = [
@@ -467,9 +479,9 @@ describe("the calls the kit makes, and no other", () => {
       ["workflow", "run", "release.yml"],
       ["api", "graphql", "-f", "query=mutation { approveDeployments(input: {}) { clientMutationId } }"],
     ]
-    for (const args of refused) assert.ok(forbiddenCall(args), args.join(" "))
+    for (const args of refused) assert.ok(forbiddenCall(args, undefined, R), args.join(" "))
     for (const query of ["mutation($i: X!) { approveDeployments(input: $i) { a } }", "mutation { updateRepositoryRuleset(input: {}) { a } }", "mutation { updateEnvironment(input: {}) { a } }", "mutation { createBypassRequest(input: {}) { a } }"]) {
-      assert.ok(forbiddenCall(["api", "graphql", "--input", "-"], JSON.stringify({ query })), query)
+      assert.ok(forbiddenCall(["api", "graphql", "--input", "-"], JSON.stringify({ query }), R), query)
     }
     assert.throws(() => ghOutput(["api", "-X", "POST", "repos/o/r/actions/runs/1/pending_deployments"]), /refused: the release kit makes only its own GitHub calls, and not POST repos\/o\/r\/actions\/runs\/1\/pending_deployments; only the owner approves a release/)
     assert.throws(() => ghOutput(["api", "repos/o/r/environments/release"]), /refused: the release kit makes only its own GitHub calls/)
@@ -487,7 +499,7 @@ describe("the calls the kit makes, and no other", () => {
       [["api", "graphql", "--input", "-"], JSON.stringify({ query: `mutation { approve#\nDeployments(input: {}) { a } }` })],
       [["api", "graphql", "--input", "-"], JSON.stringify({ query: `mutation { approveDeployments #(\n(input: {}) { a } }` })],
       [["api", "graphql", "--input", "-"], JSON.stringify({ query: `${COMMIT_MUTATION} # with a comment` })],
-      [["api", "graphql", "--input", "-"], JSON.stringify({ query: COMMIT_MUTATION, variables: {}, operationName: "x" })],
+      [["api", "graphql", "--input", "-"], JSON.stringify({ query: COMMIT_MUTATION, variables: { input: commitInput() }, operationName: "x" })],
       [["api", "graphql", "--input", "-"], "not json"],
       [["api", "repos/o/r/actions/runs/1/pending%5Fdeployments"]],
       [["api", "-X", "POST", "repos/o/r/actions/runs/1/pending%5fdeployments"]],
@@ -513,7 +525,60 @@ describe("the calls the kit makes, and no other", () => {
       [["run", "download", "1", "--repo", "o/r", "--dir", "--name"]],
       [["attestation", "verify", "a.gz", "--repo", "o/r", "--owner", "x"]],
     ]
-    for (const [args, input] of refused) assert.ok(forbiddenCall(args, input), `${args.join(" ")} ${input ?? ""}`)
+    for (const [args, input] of refused) assert.ok(forbiddenCall(args, input, R), `${args.join(" ")} ${input ?? ""}`)
+  })
+
+  test("the release commit's createCommitOnBranch is pinned: this repository, release/v<version>, an expected head, the headline, release paths only", () => {
+    const refused = {
+      "another repository": commitBody({ branch: { repositoryNameWithOwner: "o/other", branchName: "release/v0.0.1" } }),
+      master: commitBody({ branch: { repositoryNameWithOwner: "o/r", branchName: "master" } }),
+      "another branch": commitBody({ branch: { repositoryNameWithOwner: "o/r", branchName: "release/v0.0.1-x" } }),
+      "no expected head": JSON.stringify({ query: COMMIT_MUTATION, variables: { input: (({ expectedHeadOid, ...rest }) => rest)(commitInput()) } }),
+      "another headline": commitBody({ message: { headline: "chore: tidy" } }),
+      "a body": commitBody({ message: { headline: HEADLINE, body: "x" } }),
+      "a deletion of README.md": commitBody({ fileChanges: { additions: [{ path: "package.json", contents: "e30=" }], deletions: [{ path: "README.md" }] } }),
+      "only deletions": commitBody({ fileChanges: { deletions: [{ path: "README.md" }] } }),
+      "a path outside the release": commitBody({ fileChanges: { additions: [{ path: "README.md", contents: "eA==" }] } }),
+      "a workflow": commitBody({ fileChanges: { additions: [{ path: ".github/workflows/ci.yml", contents: "eA==" }] } }),
+      "a package.json under dist/": commitBody({ fileChanges: { additions: [{ path: "dist/package.json", contents: "e30=" }] } }),
+      "one path twice": commitBody({ fileChanges: { additions: [{ path: "package.json", contents: "e30=" }, { path: "package.json", contents: "e30=" }] } }),
+      "no additions": commitBody({ fileChanges: { additions: [] } }),
+      "an extra input key": commitBody({ clientMutationId: "x" }),
+    }
+    for (const [label, body] of Object.entries(refused)) assert.ok(forbiddenCall(["api", "graphql", "--input", "-"], body, R), label)
+    assert.equal(forbiddenCall(["api", "graphql", "--input", "-"], COMMIT_BODY, R), undefined)
+    assert.match(forbiddenCall(["api", "graphql", "--input", "-"], COMMIT_BODY, { repository: undefined }), /another repository than GITHUB_REPOSITORY/)
+    assert.match(forbiddenCall(["api", `repos/o/other/commits/${SHA}`], undefined, R), /another repository than o\/r/)
+    assert.match(forbiddenCall(["run", "download", "1", "--repo", "o/other", "--dir", "/tmp/x"], undefined, R), /another repository than o\/r/)
+  })
+
+  test("a body with a repeated key is refused, and gh is sent only the body that was checked", () => {
+    const deleteRef = "mutation { deleteRef(input: {refId: \"x\"}) { clientMutationId } }"
+    const twoQueries = `{"query":${JSON.stringify(deleteRef)},"query":${JSON.stringify(COMMIT_MUTATION)},"variables":${JSON.stringify({ input: commitInput() })}}`
+    assert.equal(JSON.parse(twoQueries).query, COMMIT_MUTATION, "JSON.parse alone would see the kit's mutation")
+    assert.ok(forbiddenCall(["api", "graphql", "--input", "-"], twoQueries, R))
+    const twoRefs = `{"ref":"refs/heads/evil","ref":"refs/tags/v0.0.1","sha":"${SHA}"}`
+    assert.equal(JSON.parse(twoRefs).ref, "refs/tags/v0.0.1")
+    assert.ok(forbiddenCall(["api", "-X", "POST", "repos/o/r/git/refs", "--input", "-"], twoRefs, R))
+    const nested = JSON.stringify({ query: COMMIT_MUTATION, variables: { input: commitInput() } }).replace('"branchName":"release/v0.0.1"', '"branchName":"master","branchName":"release/v0.0.1"')
+    assert.ok(forbiddenCall(["api", "graphql", "--input", "-"], nested, R))
+    assert.throws(() => strictJson(twoRefs), /the key "ref" appears twice in one object/)
+    assert.deepEqual(strictJson('{"a":{"b":1},"b":[{"b":1},{"b":2}],"c":"\\"b\\":1,\\"b\\":2"}'), { a: { b: 1 }, b: [{ b: 1 }, { b: 2 }], c: '"b":1,"b":2' })
+
+    const bin = folder()
+    writeFileSync(join(bin, "gh"), "#!/bin/sh\ncat\n", { mode: 0o755 })
+    const saved = { PATH: process.env.PATH, GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY }
+    process.env.PATH = `${bin}:${process.env.PATH}`
+    process.env.GITHUB_REPOSITORY = "o/r"
+    try {
+      const spaced = `{ "ref" : "refs/tags/v0.0.1",\n  "sha": "${SHA}" }`
+      assert.equal(ghOutput(["api", "-X", "POST", "repos/o/r/git/refs", "--input", "-"], { input: spaced }), JSON.stringify({ ref: "refs/tags/v0.0.1", sha: SHA }))
+      assert.throws(() => ghOutput(["api", "-X", "POST", "repos/o/r/git/refs", "--input", "-"], { input: twoRefs }), /refused/)
+    } finally {
+      process.env.PATH = saved.PATH
+      if (saved.GITHUB_REPOSITORY === undefined) delete process.env.GITHUB_REPOSITORY
+      else process.env.GITHUB_REPOSITORY = saved.GITHUB_REPOSITORY
+    }
   })
 
   test("the kit's own calls pass", () => {
@@ -539,14 +604,20 @@ describe("the calls the kit makes, and no other", () => {
       [["release", "download", "v0.0.1", "--pattern", "SHA256SUMS", "--dir", "/tmp/x"]],
       [["release", "upload", "v0.0.1", "/tmp/a.tgz"]],
     ]
-    for (const [args, input] of allowed) assert.equal(forbiddenCall(args, input), undefined, args.join(" "))
+    for (const [args, input] of allowed) assert.equal(forbiddenCall(args, input, R), undefined, args.join(" "))
   })
 
-  test("every kit script runs gh only through ghOutput", () => {
-    for (const script of ["release-github.mjs", "release-commit.mjs", "check-release-shape.mjs", "publish-release.mjs", "attach-native.mjs", "changelog.mjs", "release-pack.mjs", "native-manifest.mjs", "tested-hosts.mjs", "release-version.mjs"]) {
+  test("every kit script runs gh only through ghOutput, and runs only programs it names", () => {
+    for (const script of ["release-github.mjs", "release-commit.mjs", "check-release-shape.mjs", "publish-release.mjs", "attach-native.mjs", "changelog.mjs", "release-pack.mjs", "native-manifest.mjs", "tested-hosts.mjs", "release-version.mjs", "release-rules.mjs"]) {
       const source = readFileSync(join(SCRIPTS, script), "utf8")
-      assert.doesNotMatch(source, /(spawnSync|execFileSync|execSync|spawn|exec)\(\s*["'`]gh["'`]/, script)
+      // Only spawnSync, imported by name, from node:child_process; no require, no dynamic import, no other way in.
+      for (const [, names] of source.matchAll(/import\s*\{([^}]*)\}\s*from\s*["']node:child_process["']/g)) assert.deepEqual(names.split(",").map((name) => name.trim()).filter(Boolean), ["spawnSync"], script)
+      assert.doesNotMatch(source, /import\s+\*\s+as\s+\w+\s+from\s*["'](node:)?child_process|import\s+\w+\s+from\s*["'](node:)?child_process|\brequire\s*\(|import\s*\(|["']child_process["']|\bprocess\.binding|\bexecve\b/, script)
+      const programs = [...source.matchAll(/\bspawnSync\s*\(\s*([^,)]+)/g)].map((match) => match[1].trim())
+      for (const program of programs) assert.ok(['"git"', '"npm"', "process.execPath", ...(script === "release-rules.mjs" ? ['"gh"'] : [])].includes(program), `${script} runs ${program}`)
+      assert.doesNotMatch(source, /(?<![.\w])(execFileSync|execSync|execFile|exec|spawn|fork)\s*\(/, script)
     }
+    assert.doesNotMatch(readFileSync(join(SCRIPTS, "check-release-plugin-add.sh"), "utf8"), /(^|[\s;|&(])gh\s/m)
     assert.match(readFileSync(join(SCRIPTS, "release-rules.mjs"), "utf8"), /const forbidden = forbiddenCall\(args, input\)\n {2}if \(forbidden\) throw/)
   })
 })
@@ -829,7 +900,7 @@ function fakeGitHub(repo, { onCommit, mergeBase } = {}) {
   }
   const R = "repos/owner/kit-test/"
   const gh = (args, { input } = {}) => {
-    const forbidden = forbiddenCall(args, input)
+    const forbidden = forbiddenCall(args, input, { repository: "owner/kit-test" })
     if (forbidden) throw new Error(`refused: ${forbidden}`)
     calls.push({ args, input: input === undefined ? undefined : JSON.parse(input) })
     if (args[0] === "run" && args[1] === "download") {
@@ -1392,6 +1463,64 @@ describe("release-github.mjs sums", () => {
   })
 })
 
+describe("release-github.mjs native: the staged native files against the release commit's manifest", () => {
+  const hash = (bytes) => createHash("sha256").update(bytes).digest("hex")
+  const EXE = Buffer.from("the real gws executable\n")
+  const GZ = gzipSync(EXE)
+  const LICENCE = Buffer.from("Apache-2.0\n")
+  const manifestFor = (gz = GZ, exe = EXE) => ({
+    schema: 1,
+    plugin: "kit-test",
+    repository: "owner/kit-test",
+    tag: "v0.0.1",
+    built: { commit: "c".repeat(40), run: 77, workflow: "native" },
+    modules: { gws: { "linux-x64-gnu": { name: "gws-linux-x64-gnu.gz", bytes: gz.length, sha256: hash(gz), executable: { name: "gws", bytes: exe.length, sha256: hash(exe) } } } },
+    licences: [{ name: "LICENSE-gws.txt", bytes: LICENCE.length, sha256: hash(LICENCE) }],
+  })
+  const staged = (native = { "gws-linux-x64-gnu.gz": GZ, "LICENSE-gws.txt": LICENCE }) => {
+    const dir = folder()
+    writeTree(dir, { "kit-test-0.0.1.tgz": "tarball\n", SHA256SUMS: "sums\n", ...Object.fromEntries(Object.entries(native).map(([name, bytes]) => [`native/${name}`, bytes])) })
+    return dir
+  }
+
+  test("accepts the files the manifest pins, and a plugin with no manifest and no native files", () => {
+    assert.deepEqual(nativeAssetProblems({ dir: staged(), manifest: manifestFor() }), [])
+    assert.deepEqual(nativeAssetProblems({ dir: staged({}), manifest: undefined }), [])
+  })
+
+  test("refuses a swapped gzip, and a swapped executable inside a gzip that looks valid", () => {
+    const evil = gzipSync(Buffer.from("another executable\n"))
+    assert.match(nativeAssetProblems({ dir: staged({ "gws-linux-x64-gnu.gz": evil, "LICENSE-gws.txt": LICENCE }), manifest: manifestFor() }).join("; "), /gws linux-x64-gnu: gws-linux-x64-gnu\.gz is not the file the manifest pins/)
+    // The gzip matches its own pin, and holds another executable than the manifest pins.
+    const problems = nativeAssetProblems({ dir: staged({ "gws-linux-x64-gnu.gz": evil, "LICENSE-gws.txt": LICENCE }), manifest: manifestFor(evil, EXE) })
+    assert.deepEqual(problems, [`gws linux-x64-gnu: gws-linux-x64-gnu.gz does not hold the executable the manifest pins (${gunzipLength(evil)} bytes; the manifest pins ${EXE.length} and its sha256)`])
+    const notGzip = Buffer.from("not a gzip")
+    assert.match(nativeAssetProblems({ dir: staged({ "gws-linux-x64-gnu.gz": notGzip, "LICENSE-gws.txt": LICENCE }), manifest: manifestFor(notGzip) }).join("; "), /does not decompress/)
+  })
+
+  test("refuses a changed licence, a missing pinned file, an unpinned native file, native files without a manifest, and extra files", () => {
+    assert.match(nativeAssetProblems({ dir: staged({ "gws-linux-x64-gnu.gz": GZ, "LICENSE-gws.txt": "MIT\n" }), manifest: manifestFor() }).join("; "), /licence LICENSE-gws\.txt: LICENSE-gws\.txt is not the file the manifest pins/)
+    assert.deepEqual(nativeAssetProblems({ dir: staged({ "gws-linux-x64-gnu.gz": GZ }), manifest: manifestFor() }), ["licence LICENSE-gws.txt: native/LICENSE-gws.txt is not staged"])
+    assert.deepEqual(nativeAssetProblems({ dir: staged({ "gws-linux-x64-gnu.gz": GZ, "LICENSE-gws.txt": LICENCE, "gws-darwin-arm64.gz": GZ }), manifest: manifestFor() }), ["native/gws-darwin-arm64.gz is staged, and the manifest does not pin it"])
+    assert.match(nativeAssetProblems({ dir: staged(), manifest: undefined }).join("; "), /has no manifest\/native\.json, and native files are staged/)
+    const extra = staged()
+    writeFileSync(join(extra, "install.sh"), "x\n")
+    assert.match(nativeAssetProblems({ dir: extra, manifest: manifestFor() }).join("; "), /outside native\/ the staged files must be SHA256SUMS and one tarball, and they are install\.sh, kit-test-0\.0\.1\.tgz/)
+  })
+
+  test("the CLI reads the manifest from the release commit, and refuses a swapped gzip", () => {
+    const repo = repository({ ...pluginSource("0.0.1", { native: true }), "manifest/native.json": `${JSON.stringify(manifestFor(), null, 2)}\n` })
+    const cli = (dir) => repo.node("release-github.mjs", ["native", "--dir", dir, "--commit", repo.head])
+    assert.equal(cli(staged()).status, 0, cli(staged()).stderr)
+    const result = cli(staged({ "gws-linux-x64-gnu.gz": gzipSync(Buffer.from("x")), "LICENSE-gws.txt": LICENCE }))
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /release-github: the staged Release files are not the ones the release commit pins: gws linux-x64-gnu/)
+  })
+})
+
+/** The size of a gzip's content. */
+const gunzipLength = (bytes) => gunzipSync(bytes).length
+
 describe("the release workflow's shape", () => {
   const text = readFileSync(join(SCRIPTS, "..", ".github", "workflows", "release.yml"), "utf8")
   const jobs = {}
@@ -1419,7 +1548,7 @@ describe("the release workflow's shape", () => {
   })
 
   test("has the eight jobs, and only publish uses the release environment", () => {
-    assert.deepEqual(Object.keys(jobs), ["plan", "build", "commit", "verify", "hosts", "stage", "publish", "cleanup"])
+    assert.deepEqual(Object.keys(jobs), ["plan", "build", "commit", "rebuild", "verify", "hosts", "pack", "stage", "publish", "cleanup"])
     for (const [name, body] of Object.entries(jobs)) assert.equal(/environment:/.test(body), name === "publish", name)
     assert.match(jobs.publish, /^ {4}environment: release$/m)
   })
@@ -1447,19 +1576,45 @@ describe("the release workflow's shape", () => {
   /** A job's steps, each its own text. */
   const steps = (job) => jobs[job].split(/\n(?= {6}- )/).filter((step) => /^ {6}- /.test(step))
 
-  test("no step that runs repository or dependency code holds a token", () => {
-    for (const job of Object.keys(jobs)) {
-      for (const step of steps(job)) {
-        if (/\bnpm (ci|run|pack)\b|release-pack\.mjs|release-commit\.mjs|check-release-plugin-add\.sh/.test(step)) assert.doesNotMatch(step, /GH_TOKEN|github\.token/, `${job}: ${step.split("\n")[0]}`)
+  /** Whether a step runs repository or dependency code (npm, the build, the pack stage, a host install). */
+  const runsDependencies = (step) => /\bnpm (ci|run|pack|install)\b|release-pack\.mjs|release-commit\.mjs|check-release-plugin-add\.sh/.test(step)
+
+  test("a job either runs repository or dependency code or holds a token, never both", () => {
+    const dependencyJobs = Object.keys(jobs).filter((job) => steps(job).some(runsDependencies))
+    assert.deepEqual(dependencyJobs, ["build", "rebuild", "hosts", "pack"])
+    for (const job of dependencyJobs) assert.doesNotMatch(jobs[job], /GH_TOKEN|github\.token|secrets\./, job)
+    for (const job of Object.keys(jobs).filter((name) => !dependencyJobs.includes(name))) {
+      assert.match(jobs[job], /persist-credentials: false/, job)
+      for (const step of steps(job).filter((text) => /\brun: /.test(text))) {
+        for (const [, script] of step.matchAll(/\bnode (\S+)/g)) assert.match(script, /^scripts\/(release-github|check-release-shape|attach-native|publish-release)\.mjs$/, `${job} runs ${script}`)
       }
     }
   })
 
-  test("stage verifies the native files before any repository code, and shows the digest publish requires", () => {
+  test("jobs pass files only as artifacts downloaded by the id the uploading job gave, after refusing an empty id", () => {
+    for (const job of Object.keys(jobs)) {
+      const list = steps(job)
+      list.forEach((step, index) => {
+        if (!/uses: actions\/download-artifact@/.test(step)) return
+        assert.match(step, /artifact-ids: \$\{\{ needs\.\w+\.outputs\.\w+ \}\}/, job)
+        assert.doesNotMatch(step, /\bname:/, job)
+        const id = /artifact-ids: (\$\{\{ [^}]+\}\})/.exec(step)[1]
+        assert.ok(list[index - 1].includes("Refuse an empty artifact id") && list[index - 1].includes(id), `${job}: the download of ${id} is guarded`)
+      })
+    }
+  })
+
+  test("the pack job keeps its tarball before installing anything; stage and publish run no dependency code", () => {
+    const pack = steps("pack").map((step) => step.split("\n")[0])
+    const kept = pack.findIndex((name) => /id: tarball/.test(name))
+    const installed = steps("pack").findIndex((step) => /npm ci/.test(step))
+    assert.ok(kept >= 0 && installed > kept, pack.join(" | "))
+    assert.ok(steps("pack").findIndex((step) => /npm pack --ignore-scripts/.test(step)) < kept)
+    for (const job of ["stage", "publish"]) assert.ok(!steps(job).some(runsDependencies), job)
+  })
+
+  test("stage shows the digest publish requires, and publish checks the native files against the release commit before tagging", () => {
     const names = steps("stage").map((step) => step.split("\n")[0])
-    const native = names.findIndex((name) => /native binaries/.test(name))
-    const pack = names.findIndex((name) => /pack stage/.test(name))
-    assert.ok(native >= 0 && pack > native, names.join(" | "))
     assert.match(jobs.stage, /sums_sha256: \$\{\{ steps\.sums\.outputs\.sha256 \}\}/)
     assert.match(jobs.stage, /artifact_id: \$\{\{ steps\.upload\.outputs\.artifact-id \}\}/)
     const summary = steps("stage").find((step) => /GITHUB_STEP_SUMMARY/.test(step))
@@ -1467,9 +1622,12 @@ describe("the release workflow's shape", () => {
     assert.match(summary, /sha256 of SHA256SUMS/)
     assert.ok(names.findIndex((name) => /id: upload/.test(name)) < names.findIndex((name) => /Summarise/.test(name)), "the summary names the uploaded artifact")
     assert.match(jobs.publish, /artifact-ids: \$\{\{ needs\.stage\.outputs\.artifact_id \}\}/)
-    assert.doesNotMatch(jobs.publish, /name: release-assets/)
     assert.match(jobs.publish, /release-github\.mjs sums --dir "\$RUNNER_TEMP\/assets\/release" --sums-sha256 "\$SUMS_SHA256"/)
     assert.match(jobs.publish, /SUMS_SHA256: \$\{\{ needs\.stage\.outputs\.sums_sha256 \}\}/)
+    const publish = steps("publish")
+    const nativeCheck = publish.findIndex((step) => /release-github\.mjs native --dir "\$RUNNER_TEMP\/assets\/release" --commit "\$COMMIT"/.test(step))
+    const tag = publish.findIndex((step) => /release-github\.mjs tag /.test(step))
+    assert.ok(nativeCheck >= 0 && tag > nativeCheck, "publish checks the native files before it tags")
     assert.match(jobs.commit, /--manifest-sha256 "\$MANIFEST_SHA256"/)
   })
 })
