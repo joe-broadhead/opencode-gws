@@ -37,6 +37,7 @@ import * as z from "zod"
 import { GwsError } from "../domain/errors.js"
 import { RPC_ID, unguardedCommitsText } from "../rpc.js"
 import type { Runtime } from "../runtime/index.js"
+import { unguardedAgents, type Rule as AgentRule } from "./agents.js"
 import { nativeGate } from "./permissions.js"
 import type { StatusSource } from "./rpc.js"
 import { parse, toolSpecs, type Assert, type ToolClass } from "./tools.js"
@@ -66,15 +67,39 @@ export interface MethodSources {
   /** The host's permission check: the tool's own asserts run inside its spec, exactly as on the model path. */
   readonly assert: Assert
   readonly status: StatusSource
+  /**
+   * The host's agents, for the names a commit method's describe gives: the agents without the default rules. Without
+   * it, describe names none.
+   */
+  readonly listAgents?: () => Promise<readonly { readonly id: string; readonly permissions: readonly AgentRule[] }[]>
 }
+
+/** How long one agent listing serves the commit methods' describe notes: one describe pass reads it once. */
+const UNGUARDED_TTL_MS = 1000
 
 export function scriptMethods(sources: MethodSources): readonly MethodSpec[] {
   const commits = sources.runtime.config.rpcCommits
+  // The agents without the default rules, from the agent list alone: one listing, shared by the six commit methods'
+  // describe notes for a second, so a describe pass lists the agents once. A failed listing names none.
+  let cached: { readonly at: number; readonly names: Promise<readonly string[]> } | undefined
+  const unguardedNames = (): Promise<readonly string[]> => {
+    const { listAgents } = sources
+    if (!listAgents) return Promise.resolve([])
+    const now = Date.now()
+    if (cached && now - cached.at < UNGUARDED_TTL_MS) return cached.names
+    const names = listAgents().then(
+      (agents) => unguardedAgents(agents, sources.runtime.config.access),
+      () => [],
+    )
+    cached = { at: now, names }
+    return names
+  }
   return toolSpecs(sources.runtime, sources.assert, sources.status)
     .filter((spec) => commits || spec.class === "read")
     .map((spec): PluginMethod => {
       // A commit method's describe names the agents without the default rules, whose scripts commit without asking.
       // describe awaits `available` and then reads `description`, so `available` refreshes the names it reads.
+      // Only the agent list is read, never the runtime's status.
       let unguarded: readonly string[] = []
       return {
         kind: "plugin",
@@ -89,10 +114,7 @@ export function scriptMethods(sources: MethodSources): readonly MethodSpec[] {
           ? {}
           : {
               async available() {
-                unguarded = await sources.status().then(
-                  (status) => status.unguardedAgents,
-                  () => [],
-                )
+                unguarded = await unguardedNames()
                 return undefined
               },
             }),
