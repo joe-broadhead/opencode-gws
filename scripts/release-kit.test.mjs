@@ -5,7 +5,7 @@
 //
 //   node --test scripts/release-kit.test.mjs
 import assert from "node:assert/strict"
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -550,7 +550,7 @@ describe("the calls the kit makes, and no other", () => {
     }
     for (const [label, body] of Object.entries(refused)) assert.ok(forbiddenCall(["api", "graphql", "--input", "-"], body, R), label)
     assert.equal(forbiddenCall(["api", "graphql", "--input", "-"], COMMIT_BODY, R), undefined)
-    assert.match(forbiddenCall(["api", "graphql", "--input", "-"], COMMIT_BODY, { repository: undefined }), /another repository than GITHUB_REPOSITORY/)
+    assert.match(forbiddenCall(["api", "graphql", "--input", "-"], COMMIT_BODY, { repository: "" }), /another repository than GITHUB_REPOSITORY/)
     assert.match(forbiddenCall(["api", `repos/o/other/commits/${SHA}`], undefined, R), /another repository than o\/r/)
     assert.match(forbiddenCall(["run", "download", "1", "--repo", "o/other", "--dir", "/tmp/x"], undefined, R), /another repository than o\/r/)
     assert.match(forbiddenCall(["api", "graphql", "--input", "-"], commitBody({ fileChanges: { additions: [{ path: "dist/../package.json", contents: "e30=" }] } }), R), /an empty, relative, absolute or control part/)
@@ -1718,5 +1718,38 @@ describe("publish-release.mjs", () => {
     assert.deepEqual(result, { action: "uploaded", uploaded: ["kit-test-0.0.1.tgz"], unknown: ["speech.bin"] })
     assert.deepEqual(calls.map((args) => args[1]), ["view", "download", "upload"])
     assert.ok(calls.every((args) => !args.includes("delete") && !args.includes("--clobber")))
+  })
+})
+
+// CI sets GITHUB_REPOSITORY to the plugin's own repository, and a shell may set it to anything. The kit tests pass the
+// repository they mean explicitly, so they must pass whatever the ambient value is: this runs them again, at once, with it
+// unset, set to the o/r the rule tests name, and set to another repository.
+describe("the kit tests, whatever the ambient GITHUB_REPOSITORY", { skip: process.env.KIT_TESTS_NESTED === "1" }, () => {
+  test("pass with GITHUB_REPOSITORY unset, set to the tests' own o/r, and set to another repository", async () => {
+    // Unset; the value the rule tests name, where an ambient value can stand in for a missing argument; and another.
+    const runs = [undefined, "o/r", "someone-else/another-plugin"].map(
+      (value) =>
+        new Promise((resolve) => {
+          // Each run has its own temporary folder: two tests count what is left in theirs.
+          const env = { ...process.env, KIT_TESTS_NESTED: "1", TMPDIR: folder() }
+          // A run inside node --test reports to its parent through NODE_TEST_CONTEXT; this one is a run of its own.
+          delete env.NODE_TEST_CONTEXT
+          if (value === undefined) delete env.GITHUB_REPOSITORY
+          else env.GITHUB_REPOSITORY = value
+          const child = spawn(process.execPath, ["--test", "--test-reporter=spec", fileURLToPath(import.meta.url)], { env })
+          let out = ""
+          child.stdout.on("data", (chunk) => {
+            out += chunk
+          })
+          child.on("close", (status) => resolve({ value: value ?? "(unset)", status, out }))
+        }),
+    )
+    for (const { value, status, out } of await Promise.all(runs)) {
+      const counts = /ℹ pass (\d+)[\s\S]*?ℹ fail (\d+)/.exec(out)
+      const failed = out.split("\n").filter((line) => /^\s*✖|AssertionError/.test(line)).slice(0, 20).join("\n")
+      assert.equal(status, 0, `GITHUB_REPOSITORY=${value}: ${counts?.[0] ?? "no counts"}\n${failed}`)
+      assert.equal(counts?.[2], "0", `GITHUB_REPOSITORY=${value}`)
+      assert.ok(Number(counts?.[1]) > 90, `GITHUB_REPOSITORY=${value}: ${counts?.[1]} tests ran`)
+    }
   })
 })
