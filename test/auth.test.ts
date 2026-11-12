@@ -46,7 +46,8 @@ afterEach(async () => {
 
 const url = (scope: string) => `${SCOPE_PREFIX}${scope}`
 /** An id_token as Google's token endpoint returns it, with these claims. */
-const idToken = (claims: Record<string, unknown>) => `eyJhbGciOiJSUzI1NiJ9.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.c2ln`
+const idToken = (claims: Record<string, unknown>) =>
+  `eyJhbGciOiJSUzI1NiJ9.${Buffer.from(JSON.stringify({ iss: "https://accounts.google.com", aud: TEST_CLIENT.clientId, exp: Math.floor(Date.now() / 1000) + 3600, ...claims })).toString("base64url")}.c2ln`
 /** The account with no plugin options at all: every service, Read and write by default. */
 const defaultProfile = (): AccountProfile => loadConfig({}).accounts.default!
 const withoutIdentity = (scopes: readonly string[]) => scopes.filter((scope) => !IDENTITY_SCOPES.includes(scope))
@@ -362,8 +363,15 @@ describe("loopback browser flow", () => {
     }
   })
 
-  it("signs in without an identity when the token response has no id_token or a malformed one", async () => {
-    for (const extra of [{}, { id_token: "not-a-jwt" }]) {
+  it("signs in without an identity when the token response has no id_token, a malformed one, or one whose iss, aud or exp do not check out", async () => {
+    const claims = { email: "ada@example.com", email_verified: true, hd: "example.com" }
+    for (const extra of [
+      {},
+      { id_token: "not-a-jwt" },
+      { id_token: idToken({ ...claims, iss: "https://evil.example.com" }) },
+      { id_token: idToken({ ...claims, aud: "other.apps.googleusercontent.com" }) },
+      { id_token: idToken({ ...claims, exp: Math.floor(Date.now() / 1000) - 60 }) },
+    ]) {
       const mock = await tokenServer(() => ({ status: 200, body: { access_token: "a", refresh_token: "r", expires_in: 60, ...extra } }))
       try {
         const authorization = await integration(defaultProfile(), { auth: { tokenEndpoint: mock.url } }).authorize({ ...pasted(), access: "read" })
@@ -488,6 +496,15 @@ describe("refresh", () => {
       expect(refreshed.metadata).toEqual(stored.metadata)
     } finally {
       await without.close()
+    }
+    // A refresh's id_token for another client is not trusted: the stored identity stays.
+    const otherClient = await tokenServer(() => ({ status: 200, body: { access_token: "next", expires_in: 900, id_token: idToken({ email: "eve@evil.example", email_verified: true, hd: "evil.example", aud: "other.apps.googleusercontent.com" }) } }))
+    try {
+      const stored = signedIn({ email: "ada@example.com", domain: "example.com" })
+      const refreshed = await refreshGoogle({ alias: "default", name: "Google Workspace", credential: stored, options: { tokenEndpoint: otherClient.url } })
+      expect(refreshed.metadata).toEqual(stored.metadata)
+    } finally {
+      await otherClient.close()
     }
   })
 

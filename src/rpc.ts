@@ -54,6 +54,8 @@ export interface GwsStatus {
   state: GwsState
   /** What the generated default rules allow: `all`, `ask-changes` or `read-only`. */
   access: "all" | "ask-changes" | "read-only"
+  /** The `rpcCommits` option: whether the six commit tools are also tools RPC methods, so a script can commit a plan. */
+  rpcCommits: boolean
   gws: { path: string; version: string; problem?: string }
   services: string[]
   accounts: GwsAccount[]
@@ -107,6 +109,7 @@ const status = object(
     host: object({ version: { type: ["string", "null"] }, range: text, tested: { type: "boolean" } }, ["version", "range", "tested"]),
     state: { enum: STATES },
     access: { enum: POLICY_ACCESS },
+    rpcCommits: { type: "boolean" },
     gws: object({ path: text, version: text, problem: text }, ["path", "version"]),
     services: texts,
     accounts: { type: "array", items: account },
@@ -117,7 +120,7 @@ const status = object(
     permissionsBlock: text,
     nextStep: text,
   },
-  ["version", "host", "state", "access", "gws", "services", "accounts", "unguardedAgents", "nextStep"],
+  ["version", "host", "state", "access", "rpcCommits", "gws", "services", "accounts", "unguardedAgents", "nextStep"],
 )
 
 export const Gws = Rpc.define({
@@ -169,6 +172,7 @@ export function isStatus(value: unknown): value is GwsStatus {
     typeof value["host"]["tested"] === "boolean" &&
     STATES.includes(value["state"]) &&
     POLICY_ACCESS.includes(value["access"]) &&
+    typeof value["rpcCommits"] === "boolean" &&
     isRecord(value["gws"]) &&
     isText(value["gws"]["path"]) &&
     isText(value["gws"]["version"]) &&
@@ -223,6 +227,13 @@ export function accessText(status: Pick<GwsStatus, "access">): string {
   if (status.access === "read-only") return "reads run; every commit is denied until you change access (read-only)"
   if (status.access === "ask-changes") return "reads run; each commit asks first (ask-changes)"
   return "every tool runs without asking, the six commit tools included (all)"
+}
+
+/** The Script commits row: whether a script can commit a plan through the tools RPC, from the `rpcCommits` option. */
+export const SCRIPT_COMMITS_LABEL = "Script commits"
+export function scriptCommitsText(status: Pick<GwsStatus, "rpcCommits">): string {
+  if (!status.rpcCommits) return "off: a script can plan a change but not commit it (rpcCommits)"
+  return "on: a script can commit a plan when its agent's rules allow the commit, and the plugin asks no one first (rpcCommits)"
 }
 
 /** The row naming services that need domain-wide delegation. */

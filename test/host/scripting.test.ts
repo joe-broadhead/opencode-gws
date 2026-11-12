@@ -145,6 +145,11 @@ describe("tools RPC on a real host", () => {
     expect(described.methods.map((method) => method.name)).not.toContain("write")
   })
 
+  it("without rpcCommits, status says so", async () => {
+    const status = await run("status", sessions.build!, {})
+    expect(status.value, status.message).toMatchObject({ rpcCommits: false })
+  })
+
   it("without rpcCommits, a commit method does not exist: send answers rpc.method_not_found and gws never runs", async () => {
     const planned = await run("plan", sessions.build!, request("gmail.reply", { input: { messageId: "m-1", body: "hi" } }))
     expect(planned.value, planned.message).toMatchObject({ ok: true, category: "send", planId: expect.any(String) })

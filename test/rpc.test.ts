@@ -58,6 +58,7 @@ interface SetupOptions {
   access?: "all" | "ask-changes" | "read-only"
   /** No binary.path: the binary is the release's, and nothing is cached. */
   noBinary?: boolean
+  rpcCommits?: boolean
 }
 
 async function setup(options: SetupOptions = {}): Promise<Harness> {
@@ -100,6 +101,7 @@ async function setup(options: SetupOptions = {}): Promise<Harness> {
       // `binary` named, even as undefined, keeps testRuntime from adding the fake binary.
       ...(options.noBinary ? { binary: undefined } : { binary: { path: binary } }),
       accounts: options.accounts ?? { personal: account(), work: account({ services: ["gmail", "drive"] }) },
+      ...(options.rpcCommits === undefined ? {} : { rpcCommits: options.rpcCommits }),
     },
     { host: options.host ?? { version: "2.2.3", range: ">=2.2.3 <2.3.0", tested: true }, connection: integrationConnection(ctx as never, ids) },
   )
@@ -129,14 +131,14 @@ describe("rpc contract", () => {
     expect(Object.keys(Gws.events)).toEqual([])
     const { input, output } = Gws.methods.status
     expect(input).toEqual({ type: "object", properties: {}, additionalProperties: false })
-    expect(output).toMatchObject({ type: "object", required: ["version", "host", "state", "access", "gws", "services", "accounts", "unguardedAgents", "nextStep"] })
+    expect(output).toMatchObject({ type: "object", required: ["version", "host", "state", "access", "rpcCommits", "gws", "services", "accounts", "unguardedAgents", "nextStep"] })
     // The wire contract repeats the three values; this is the one check that they are the plugin's one list.
     expect((output as unknown as { properties: { access: { enum: readonly string[] } } }).properties.access.enum).toEqual([...ACCESS_VALUES])
     expect(JSON.parse(JSON.stringify(output))).toEqual(output)
   })
 
   it("accepts only the status shape in isStatus", () => {
-    const valid = { version: "1", host: { version: "2.2.3", range: ">=2.2.3 <2.3.0", tested: true }, state: "sign_in_required", access: "all", nextStep: "Sign in.", gws: { path: "/g", version: "gws 0.22.5" }, services: [], accounts: [{ alias: "a", mode: "interactive", services: [], connected: false, access: "read" }], unguardedAgents: [] }
+    const valid = { version: "1", host: { version: "2.2.3", range: ">=2.2.3 <2.3.0", tested: true }, state: "sign_in_required", access: "all", rpcCommits: false, nextStep: "Sign in.", gws: { path: "/g", version: "gws 0.22.5" }, services: [], accounts: [{ alias: "a", mode: "interactive", services: [], connected: false, access: "read" }], unguardedAgents: [] }
     expect(isStatus(valid)).toBe(true)
     expect(isStatus({ ...valid, accounts: [{ ...valid.accounts[0], delegationRequired: ["keep"] }] })).toBe(true)
     expect(isStatus({ ...valid, accounts: [{ ...valid.accounts[0], email: "ada@example.com", domain: "example.com" }] })).toBe(true)
@@ -150,6 +152,8 @@ describe("rpc contract", () => {
       { ...valid, host: { ...valid.host, version: undefined } },
       { ...valid, state: "ready" },
       { ...valid, access: "sometimes" },
+      { ...valid, rpcCommits: undefined },
+      { ...valid, rpcCommits: "on" },
       { ...valid, nextStep: undefined },
       { ...valid, accounts: [{ ...valid.accounts[0], delegationRequired: "keep" }] },
       { ...valid, accounts: [{ ...valid.accounts[0], email: 1 }] },
@@ -173,6 +177,14 @@ describe("status", () => {
     expect(personal).toMatchObject({ alias: "personal", connected: true, email: "ada@example.com", domain: "example.com" })
     expect(work).not.toHaveProperty("email")
     expect(work).not.toHaveProperty("domain")
+  })
+
+  it("says rpcCommits is off by default", async () => {
+    expect(await status(await setup())).toMatchObject({ rpcCommits: false })
+  })
+
+  it("says rpcCommits is on when the option is", async () => {
+    expect(await status(await setup({ rpcCommits: true }))).toMatchObject({ rpcCommits: true })
   })
 
   it("reports a binary that is not installed with its coded problem and next step, and downloads nothing", async () => {

@@ -42,6 +42,7 @@ export const StatusOutput = z.object({
   host: Host,
   state: z.enum(STATES).describe("connected; sign_in_required or not_configured when an account needs it"),
   access: z.enum(["all", "ask-changes", "read-only"]).describe("What the default permission rules allow: everything, changes ask first, or read-only"),
+  rpcCommits: z.boolean().describe("The six commit tools are also tools RPC methods, so a script can commit a plan; off by default"),
   gws: z.object({ path: z.string(), version: z.string() }),
   services: z.array(z.string()).describe("Model-facing services"),
   accounts: z.array(AccountStatus),

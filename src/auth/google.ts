@@ -5,7 +5,7 @@ import { grantedScopes } from "../domain/scopes.js"
 import type { AccessLevel } from "../domain/types.js"
 import type { ClientChoice } from "./client.js"
 import { readSignIn, signInClient, signInMetadata } from "./credential.js"
-import { idTokenIdentity, type SignInIdentity } from "./identity.js"
+import { idTokenIdentity, type IdTokenExpectation, type SignInIdentity } from "./identity.js"
 
 /**
  * Google OAuth for the Workspace integration.
@@ -211,6 +211,7 @@ async function postToken(
   body: URLSearchParams,
   fetchImpl: typeof globalThis.fetch,
   secrets: readonly string[],
+  idToken: IdTokenExpectation,
 ): Promise<TokenSet> {
   let response: Response
   try {
@@ -250,7 +251,7 @@ async function postToken(
   const refresh = typeof json["refresh_token"] === "string" && json["refresh_token"] ? json["refresh_token"] : undefined
   const rawExpires = typeof json["expires_in"] === "number" ? json["expires_in"] : Number(json["expires_in"])
   const expiresIn = Number.isFinite(rawExpires) && rawExpires > 0 ? Math.floor(rawExpires) : 3600
-  const identity = idTokenIdentity(json["id_token"])
+  const identity = idTokenIdentity(json["id_token"], idToken)
   return { access, refresh, expiresIn, scopes: grantedScopes(json["scope"]), ...(identity ? { identity } : {}) }
 }
 
@@ -434,7 +435,7 @@ export async function authorizeGoogle(input: GoogleAuthorizeInput): Promise<Goog
           redirect_uri: redirectUri,
           code_verifier: pkce.verifier,
         })
-        const token = await postToken(tokenEndpoint, body, fetchImpl, [code, pkce.verifier, client.clientSecret])
+        const token = await postToken(tokenEndpoint, body, fetchImpl, [code, pkce.verifier, client.clientSecret], { clientId: client.clientId, now: now() })
         if (!token.refresh) {
           throw new Error(
             "Google did not return a refresh token. Remove this app's access at https://myaccount.google.com/permissions and sign in again.",
@@ -540,7 +541,7 @@ export async function refreshGoogle(input: GoogleRefreshInput): Promise<OAuthCre
     client_id: client.clientId,
     client_secret: client.clientSecret,
   })
-  const token = await postToken(tokenEndpoint, body, fetchImpl, [input.credential.refresh, input.credential.access, client.clientSecret])
+  const token = await postToken(tokenEndpoint, body, fetchImpl, [input.credential.refresh, input.credential.access, client.clientSecret], { clientId: client.clientId, now: now() })
   return {
     type: "oauth",
     methodID: input.credential.methodID,

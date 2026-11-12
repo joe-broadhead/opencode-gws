@@ -8,7 +8,9 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - The `rpcCommits` option, off by default. When a host turns it on, because it confirms each change on its own screen before it calls the RPC, the six commit tools are also tools RPC methods (`write`, `send`, `share`, `delete`, `export` and `admin`), so a script can commit a plan with `{ planId }`. Plans stay single-use and bound to their session, agent and account, and `access` still decides each commit: at `"ask-changes"` the RPC refuses it. With the option off nothing changes: a commit method answers `rpc.method_not_found`.
 
-- Status names each interactive account's signed-in `email` (when Google has verified it) and Workspace `domain` (Google's `hd`; absent for a consumer account), read from the `id_token` of the sign-in and of each refresh. A sign-in from before this release shows them once a token refresh returns an `id_token`, or after signing in again.
+- Status names each interactive account's signed-in `email` (when Google has verified it) and Workspace `domain` (Google's `hd`; absent for a consumer account), read from the `id_token` of the sign-in and of each refresh, only when its claims check out: `iss` is Google's, `aud` is the OAuth client the sign-in used, and `exp` has not passed. `gws_status` and the status RPC carry them; `/gws-status` and the status dialog do not show them. A sign-in from before this release shows them once a token refresh returns an `id_token`, or after signing in again.
+
+- Status shows whether `rpcCommits` is on: `rpcCommits` in `gws_status` and the status RPC, and a **Script commits** row in `/gws-status` and the status dialog.
 
 ### Fixed
 

@@ -17,6 +17,7 @@ The palette command **Google Workspace: Status**, or `/gws` in the prompt, opens
 | Shell gws skills | only when another skill teaches agents to run `gws` in a shell, which skips plans, approvals and policy: each id and its file |
 | Tools | the services whose gws tools the model sees |
 | Permissions | the posture from `access`: every tool runs without asking, each commit asks, or the commits are denied |
+| Script commits | from `rpcCommits`: `off`, a script can plan but not commit; or `on`, a script can commit a plan when its rules allow the commit, with no prompt from the plugin |
 | Agents without default rules | their names, then the rules to put first in each agent's own `permissions` |
 | OpenCode | the version, then `(tested)`, or `(host untested; supported range >=2.2.3 <2.3.0)` |
 | Next step | exactly one; `Nothing to do.` when nothing is needed |
@@ -46,6 +47,7 @@ Contract: `src/rpc.ts`, id `google-workspace.gws`, method `status` only. It is i
 | `host` | `{ version, range, tested }`: the OpenCode version (`null` when unknown), the supported range `>=2.2.3 <2.3.0`, and `true` only for a tested release (2.2.3, 2.2.4, 2.2.5, 2.2.6). |
 | `state` | `sign_in_required` when an interactive account needs signing in, `not_configured` when a headless account's variable is unset, else `connected`. An untested OpenCode release inside the range keeps this state; only `host.tested` and the OpenCode row mark it. |
 | `access` | What the default rules allow, from the plugin option: `all`, `ask-changes` or `read-only`. The dialog and `/gws-status` show it as **Permissions**. |
+| `rpcCommits` | Whether the six commit tools are also tools RPC methods, from the plugin option. The dialog and `/gws-status` show it as **Script commits**. |
 | `gws` | `{ path, version }` of the resolved binary. |
 | `services` | Model-facing services. |
 | `accounts` | One entry per account, below. |
@@ -56,7 +58,7 @@ Contract: `src/rpc.ts`, id `google-workspace.gws`, method `status` only. It is i
 | `permissionsBlock` | The JSON block to add first in each of those agents' own `permissions`. Present when `unguardedAgents` is not empty. |
 | `nextStep` | The one thing to do next, as one sentence: an account's sign-in step, then a hidden skill, then the skills that run gws in a shell, then the unguarded agents. `Nothing to do.` when nothing is needed. |
 
-An account entry is `{ alias, mode, services, integrationID?, connected, needsAuth?, access?, clientSource?, grantedScopes?, email?, domain?, missingScopes?, delegationRequired?, nextStep? }`. `email` and `domain` are the signed-in account's verified email and Workspace domain, from its sign-in's `id_token`. `delegationRequired` names the enabled services that need domain-wide delegation (Keep) when the interactive account's scopes do not add them; the dialog and `/gws-status` show it as **Needs domain-wide delegation**.
+An account entry is `{ alias, mode, services, integrationID?, connected, needsAuth?, access?, clientSource?, grantedScopes?, email?, domain?, missingScopes?, delegationRequired?, nextStep? }`. `email` and `domain` are the signed-in account's verified email and Workspace domain, from its sign-in's `id_token` once its `iss`, `aud` and `exp` check out ([auth.md](auth.md#after-sign-in)); the dialog and `/gws-status` do not show them. `delegationRequired` names the enabled services that need domain-wide delegation (Keep) when the interactive account's scopes do not add them; the dialog and `/gws-status` show it as **Needs domain-wide delegation**.
 
 - `connected` is true when an interactive account is signed in and usable, or when a headless account's environment variable is set. `/gws-doctor` checks the headless credential itself.
 - `needsAuth` is `true` or absent.
@@ -64,6 +66,6 @@ An account entry is `{ alias, mode, services, integrationID?, connected, needsAu
 - `clientSource` is `account`, `plugin`, or `pasted` (entered in the sign-in form).
 - An account's `nextStep` is one sentence, absent when nothing is needed.
 
-The RPC cannot approve or commit. A commit happens only when the agent calls a commit tool, which runs without a prompt at the default `access` and needs the permission prompt's allow at `ask-changes`.
+The status RPC cannot approve or commit. A commit happens when the agent calls a commit tool, which runs without a prompt at the default `access` and needs the permission prompt's allow at `ask-changes`, or, only with `rpcCommits`, when a script calls a commit method of the tools RPC ([scripting.md](scripting.md#committing-from-a-script-rpccommits)).
 
 Scripts call the tools through a separate RPC, `google-workspace.gws.tools`: see [Scripting](scripting.md).

@@ -57,6 +57,14 @@ Also never: imported OAuth grants, credentials from `gws auth login`, or a
 - `plan-then-commit` is unchanged: a commit still needs a `planId` from
   `plan`, bound to the session, agent and account. The default allow is a
   permission default, not a shortcut past the plan.
+- The tools RPC's methods are the six reads. The `rpcCommits` option, off
+  by default, makes the six commits methods too (`write`, `send`, `share`,
+  `delete`, `export`, `admin`), for a host that confirms each change
+  itself. Then a script whose session resolves the commit's action to
+  `allow` can commit a `planId` from `plan`; plan-then-commit still holds,
+  and `access` and agent and session rules still decide (an `ask` is
+  refused, a `deny` is refused). Status shows the flag (`rpcCommits`, the
+  **Script commits** row).
 - The last matching rule wins, so user rules and saved Always override the
   block and a stricter agent is never weakened.
 - Each commit asserts `gws.<category>` on `<account>:<operation>`. Only write

@@ -35,10 +35,15 @@ const sessions: Record<string, string> = {}
 beforeAll(async () => {
   auditDir = mkdtempSync(join(tmpdir(), "gws-rpc-commits-audit-"))
   auditPath = join(auditDir, "audit.jsonl")
-  host = await startHost({ options: { rpcCommits: true, audit: { enabled: true, path: auditPath } } })
+  host = await startHost({
+    options: { rpcCommits: true, audit: { enabled: true, path: auditPath } },
+    // An agent rule still decides a script's commit: this agent may plan a reply but not send it.
+    agents: { nosend: { permissions: [{ action: "gws.send", resource: "*", effect: "deny" }] } },
+  })
   const create = async () => (await host.opencode.sessions.create({ location: host.location, agent: "build" } as never)).id
   sessions.a = await create()
   sessions.b = await create()
+  sessions.nosend = (await host.opencode.sessions.create({ location: host.location, agent: "nosend" } as never)).id
 }, 120_000)
 
 afterAll(async () => {
@@ -80,6 +85,28 @@ describe("rpcCommits: true", () => {
     for (const name of READS) expect(classes[name]).toBe("read")
     for (const [name, type] of Object.entries(COMMIT_CLASSES)) expect(classes[name], name).toBe(type)
     for (const method of described.methods) expect(method.action).toBe(`gws.${method.name}`)
+  })
+
+  it("says in status that rpcCommits is on", async () => {
+    const status = await run("status", sessions.a!, {})
+    expect(status.value, status.message).toMatchObject({ rpcCommits: true })
+  })
+
+  for (const method of Object.keys(COMMIT_CLASSES)) {
+    it(`${method} commits only a planId that plan returned: an unknown one is PLAN_NOT_FOUND, and none is invalid input, before gws runs`, async () => {
+      const before = commits().length
+      expect(await run(method, sessions.a!, { planId: "plan_made_up_0000000000000000" })).toMatchObject({ type: "failed", code: "PLAN_NOT_FOUND" })
+      expect(String((await run(method, sessions.a!, {})).message)).toMatch(/planId/)
+      expect(commits().length).toBe(before)
+    })
+  }
+
+  it("still lets an agent rule deny a commit: the nosend agent plans a reply, and its send is PERMISSION_DENIED", async () => {
+    const planned = await plan(sessions.nosend!, reply())
+    const before = commits().length
+    const refused = await run("send", sessions.nosend!, { planId: planned.planId })
+    expect(refused).toMatchObject({ type: "failed", code: "PERMISSION_DENIED" })
+    expect(commits().length).toBe(before)
   })
 
   for (const [name, method, category, build] of [

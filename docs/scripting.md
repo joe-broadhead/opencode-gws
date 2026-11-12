@@ -58,7 +58,8 @@ opencode api post /api/session -d '{"title":"label sorter","agent":"build","loca
 ```
 
 The reads and `plan` are always allowed by the plugin's block, whatever `access` is. The six commit actions follow
-`access` for the model's commits: allowed by default, asking at `ask-changes`, denied at `read-only`. The session above
+`access`: allowed by default, asking at `ask-changes`, denied at `read-only`. That decides the model's commits and,
+with [`rpcCommits`](#committing-from-a-script-rpccommits), a script's. The session above
 denies the namespace and opts the reads and `plan` back in, so the script can look and plan, and nothing else.
 
 Ask `describe` for the methods, with their classes and schemas, and with the session each method's permission:
@@ -127,7 +128,22 @@ A host that shows its own confirmation for each change, before it calls the RPC,
 - a reply, a draft or an event's guests are read again at the commit, as on the model path.
 
 The plugin asks no one before such a commit: the host's confirmation is the only one. Leave the option off unless the
-host gives one.
+host gives one. Status says whether it is on: `rpcCommits` in `gws_status` and the status RPC, and the **Script
+commits** row in `/gws-status` and the status dialog.
+
+With the option on, a script commits a plan only when the commit's action resolves to `allow` for its session. At the
+default `access: "all"` the plugin's block allows it. At `"ask-changes"` the block asks, so the commit is refused unless
+a rule allows it explicitly. A session can opt one category in; the rule must cover every resource (`"resource": "*"`),
+because the RPC resolves the method's action before it knows the plan's account and operation:
+
+```sh
+opencode api post /api/session -d '{"title":"replies","agent":"build","location":{"directory":"/path/to/project"},"permissions":[
+  {"action":"gws.send","resource":"*","effect":"allow"}
+]}'
+```
+
+A rule that denies the action, on the agent or the session, refuses the commit at any `access`, and at `"read-only"`
+every commit is denied.
 
 ```sh
 opencode api post /api/rpc/google-workspace.gws.tools/plan \
