@@ -14,7 +14,7 @@ const COPIES = [
   { path: "vendor/source-contract-dist/conformance.js", optional: false, sha256: "d3831df80914b916c01bc25aed598414f4e6c69feb5bdc322ea0a17c74e22e42", part: (text) => text },
   { path: "src/host/tools-rpc.ts", optional: true, sha256: "9210d0a531788d1f0d70d44a13a032816ef240b04aa5303f6ba4b2e2a52b6c94", part: sharedPart },
   { path: "test/support/jelly-kit.ts", optional: false, sha256: "ab599abcf041044c77e7938c3d9a081e00072487a7ec20b654d86c8230951190", part: (text) => text },
-  { path: "src/host/events-list.ts", optional: true, sha256: "2e1fa596af333323e5c35c6ee2c2ef943ea37daaa5656dc85bc29d15c21b841e", part: (text) => text },
+  { path: "src/host/events-list.ts", optional: true, sha256: "b2652e388034202fd021ab47b617e7598389e8754bb63f624f647e93e86ab59f", part: (text) => text },
   { path: "src/process/install.ts", optional: false, sha256: "8ce0d8505f7577dc793ad2b279117f1118de404bbfacf08a8bd70b976425159a", part: (text) => text },
 ]
 

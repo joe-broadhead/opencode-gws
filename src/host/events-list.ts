@@ -36,6 +36,7 @@
  * plugin carries. Change it in every plugin at once, then update the hash there. It imports only `node:crypto`.
  */
 import { createHash } from "node:crypto"
+export { encodeBoundCursor, decodeBoundCursor, bindingHash, canonicalScope, CURSOR_V1, CURSOR_V2, MAX_CURSOR_LENGTH } from "../../vendor/source-contract-dist/cursor.js"
 
 /** The tool's and the tools-RPC method's name. */
 export const EVENTS_LIST = "events_list"

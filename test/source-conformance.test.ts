@@ -9,7 +9,7 @@ import { SOURCES_SCHEMA } from "../vendor/source-contract-dist/schema.js"
 import { EventsListInput, ProbeInput, RequestInput } from "../src/domain/contract.js"
 import { type GmailMessage, MESSAGE_FIELDS } from "../src/domain/gmail.js"
 import { CALENDAR_SOURCE } from "../src/host/calendar-events.js"
-import { encodeCursor, PLUGIN_PACKAGE } from "../src/host/events-list.js"
+import { decodeBoundCursor, encodeBoundCursor, encodeCursor, PLUGIN_PACKAGE } from "../src/host/events-list.js"
 import { GMAIL_SOURCE, gmailMessageEvent } from "../src/host/gmail-events.js"
 import type { PermissionRequest } from "../src/host/permissions.js"
 import { type Call, parse, toolSpecs } from "../src/host/tools.js"
@@ -174,6 +174,21 @@ describe("the source contract", () => {
     expect(report.problems).toEqual([])
     expect(report.ok).toBe(true)
     expect(report.checks.filter((check) => !check.ran && !check.notApplicable).map((check) => check.name)).toEqual([])
+  }, 60_000)
+
+  it("accepts a contract-1 cursor once and answers a bound one", async () => {
+    const runtime = await testRuntime({ accounts: { personal: account({ services: ["gmail", "calendar"] }) } })
+    runtimes.push(runtime)
+    const { run } = harness(runtime)
+    const mailbox = JSON.parse(readFileSync(mailboxPath, "utf8")) as { emailAddress: string }
+    const legacy = encodeCursor(GMAIL_SOURCE, { a: "personal", o: digest(mailbox.emailAddress), p: "s", t: Date.parse("2026-11-06T00:00:00Z") })
+    const page = (await run("events_list", EventsListInput, { source: "gmail", account: "personal", cursor: legacy }, { assert: async () => {} })) as { cursor: string }
+    const decoded = decodeBoundCursor({ plugin: "gws", source: "gmail", account: "personal", scope: {} }, page.cursor)
+    expect(decoded.ok).toBe(true)
+    expect(decoded.ok && decoded.legacy).toBe(false)
+    // A cursor bound to another account is refused.
+    const foreign = encodeBoundCursor({ plugin: "gws", source: "gmail", account: "work", scope: {} }, { a: "work" })
+    await expect(run("events_list", EventsListInput, { source: "gmail", account: "personal", cursor: foreign }, { assert: async () => {} })).rejects.toThrow(/CURSOR_INVALID/)
   }, 60_000)
 
   it("passes the conformance kit for Calendar, with atomicPages", async () => {

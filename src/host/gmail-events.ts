@@ -10,7 +10,8 @@ import {
   type EventsListResult,
   type SourceEvent,
   decodeCursor,
-  encodeCursor,
+  encodeBoundCursor,
+  decodeBoundCursor,
   eventsListResult,
   fitPage,
   makeEvent,
@@ -94,9 +95,15 @@ const step = (id: string, by: bigint) => {
 }
 const before = (a: string, b: string) => BigInt(a) < BigInt(b)
 
-/** The state a cursor holds, when this source and account issued it. */
+/** The cursor binding: the plugin prefix, the source, the account and the (empty) scope. */
+function bindingOf(account: string): { plugin: string; source: string; account: string; scope: Record<string, string[]> } {
+  return { plugin: "gws", source: GMAIL_SOURCE, account, scope: {} }
+}
+
+/** The state a cursor holds, when this source and account issued it. A contract-1 cursor is accepted once. */
 function stateOf(cursor: string, account: string): State {
-  const state = decodeCursor(GMAIL_SOURCE, cursor)
+  const decoded = decodeBoundCursor(bindingOf(account), cursor, { acceptV1: true })
+  const state = decoded.ok ? decoded.state : decodeCursor(GMAIL_SOURCE, cursor)
   const refuse = () => new GwsError("CURSOR_INVALID", "the cursor was not issued by gws for this source and account", { next: "Read again without a cursor to restart the window." })
   if (!state || state["a"] !== account) throw refuse()
   const { p, t } = state
@@ -172,7 +179,7 @@ export async function gmailEvents(runtime: Pick<Runtime, "read">, account: strin
   const identity = { source: GMAIL_SOURCE, account, owner, scope }
   let state: State = request.cursor === undefined ? { p: "s", t: startTime(request, now) } : stateOf(request.cursor, account)
   // The deprecated owner-only call: the identity and the cursor, and not one message read.
-  if (request.limit === 0) return eventsListResult(identity, [], encodeCursor(GMAIL_SOURCE, { a: account, ...state }), false, { now })
+  if (request.limit === 0) return eventsListResult(identity, [], encodeBoundCursor(bindingOf(account), { a: account, ...state }), false, { now })
 
   const searched = new Map<number, string[]>()
   const search = async (t: number): Promise<string[]> => {
@@ -309,7 +316,7 @@ export async function gmailEvents(runtime: Pick<Runtime, "read">, account: strin
     more = true
   }
   // failed[] holds the cursor back: the page answers the cursor it was given (empty on a first call), never a later one.
-  const cursor = failed.length > 0 ? (request.cursor ?? "") : encodeCursor(GMAIL_SOURCE, { a: account, ...state })
+  const cursor = failed.length > 0 ? (request.cursor ?? "") : encodeBoundCursor(bindingOf(account), { a: account, ...state })
   return eventsListResult(identity, oldestFirst(listed.slice(0, kept).map((item) => item.event)), cursor, more, { now, gap, refused, failed })
 }
 

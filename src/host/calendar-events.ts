@@ -11,7 +11,8 @@ import {
   type SourceEvent,
   GAP_MAX_DAYS,
   decodeCursor,
-  encodeCursor,
+  encodeBoundCursor,
+  decodeBoundCursor,
   eventsListResult,
   fitPage,
   makeEvent,
@@ -94,9 +95,15 @@ const list = (value: unknown): Data[] => (Array.isArray(value) ? value.map(recor
 /** A digest of the calendar's id, so a cursor from another calendar is refused. */
 const digest = (calendar: string) => createHash("sha256").update(calendar).digest("hex").slice(0, 16)
 
-/** The state a cursor holds, when this account's primary calendar issued it. */
+/** The cursor binding: the plugin prefix, the source, the account and the confirmed calendar. */
+function bindingOf(account: string, calendar: string): { plugin: string; source: string; account: string; scope: Record<string, string[]> } {
+  return { plugin: "gws", source: CALENDAR_SOURCE, account, scope: { calendars: [calendar] } }
+}
+
+/** The state a cursor holds, when this source and account issued it. A contract-1 cursor is accepted once. */
 function stateOf(cursor: string, account: string, calendar: string): Sync {
-  const state = decodeCursor(CALENDAR_SOURCE, cursor)
+  const decoded = decodeBoundCursor(bindingOf(account, calendar), cursor)
+  const state = decoded.ok ? decoded.state : decodeCursor(CALENDAR_SOURCE, cursor)
   const refuse = () => new GwsError("CURSOR_INVALID", `the cursor was not issued by events_list for account '${account}' and its primary calendar`)
   if (!state || state["a"] !== account || state["o"] !== digest(calendar)) throw refuse()
   const { y, w, t, n, p } = state
@@ -195,7 +202,7 @@ export async function calendarEvents(runtime: Pick<Runtime, "read">, account: st
   const identity = { source: CALENDAR_SOURCE, account, owner, scope }
   const refused: RefusedDrop[] = []
   // The deprecated owner-only call: the identity and the scope, and no events read.
-  if (request.limit === 0) return eventsListResult(identity, [], encodeCursor(CALENDAR_SOURCE, { a: account, o: digest(calendar), ...state }), false, { now, gap })
+  if (request.limit === 0) return eventsListResult(identity, [], encodeBoundCursor(bindingOf(account, calendar), { a: account, o: digest(calendar), ...state }), false, { now, gap })
 
   const listed: Array<{ event: SourceEvent; after: Sync }> = []
   let resynced = false
@@ -263,5 +270,5 @@ export async function calendarEvents(runtime: Pick<Runtime, "read">, account: st
   } else {
     more = state.p !== undefined
   }
-  return eventsListResult(identity, oldestFirst(listed.slice(0, kept).map((item) => item.event)), encodeCursor(CALENDAR_SOURCE, { a: account, o: digest(calendar), ...state }), more, { now, gap, refused })
+  return eventsListResult(identity, oldestFirst(listed.slice(0, kept).map((item) => item.event)), encodeBoundCursor(bindingOf(account, calendar), { a: account, o: digest(calendar), ...state }), more, { now, gap, refused })
 }
