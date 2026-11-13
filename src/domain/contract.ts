@@ -324,6 +324,14 @@ export const EventsListOutput = z.object({
   cursor: z.string().describe("Pass it to the next call"),
   more: z.boolean().describe("True when another call now would list more"),
   trust: z.literal("untrusted"),
+  gap: z
+    .object({
+      reason: z.enum(["sync-token-expired", "cursor-invalid", "window-truncated"]),
+      since: z.string(),
+      until: z.string().optional(),
+    })
+    .optional()
+    .describe("Present only when the source restarted its window (contract 2)"),
 })
 
 export type RequestInput = z.infer<typeof RequestInput>
