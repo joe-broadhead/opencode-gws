@@ -4,9 +4,11 @@ import { type GmailMessage, MESSAGE_FIELDS, type MessageFacts, NOISE_QUERY, isNo
 import type { CallContext } from "../runtime/accounts.js"
 import type { Runtime } from "../runtime/index.js"
 import {
+  type EventsGap,
   type EventsListRequest,
   type EventsListResult,
   type SourceEvent,
+  GAP_MAX_DAYS,
   decodeCursor,
   encodeCursor,
   eventsListResult,
@@ -241,6 +243,7 @@ export async function gmailEvents(runtime: Pick<Runtime, "read">, account: strin
   const candidates: Candidate[] = []
   let more = false
   let fellBack = false
+  let gap: EventsGap | undefined
   while (candidates.length < request.limit) {
     throwIfCancelled(ctx.signal)
     if (state.p === "s") {
@@ -263,6 +266,8 @@ export async function gmailEvents(runtime: Pick<Runtime, "read">, account: strin
     if (followed === "expired") {
       if (fellBack) throw new GwsError("GWS_API_ERROR", "Gmail refused a history id it had just given")
       fellBack = true
+      // Contract 2: the history id is gone, so the listing restarts from the last event it saw, inside the 31-day bound.
+      gap = { reason: "cursor-invalid", since: new Date(Math.max(state.t, now - GAP_MAX_DAYS * 86_400_000 + 60_000)).toISOString() }
       state = { p: "s", h0: head, t: state.t }
       continue
     }
@@ -304,5 +309,5 @@ export async function gmailEvents(runtime: Pick<Runtime, "read">, account: strin
     const last = Math.max(state.t, ...events.map((event) => Date.parse(event.occurred_at)))
     state = { ...state, t: last }
   }
-  return eventsListResult(identity, oldestFirst(events), encodeCursor(GMAIL_SOURCE, { a: account, o: mailbox, ...state }), more)
+  return eventsListResult(identity, oldestFirst(events), encodeCursor(GMAIL_SOURCE, { a: account, o: mailbox, ...state }), more, gap)
 }

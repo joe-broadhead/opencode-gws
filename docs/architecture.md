@@ -40,6 +40,8 @@ src/
     agents.ts       default ask rules
     tools.ts        the 12 tool adapters
     gmail-events.ts events_list for Gmail: search, then history, as events
+    calendar-events.ts events_list for Calendar: a full sync, then a sync token, as events
+    event-sources.ts the events_list sources, their reads and the one that follows
     events-list.ts  the shared events_list contract (a copy every source plugin carries; check-copies pins it)
     permissions.ts  permission.assert inputs; no signal field
     skills.ts       the two skills

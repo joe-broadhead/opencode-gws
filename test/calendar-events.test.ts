@@ -103,6 +103,20 @@ function calls(): Array<Record<string, unknown>> {
 
 const digest = (calendar: string) => createHash("sha256").update(calendar).digest("hex").slice(0, 16)
 
+/**
+ * Memory's recording session: the rules are exactly `grants`, so an assert outside them fails as the real session would.
+ * A grant on `*` matches any resource; an `{account}:<operation>` grant is exact, with the account alias bound.
+ */
+function recording(grants: ReadonlyArray<{ action: string; resource: string }>) {
+  const requests: PermissionRequest[] = []
+  const assert = async (request: PermissionRequest) => {
+    requests.push(request)
+    const declared = grants.some((grant) => grant.action === request.action && (grant.resource === "*" || grant.resource === request.resources[0]))
+    if (!declared) throw new Error(`undeclared action: ${request.action} on ${request.resources.join(" ")}`)
+  }
+  return { requests, assert }
+}
+
 describe("the calendar source keeps the shared contract", () => {
   it("passes the conformance check over the synthetic calendar, page by page", async () => {
     const { list } = await harness()
@@ -111,16 +125,45 @@ describe("the calendar source keeps the shared contract", () => {
   })
 
   it("names the primary calendar on the owner-only call, and lists nothing", async () => {
-    const { list } = await harness()
+    const { asserted, list } = await harness()
     const log = join(dir, "argv.log")
     process.env["FAKE_GWS_LOG"] = log
     writeFileSync(log, "")
     const ownerOnly = await list({ limit: 0, source: "calendar" })
     expect(ownerOnly).toMatchObject({ source: "calendar", account: "personal", owner: OWNER, scope: { calendars: ["primary"] }, setup: CALENDAR_SETUP, events: [], more: false, trust: "untrusted" })
     expect(resultProblems(ownerOnly, 0)).toEqual([])
-    // The identity read ran; the events read did not.
+    // The identity read ran and was the only read asserted; the events read was neither asserted nor run.
     expect(calls()).toEqual([])
+    expect(asserted.map((request) => [request.action, request.resources])).toEqual([
+      ["gws.events_list", ["personal:calendar.events.list"]],
+      ["gws.read", ["personal:calendar.calendarList.get"]],
+    ])
     expect(readFileSync(log, "utf8")).toContain('"calendar","calendarList","get"')
+  })
+
+  it("asserts exactly the identity grants on the owner-only call, and no other read", async () => {
+    const identity = recording([
+      { action: "gws.events_list", resource: "*" },
+      { action: "gws.read", resource: `personal:${CALENDAR_READS[0]}` },
+    ])
+    const { list } = await harness(identity.assert)
+    await list({ limit: 0, source: "calendar" })
+    expect(identity.requests.map((request) => [request.action, request.resources])).toEqual([
+      ["gws.events_list", ["personal:calendar.events.list"]],
+      ["gws.read", [`personal:${CALENDAR_READS[0]}`]],
+    ])
+    // A listing needs the events read, so under the identity grants alone it is refused before any read runs.
+    const listed = await harness(identity.assert)
+    await expect(listed.list({ since: SINCE, limit: 1 })).rejects.toThrow(/undeclared action/)
+  })
+
+  it("asserts exactly the source grants on a listing", async () => {
+    const source = recording([
+      { action: "gws.events_list", resource: "*" },
+      ...CALENDAR_READS.map((operation) => ({ action: "gws.read", resource: `personal:${operation}` })),
+    ])
+    const { list } = await harness(source.assert)
+    expect(ids(await list({ since: SINCE, limit: 1 }))).toEqual(["evt-b"])
   })
 
   it("echoes the scope it read, and refuses a calendar that is not this account's primary", async () => {
@@ -265,8 +308,26 @@ describe("sync tokens and paging", () => {
     expect(first).toMatchObject({ syncToken: "sync-expired" })
     expect(second).toMatchObject({ timeMin: "2026-11-01T00:00:00.000Z" })
     expect(second?.["syncToken"]).toBeUndefined()
-    // The new cursor carries the sync token from the full sync's last page.
+    // The new cursor carries the sync token from the full sync's last page, and the answer says it restarted.
     expect(JSON.parse(Buffer.from(result.cursor, "base64url").toString("utf8"))).toMatchObject({ s: "calendar", y: "sync-1" })
+    expect(result.gap).toMatchObject({ reason: "sync-token-expired", since: expect.stringMatching(/Z$/) })
+    expect(resultProblems(result)).toEqual([])
+  })
+
+  it("truncates a full sync's window to 31 days and reports window-truncated, never a resync", async () => {
+    const { list } = await harness()
+    const log = join(dir, "argv.log")
+    process.env["FAKE_GWS_LOG"] = log
+    writeFileSync(log, "")
+    const result = await list({ since: "2020-01-01T00:00:00Z", limit: 500 })
+    expect(result.gap).toMatchObject({ reason: "window-truncated", since: expect.stringMatching(/Z$/) })
+    expect(resultProblems(result)).toEqual([])
+    // The read asked from at most 31 days back, not from 2020.
+    const [first] = calls()
+    expect(first).toMatchObject({ showDeleted: true })
+    const since = Date.parse(String(first?.["timeMin"]))
+    expect(since).toBeGreaterThan(Date.now() - 31 * 86_400_000)
+    expect(result.events.every((event) => Date.parse(event.occurred_at) >= since)).toBe(true)
   })
 
   it("refuses another account's cursor, another calendar's, and another source's", async () => {

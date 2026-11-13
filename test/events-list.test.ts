@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
-  assertEventsListConformance, cut, decodeCursor, encodeCursor, eventHash, eventProblems, eventsListConformance, eventsListResult, fitPage, makeEvent,
+  assertEventsListConformance, cut, decodeCursor, encodeCursor, eventHash, eventProblems, eventsListConformance, eventsListResult, fitPage, gapProblems, makeEvent,
   MAX_PAGE_BYTES, oldestFirst, PAGE, parseEventsListInput, resultProblems, sinceTime, startTime, type EventsListInput, type SourceEvent,
 } from "../src/host/events-list.js"
 
@@ -16,7 +16,7 @@ const OWNER = { id: "mailto:sam@example.com", label: "sam@example.com" }
 const SETUP = "Choose a folder to list."
 const WHOSE = { source: "demo", account: "work", owner: OWNER, scope: {}, setup: SETUP }
 
-type Broken = { skip?: boolean; anyCursor?: boolean; noLimit?: boolean; newestFirst?: boolean; anySource?: boolean; unnamedWhenEmpty?: boolean; noScope?: boolean }
+type Broken = { skip?: boolean; anyCursor?: boolean; noLimit?: boolean; newestFirst?: boolean; anySource?: boolean; unnamedWhenEmpty?: boolean; noScope?: boolean; gap?: boolean }
 
 /** A correct in-memory source over `items`, and switches that break one rule each. */
 function source(items: readonly SourceEvent[], broken: Broken = {}) {
@@ -38,7 +38,8 @@ function source(items: readonly SourceEvent[], broken: Broken = {}) {
     }
     const page = items.slice(from, from + request.limit)
     const next = from + page.length + (broken.skip && page.length > 0 ? 1 : 0)
-    const result = eventsListResult({ ...WHOSE, scope: request.scope ?? {} }, broken.newestFirst ? [...page].reverse() : page, encodeCursor("demo", { n: next }), next < items.length)
+    const gap = broken.gap ? { reason: "cursor-invalid" as const, since: new Date(Date.now() - 3_600_000).toISOString() } : undefined
+    const result = eventsListResult({ ...WHOSE, scope: request.scope ?? {} }, broken.newestFirst ? [...page].reverse() : page, encodeCursor("demo", { n: next }), next < items.length, gap)
     if (broken.unnamedWhenEmpty && page.length === 0) {
       const { source: _source, account: _account, ...unnamed } = result
       return unnamed
@@ -177,6 +178,31 @@ describe("events", () => {
   })
 })
 
+describe("contract 2's gap", () => {
+  const now = Date.parse("2026-11-13T00:00:00Z")
+  const gap = (extra: Record<string, unknown> = {}) => ({ reason: "sync-token-expired", since: "2026-11-01T00:00:00Z", ...extra })
+
+  it("accepts a restart whose window starts within 31 days", () => {
+    expect(gapProblems(gap(), now)).toEqual([])
+    expect(gapProblems(gap({ reason: "window-truncated" }), now)).toEqual([])
+    expect(gapProblems(gap({ until: "2026-11-02T00:00:00Z" }), now)).toEqual([])
+  })
+
+  it("refuses an unknown reason, a time that is not ISO UTC, since after until, and a window older than 31 days", () => {
+    expect(gapProblems(gap({ reason: "resync" }), now)).toEqual([expect.stringContaining("reason")])
+    expect(gapProblems(gap({ since: "2026-11-01 00:00:00" }), now)).toEqual(["the gap's since must be an ISO 8601 UTC date-time ending in Z"])
+    expect(gapProblems(gap({ until: "2026-10-01T00:00:00Z" }), now)).toEqual(["the gap's since is after its until"])
+    expect(gapProblems(gap({ since: "2026-10-01T00:00:00Z" }), now)).toEqual([expect.stringContaining("31 days")])
+    expect(gapProblems({ ...gap(), extra: true }, now)).toEqual(['the gap has the field "extra", which the contract does not define'])
+    expect(gapProblems([], now)).toEqual(["the gap must be { reason, since, until? }"])
+  })
+
+  it("carries a valid gap on a result, and finds a bad one", () => {
+    expect(resultProblems(eventsListResult(WHOSE, [], "c", false, { reason: "cursor-invalid", since: "2026-11-01T00:00:00Z" }), PAGE.max, now)).toEqual([])
+    expect(resultProblems(eventsListResult(WHOSE, [], "c", false, { reason: "cursor-invalid", since: "2026-10-01T00:00:00Z" }), PAGE.max, now)).toEqual([expect.stringContaining("31 days")])
+  })
+})
+
 describe("conformance", () => {
   const items = Array.from({ length: 5 }, (_, index) => event(index))
   const fixtures = { source: "demo", account: "work", owner: OWNER, since: "2026-11-01T08:00:00Z", expected: items.map(item => item.external_id) }
@@ -204,8 +230,9 @@ describe("conformance", () => {
     await expect(assertEventsListConformance(source(items, { skip: true }), fixtures)).rejects.toThrow(/^events_list breaks the contract:\n- /)
   })
 
-  it("catches a source without contract 2's scope echo", async () => {
+  it("catches a source without contract 2's scope echo, and one that answers a gap over data that did not change", async () => {
     expect(await eventsListConformance(source(items, { noScope: true }), fixtures)).toContainEqual("one call with the largest limit: the result's scope must be an object of ids under the source's scope keys")
+    expect(await eventsListConformance(source(items, { gap: true }), fixtures)).toContainEqual("one call with the largest limit: the result answered a gap, and this fixture changes nothing")
   })
 
   it("checks the scope a source echoes, and passes a source whose scope is not empty", async () => {

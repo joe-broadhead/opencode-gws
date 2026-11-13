@@ -374,40 +374,6 @@
     "namespace": "gws",
     "connector": {
       "accounts": "multi",
-      "identity": {
-        "method": "events_list",
-        "input": {
-          "source": "gmail",
-          "limit": 0
-        },
-        "grants": [
-          {
-            "action": "gws.events_list",
-            "resource": "*"
-          },
-          {
-            "action": "gws.read",
-            "resource": "{account}:gmail.users.getProfile"
-          },
-          {
-            "action": "gws.read",
-            "resource": "{account}:gmail.users.history.list"
-          },
-          {
-            "action": "gws.read",
-            "resource": "{account}:gmail.users.messages.list"
-          },
-          {
-            "action": "gws.read",
-            "resource": "{account}:gmail.users.messages.get"
-          }
-        ],
-        "account": "$.owner.id",
-        "owner": {
-          "id": "$.owner.id",
-          "label": "$.owner.label"
-        }
-      },
       "reads": [
         {
           "method": "read",
@@ -438,11 +404,26 @@
           "kind": "ids",
           "pattern": "^(?:primary|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+)$",
           "max": 1,
-          "required": false,
-          "suggest": true
+          "required": false
         }
       ],
-      "billing": null
+      "billing": null,
+      "operationScoped": true,
+      "identityRead": {
+        "method": "status",
+        "input": {},
+        "grants": [
+          {
+            "action": "gws.status",
+            "resource": "*"
+          }
+        ],
+        "account": "$.accounts[0].email",
+        "owner": {
+          "id": "$.accounts[0].email",
+          "label": "$.accounts[0].email"
+        }
+      }
     },
     "sources": [
       {
@@ -476,11 +457,33 @@
           }
         ],
         "scope": [],
+        "identity": {
+          "method": "events_list",
+          "input": {
+            "source": "gmail",
+            "limit": 0
+          },
+          "grants": [
+            {
+              "action": "gws.events_list",
+              "resource": "*"
+            },
+            {
+              "action": "gws.read",
+              "resource": "{account}:gmail.users.getProfile"
+            }
+          ],
+          "account": "$.owner.id",
+          "owner": {
+            "id": "$.owner.id",
+            "label": "$.owner.label"
+          }
+        },
         "cadence": {
           "everyMinutes": 30
         },
         "billing": null,
-        "setup": "Nothing to choose: events_list reads the whole signed-in Gmail mailbox."
+        "setupHint": "Nothing to choose: events_list reads the whole signed-in Gmail mailbox."
       },
       {
         "id": "calendar",
@@ -505,6 +508,28 @@
             "resource": "{account}:calendar.events.list"
           }
         ],
+        "identity": {
+          "method": "events_list",
+          "input": {
+            "source": "calendar",
+            "limit": 0
+          },
+          "grants": [
+            {
+              "action": "gws.events_list",
+              "resource": "*"
+            },
+            {
+              "action": "gws.read",
+              "resource": "{account}:calendar.calendarList.get"
+            }
+          ],
+          "account": "$.account",
+          "owner": {
+            "id": "$.owner.id",
+            "label": "$.owner.label"
+          }
+        },
         "scope": [
           {
             "key": "calendars",
@@ -512,15 +537,14 @@
             "kind": "ids",
             "pattern": "^(?:primary|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+)$",
             "max": 1,
-            "required": false,
-            "suggest": true
+            "required": false
           }
         ],
         "cadence": {
           "everyMinutes": 30
         },
         "billing": null,
-        "setup": "Choose the calendar to collect when you confirm; the primary calendar is the default."
+        "setupHint": "Choose the calendar to collect when you confirm; the primary calendar is the default."
       }
     ],
     "templates": [
@@ -528,11 +552,11 @@
         "id": "gmail-commitments",
         "title": "Gmail commitments and people",
         "summary": "Commitments people make in the mailbox, proposed for review, with timeline lines on their person pages.",
-        "source": "gmail",
         "extract": {
           "steps": [
             {
               "use": "events_list",
+              "connector": "google-workspace.gws",
               "source": "gmail"
             }
           ]
@@ -559,6 +583,8 @@
           ]
         },
         "outputs": [
+          "proposal:commitment_close",
+          "proposal:commitment_open",
           "timeline"
         ],
         "budget": {
@@ -569,11 +595,11 @@
         "id": "calendar-meetings",
         "title": "Calendar meeting pages",
         "summary": "A meeting page for each event, with its attendees as person links, and follow-ups proposed after it.",
-        "source": "calendar",
         "extract": {
           "steps": [
             {
               "use": "events_list",
+              "connector": "google-workspace.gws",
               "source": "calendar"
             }
           ]
@@ -607,6 +633,8 @@
           ]
         },
         "outputs": [
+          "proposal:commitment_open",
+          "section:Meetings",
           "timeline"
         ],
         "budget": {

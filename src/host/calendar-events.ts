@@ -3,10 +3,12 @@ import { GwsError, throwIfCancelled } from "../domain/errors.js"
 import type { CallContext } from "../runtime/accounts.js"
 import type { Runtime } from "../runtime/index.js"
 import {
+  type EventsGap,
   type EventsListRequest,
   type EventsListResult,
   type EventsScope,
   type SourceEvent,
+  GAP_MAX_DAYS,
   decodeCursor,
   encodeCursor,
   eventsListResult,
@@ -60,6 +62,8 @@ export const CALENDAR_SCOPE_KEY = "calendars"
 const PAGE_SIZE = 100
 /** The most Google pages one call reads; the cursor carries on from there. */
 const PAGES = 5
+/** Contract 2's bound on a restarted window's `since`: 31 days, kept a minute inside it so rounding never refuses it. */
+const GAP_FLOOR_MS = GAP_MAX_DAYS * 86_400_000 - 60_000
 /** The fields of one event: what a meeting page and its withdrawals need, and nothing else. */
 const EVENT_FIELDS =
   "nextPageToken,nextSyncToken,items(id,status,summary,description,location,start,end,updated,htmlLink,organizer(email,displayName,self),attendees(email,displayName,responseStatus,self))"
@@ -175,10 +179,18 @@ export async function calendarEvents(runtime: Pick<Runtime, "read">, account: st
   if (!calendar) throw new GwsError("GWS_API_ERROR", "the primary calendar answered without an id")
   const owner = { id: calendar, label: calendar }
   const scope = scopeOf(request, calendar)
-  let state: Sync = request.cursor === undefined ? { k: "s", y: "", w: startTime(request, now), t: startTime(request, now), n: 0 } : stateOf(request.cursor, account, calendar)
+  // A first full sync reads from `since`, but never further back than contract 2 allows; a shorter window is a gap.
+  const wanted = startTime(request, now)
+  const floor = now - GAP_FLOOR_MS
+  const truncated = wanted < floor
+  let gap: EventsGap | undefined = truncated ? { reason: "window-truncated", since: new Date(floor).toISOString() } : undefined
+  let state: Sync =
+    request.cursor === undefined
+      ? { k: "s", y: "", w: truncated ? floor : wanted, t: truncated ? floor : wanted, n: 0 }
+      : stateOf(request.cursor, account, calendar)
   const identity = { source: CALENDAR_SOURCE, account, owner, scope, setup: CALENDAR_SETUP }
   // Contract 2's owner-only call: the identity and the scope options, and no events read.
-  if (request.limit === 0) return eventsListResult(identity, [], encodeCursor(CALENDAR_SOURCE, { a: account, o: digest(calendar), ...state }), false)
+  if (request.limit === 0) return eventsListResult(identity, [], encodeCursor(CALENDAR_SOURCE, { a: account, o: digest(calendar), ...state }), false, gap)
 
   const listed: Array<{ event: SourceEvent; after: Sync }> = []
   let resynced = false
@@ -196,7 +208,9 @@ export async function calendarEvents(runtime: Pick<Runtime, "read">, account: st
       if (state.y !== "" && GwsError.from(error)?.status === 410) {
         if (resynced) throw error
         resynced = true
-        state = { k: "s", y: "", w: state.t, t: state.t, n: 0 }
+        const from = Math.max(state.t, now - GAP_FLOOR_MS)
+        gap = { reason: "sync-token-expired", since: new Date(from).toISOString() }
+        state = { k: "s", y: "", w: from, t: from, n: 0 }
         continue
       }
       throw error
@@ -238,5 +252,5 @@ export async function calendarEvents(runtime: Pick<Runtime, "read">, account: st
   } else {
     more = state.p !== undefined
   }
-  return eventsListResult(identity, oldestFirst(listed.slice(0, kept).map((item) => item.event)), encodeCursor(CALENDAR_SOURCE, { a: account, o: digest(calendar), ...state }), more)
+  return eventsListResult(identity, oldestFirst(listed.slice(0, kept).map((item) => item.event)), encodeCursor(CALENDAR_SOURCE, { a: account, o: digest(calendar), ...state }), more, gap)
 }

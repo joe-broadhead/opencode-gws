@@ -103,6 +103,20 @@ async function harness(overrides: Record<string, unknown> = {}, assert: (request
 
 const ids = (result: EventsListResult) => result.events.map((event) => event.external_id)
 
+/**
+ * Memory's recording session: the rules are exactly `grants`, so an assert outside them fails as the real session would.
+ * A grant on `*` matches any resource; an `{account}:<operation>` grant is exact, with the account alias bound.
+ */
+function recording(grants: ReadonlyArray<{ action: string; resource: string }>) {
+  const requests: PermissionRequest[] = []
+  const assert = async (request: PermissionRequest) => {
+    requests.push(request)
+    const declared = grants.some((grant) => grant.action === request.action && (grant.resource === "*" || grant.resource === request.resources[0]))
+    if (!declared) throw new Error(`undeclared action: ${request.action} on ${request.resources.join(" ")}`)
+  }
+  return { requests, assert }
+}
+
 describe("gws_events_list keeps the shared contract", () => {
   it("passes the conformance check over the synthetic mailbox, page by page", async () => {
     const { list } = await harness()
@@ -128,15 +142,40 @@ describe("gws_events_list keeps the shared contract", () => {
     await expect(list({ since: SINCE, source: "Gmail" })).rejects.toThrow(/^GWS_VALIDATION_ERROR: "source" must be a source's name/)
   })
 
+  it("asserts exactly the identity grants on the owner-only call, and no other read", async () => {
+    const identity = recording([
+      { action: "gws.events_list", resource: "*" },
+      { action: "gws.read", resource: `personal:${GMAIL_READS[0]}` },
+    ])
+    const { list } = await harness({}, identity.assert)
+    await list({ limit: 0, since: SINCE })
+    expect(identity.requests.map((request) => [request.action, request.resources])).toEqual([
+      ["gws.events_list", ["personal:gmail.users.history.list"]],
+      ["gws.read", [`personal:${GMAIL_READS[0]}`]],
+    ])
+    // A listing needs the other reads, so under the identity grants alone it is refused before any of them runs.
+    const listed = await harness({}, identity.assert)
+    await expect(listed.list({ since: SINCE, limit: 1 })).rejects.toThrow(/undeclared action/)
+  })
+
+  it("asserts exactly the source grants on a listing", async () => {
+    const source = recording([
+      { action: "gws.events_list", resource: "*" },
+      ...GMAIL_READS.map((operation) => ({ action: "gws.read", resource: `personal:${operation}` })),
+    ])
+    const { list } = await harness({}, source.assert)
+    expect(ids(await list({ since: SINCE, limit: 1 }))).toEqual([LISTED[0]])
+  })
+
   it("answers the owner-only call with the owner, a cursor and no message, and refuses a scope Gmail does not have", async () => {
     const { asserted, list } = await harness()
     const ownerOnly = await list({ limit: 0, since: SINCE })
     expect(ownerOnly).toMatchObject({ source: "gmail", account: "personal", owner: OWNER, scope: {}, setup: GMAIL_SETUP, events: [], more: false, trust: "untrusted" })
     expect(resultProblems(ownerOnly, 0)).toEqual([])
-    // The identity read still runs, and none of the message reads.
+    // The identity read is the only read asserted, and the only one run: the manifest's identity grants are exact.
     expect(asserted.map((request) => [request.action, request.resources])).toEqual([
       ["gws.events_list", ["personal:gmail.users.history.list"]],
-      ...GMAIL_READS.map((operation) => ["gws.read", [`personal:${operation}`]]),
+      ["gws.read", [`personal:${GMAIL_READS[0]}`]],
     ])
     // The cursor it answers lists the mailbox from the same place.
     expect(ids(await list({ cursor: ownerOnly.cursor }))).toEqual(LISTED)
@@ -247,6 +286,18 @@ describe("after the first listing", () => {
     const next = await list({ cursor: first.cursor })
     expect(ids(next)).toEqual(["18f0000000000021"])
     expect(await list({ cursor: next.cursor })).toMatchObject({ events: [], more: false })
+  })
+
+  it("answers a gap when Gmail no longer keeps the cursor's history id", async () => {
+    const { list } = await harness()
+    const first = await list({ since: SINCE })
+    deliver([{ id: "18f0000000000040", at: "2026-11-03T09:00:00Z" }])
+    save({ ...mailbox(), historyStart: mailbox().historyId })
+    const next = await list({ cursor: first.cursor })
+    // The listing searched again from the last event it saw, and says so: Memory resyncs once and records the gap.
+    expect(next.gap).toMatchObject({ reason: "cursor-invalid", since: expect.stringMatching(/Z$/) })
+    expect(resultProblems(next)).toEqual([])
+    expect(ids(next)).toContain("18f0000000000040")
   })
 
   it("searches again from the last event when Gmail no longer keeps the history id", async () => {
