@@ -12,7 +12,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - The tools RPC resolves a method's own resource (`<account>:<operation>`) before dispatch, with the direct tool path's account defaulting, and refuses a call that names no account, no operation or an unknown one. A session that allows `gws.read` on one operation no longer allows every gws read: another operation, another account, and a missing account are all refused.
 
-- `package.json` declares the plugin's Memory connector under `memory` (schema v2): each source's grants as exactly the reads its `events_list` call asserts, each source's own identity, the connector's direct `calendar.events.list` read with `operationScoped: true`, a `calendars` scope, and two DSL job templates. It passes Memory's connector kit at 4008 bytes of compact JSON. See [Memory](docs/memory.md).
+- `package.json` declares the plugin's Memory connector under `memory` (schema v2): each source's grants as exactly the reads its `events_list` call asserts, each source's own identity, the connector's direct `calendar.events.list` read with `operationScoped: true`, a `calendars` scope, and two DSL job templates. It passes Memory's connector kit (schema v2, Memory Jobs design revision 7) at 3,812 bytes of compact JSON. See [Memory](docs/memory.md).
 
 - The fake gws answers Calendar from `FAKE_GWS_CALENDAR`: the primary calendar's identity, paged listings, sync tokens, an expired token's 410, and cancelled events.
 

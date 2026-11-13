@@ -93,7 +93,8 @@ describe("the memory declaration", () => {
   })
 
   it("declares Gmail's identity grants as exactly what limit 0 asserts: events_list and getProfile only", () => {
-    expect(source(GMAIL_SOURCE).identity).toMatchObject({ method: "events_list", input: { source: GMAIL_SOURCE, limit: 0 }, grants: identityGrants(GMAIL_READS[0]), account: "$.owner.id" })
+    // The answer's `account` is the plugin's account alias and `owner.id` the address: the identity's account is `$.account`.
+    expect(source(GMAIL_SOURCE).identity).toMatchObject({ method: "events_list", input: { source: GMAIL_SOURCE, limit: 0 }, grants: identityGrants(GMAIL_READS[0]), account: "$.account" })
   })
 
   it("declares the Calendar source's grants as exactly the reads its events_list asserts", () => {
