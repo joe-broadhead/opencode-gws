@@ -142,21 +142,40 @@ export interface PlanView {
   readonly preview: { readonly method: string; readonly url?: string | null; readonly account: string; readonly category: string }
 }
 
-const quoted = (value: string | number | boolean) => JSON.stringify(value)
+/**
+ * Characters that could make one field look like several preview lines, or reorder what the person reads: control
+ * characters (a newline among them), the line and paragraph separators (U+2028, U+2029), and the bidi marks,
+ * embeddings, overrides and isolates (U+200E, U+200F, U+202A to U+202E, U+2066 to U+2069). Jelly's `plain()` keeps
+ * the text as it is, so the preview writes each as a visible `\uXXXX` escape.
+ */
+function spoofing(code: number): boolean {
+  return code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x200e || code === 0x200f || code === 0x2028 || code === 0x2029 || (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069)
+}
+
+/** A field as the preview shows it: one line, in reading order, whatever it holds. */
+const plain = (value: string) =>
+  Array.from(value, (char) => {
+    const code = char.codePointAt(0)!
+    return spoofing(code) ? `\\u${code.toString(16).padStart(4, "0")}` : char
+  }).join("")
+
+/** A value the agent wrote (an id, a range, a cell), quoted, on one line, in reading order. */
+const quoted = (value: string | number | boolean) => plain(JSON.stringify(value))
 
 /**
  * The preview a person confirms: gws's plan of the exact change (category, account, method and address) and every
- * cell it writes, in order. The values are the input's own, shown to the person and never logged. A preview over
+ * cell it writes, in order. Every field is one line in reading order (`plain`, `quoted`), so nothing the agent wrote
+ * can add, fake or reorder a line. The values are the input's own, shown to the person and never logged. A preview over
  * Jelly's cap is refused rather than cut short, so nobody approves cells they could not see.
  */
 export function previewText(plan: PlanView, change: UiChange): string {
   const dimension = change.body.majorDimension ?? "ROWS"
   const lines = [
-    `gws plan (a dry run; nothing has changed yet): ${plan.category} · ${change.operation}`,
-    `Account: ${plan.preview.account}`,
-    `Request: ${plan.preview.method} ${plan.preview.url ?? ""}`.trimEnd(),
-    `Spreadsheet: ${change.params.spreadsheetId}`,
-    `Range: ${change.params.range}`,
+    `gws plan (a dry run; nothing has changed yet): ${plain(plan.category)} · ${plain(change.operation)}`,
+    `Account: ${plain(plan.preview.account)}`,
+    `Request: ${plain(plan.preview.method)} ${plain(plan.preview.url ?? "")}`.trimEnd(),
+    `Spreadsheet: ${quoted(change.params.spreadsheetId)}`,
+    `Range: ${quoted(change.params.range)}`,
     "Values are stored exactly as written (RAW), never as formulas.",
     `${dimension === "ROWS" ? "Rows" : "Columns"} to write (${change.body.values.length}):`,
     ...change.body.values.map((row, index) => `${index + 1}. ${row.length === 0 ? "(empty)" : row.map(quoted).join(" | ")}`),

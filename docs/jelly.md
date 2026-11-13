@@ -188,9 +188,16 @@ because Jelly's `{count}` is how many rows the person picked, not how many cells
 rule that denies `gws.plan` also stops the preview. Given the same input, it runs gws's own plan path (the account,
 the service, every policy rule, the admin gate and the recipient rules) and `gws --dry-run`, stores no plan, and
 answers in words: the category and operation, the account, the method and address, the spreadsheet and range, and
-every cell it writes, row by row. Those values are the input's own; they are shown to the person, never logged or
-audited. When the words would be over the 4,000 characters Jelly's confirmation shows, the preview refuses rather
-than cut them short, and Jelly then offers only Not now.
+every cell it writes, row by row. Each field the agent wrote stays on its own line in reading order: the spreadsheet,
+the range and every cell are quoted, and a control character, a line or paragraph separator (U+2028, U+2029) or a
+bidi mark, embedding, override or isolate is shown as a visible `\uXXXX` escape, so a field cannot fake or reorder
+a line. Those values are the input's own; they are shown to the person, never logged or audited. When the words would
+be over the 4,000 characters Jelly's confirmation shows, the preview refuses rather than cut them short, and Jelly
+then offers only Not now.
+
+The preview is a dry run: it needs no grant, changes nothing, and writes no audit record. Like `calendar.today` and
+`images.read`, any client of the OpenCode server can call it; it still refuses when `uiActions` does not list the
+operation or `access` is `read-only`.
 
 **The action.** Jelly's core plugin calls `act.commit` on the RPC named after the package with `{ input, grant }`. In
 order, the plugin:
@@ -198,11 +205,11 @@ order, the plugin:
 1. checks Jelly's grant, as Jelly's own verifier does: Jelly's action key (published in the engine), this plugin,
    the action `commit`, the digest of exactly this input, at most 60 seconds old, and never used before; and the
    class must be `local`. In stock OpenCode there is no Jelly key, so nothing can take the action;
-2. refuses when `uiActions` does not list the operation (`UI_ACTION_OFF`), or `access` is `read-only`
-   (`UI_ACTION_REFUSED`); at `ask-changes` it runs, because the person's every-time confirmation is the ask;
-3. refuses any operation but `sheets.spreadsheets.values.update`, `USER_ENTERED` (a value would be read as a
+2. refuses any operation but `sheets.spreadsheets.values.update`, `USER_ENTERED` (a value would be read as a
    formula, and a formula can send the sheet's contents elsewhere), any extra field, and more than 100 rows of 26
    cells (`UI_ACTION_REFUSED`);
+3. refuses when `uiActions` does not list the operation (`UI_ACTION_OFF`), or `access` is `read-only`
+   (`UI_ACTION_REFUSED`); at `ask-changes` it runs, because the person's every-time confirmation is the ask;
 4. plans the change as the person, in a plan bound to this grant alone, through the same path as `gws_plan`, and
    commits it, single-use, as `gws_write` does;
 5. answers what Google says changed: `{ account, operation, spreadsheetId, updatedRange, updatedRows,
@@ -211,6 +218,12 @@ order, the plugin:
 Every call, refused ones included, writes a `ui.act` audit record with `caller: "person"`, the Jelly member whose
 device approved it (`member`, the grant's `mbr`) and the grant's id (`grant`, its `jti`); the plan and commit
 records carry the same three. No record holds the values, the spreadsheet or the range.
+
+**Whose rules apply.** On this path the person is acting, not an agent. The plugin's own settings apply: `access`
+(read-only refuses), `uiActions`, the policy rules and the admin gate. The person's OpenCode permission rules for
+agents are not consulted, because no agent or session makes the call: a rule of their own that denies or asks for
+`gws_write` (or `gws.write`) holds an agent's commits, not this one. To stop it, leave `uiActions` empty, set
+`access` to `read-only`, or add a policy rule that denies the change.
 
 What the plugin cannot check yet, and has asked Jelly for:
 

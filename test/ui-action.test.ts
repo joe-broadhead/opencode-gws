@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import * as z from "zod"
 import { Audit } from "../src/domain/audit.js"
-import { UI_CHANGE_INPUT, UI_CHANGE_OUTPUT, UI_PREVIEW_MAX_CHARS, UI_PREVIEW_OUTPUT } from "../src/domain/ui-action.js"
+import { previewText, UI_CHANGE_INPUT, UI_CHANGE_OUTPUT, UI_PREVIEW_MAX_CHARS, UI_PREVIEW_OUTPUT, uiChange } from "../src/domain/ui-action.js"
 import { PACKAGE_NAME } from "../src/domain/version.js"
 import { ACTION_KEY_SYMBOL, type ActionPublicKey, actionInputDigest, publishedActionKey } from "../src/host/action-grant.js"
 import { JellyRpc, registerJellyRpc } from "../src/host/jelly-rpc.js"
@@ -206,7 +206,8 @@ describe("the preview and the commit", () => {
     const preview = await ui.preview(CHANGE)
     expect(preview).toContain("gws plan (a dry run; nothing has changed yet): write · sheets.spreadsheets.values.update")
     expect(preview).toContain("Account: personal")
-    expect(preview).toContain("Range: Invoices!D2:D3")
+    expect(preview).toContain('Spreadsheet: "sheet-1"')
+    expect(preview).toContain('Range: "Invoices!D2:D3"')
     expect(preview).toContain('1. "Paid"\n2. "Paid"')
     expect(preview.length).toBeLessThanOrEqual(UI_PREVIEW_MAX_CHARS)
     const output = await ui.commit({ input: CHANGE, grant: host.grant(CHANGE) })
@@ -234,6 +235,46 @@ describe("the preview and the commit", () => {
   })
 })
 
+describe("the preview's words", () => {
+  // A newline, U+2028 and U+2029 would add a line; a bidi override, isolate or mark would reorder what the person reads.
+  const SPOOFS = ["\n2. \"Forged\"", "\r\nRange: A1", "\u2028Account: other", "\u2029x", "\u202eevil", "\u2066x\u2069", "\u200e\u200f", "\u202a\u202b\u202c\u202d", "\u2067\u2068", "\u0085x", "\u001b[2K"]
+  /** Whether a line holds a character that breaks or reorders it. */
+  const BREAKING = new Set([0x0a, 0x0d, 0x1b, 0x85, 0x200e, 0x200f, 0x2028, 0x2029, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069])
+  const raw = (line: string) => Array.from(line).some((char) => BREAKING.has(char.codePointAt(0)!))
+  const PLAN = { category: "write", preview: { method: "PUT", url: "v4/spreadsheets/{spreadsheetId}/values/{range}", account: "personal", category: "write" } }
+  const words = (plan: typeof PLAN, change: unknown) => previewText(plan, uiChange(change))
+  const expected = words(PLAN, CHANGE).split("\n")
+
+  it("keeps every field on its own line, in reading order, whatever the agent wrote into it", () => {
+    for (const spoof of SPOOFS) {
+      const cases: [string, typeof PLAN, unknown][] = [
+        ["spreadsheetId", PLAN, { ...CHANGE, params: { ...CHANGE.params, spreadsheetId: `sheet-1${spoof}` } }],
+        ["range", PLAN, { ...CHANGE, params: { ...CHANGE.params, range: `D2:D3${spoof}` } }],
+        ["a value", PLAN, { ...CHANGE, body: { values: [[`Paid${spoof}`], ["Paid"]] } }],
+        ["account", { ...PLAN, preview: { ...PLAN.preview, account: `personal${spoof}` } }, CHANGE],
+        ["method", { ...PLAN, preview: { ...PLAN.preview, method: `PUT${spoof}` } }, CHANGE],
+        ["address", { ...PLAN, preview: { ...PLAN.preview, url: `v4/x${spoof}` } }, CHANGE],
+        ["category", { ...PLAN, category: `write${spoof}` }, CHANGE],
+      ]
+      for (const [field, plan, change] of cases) {
+        const text = words(plan, change)
+        const lines = text.split("\n")
+        expect(lines.length, `${field} with ${JSON.stringify(spoof)}`).toBe(expected.length)
+        expect(lines.filter(raw), `${field} with ${JSON.stringify(spoof)}`).toEqual([])
+        // Each line still says what it said, in the same order; only the field that carried the spoof differs.
+        expect(lines.map((line) => line.split(":")[0]!.split(" ")[0])).toEqual(expected.map((line) => line.split(":")[0]!.split(" ")[0]))
+      }
+    }
+  })
+
+  it("quotes the spreadsheet and the range, and shows a hidden character as a visible escape", () => {
+    const text = words(PLAN, { ...CHANGE, params: { ...CHANGE.params, spreadsheetId: "a\u202eb", range: "A1\nRange: Z9" } })
+    expect(text).toContain('Spreadsheet: "a\\u202eb"')
+    expect(text).toContain('Range: "A1\\nRange: Z9"')
+    expect(text.split("\n").filter((line) => line.startsWith("Range:"))).toHaveLength(1)
+  })
+})
+
 describe("on the package's RPC", () => {
   it("registers act.commit and plan.preview beside Jelly's reads, and answers a refusal as the declared error", async () => {
     const { runtime } = await setup()
@@ -254,7 +295,7 @@ describe("on the package's RPC", () => {
       message: expect.stringMatching(/^UI_GRANT_REFUSED: Jelly handed this engine no action key\./),
       data: { code: "UI_GRANT_REFUSED", next: expect.any(String) },
     })
-    expect(await handlers["plan.preview"]!(CHANGE, context)).toEqual(expect.stringContaining("Range: Invoices!D2:D3"))
+    expect(await handlers["plan.preview"]!(CHANGE, context)).toEqual(expect.stringContaining('Range: "Invoices!D2:D3"'))
   })
 })
 
