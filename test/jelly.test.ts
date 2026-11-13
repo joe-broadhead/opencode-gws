@@ -38,10 +38,10 @@ describe("the jelly declaration", () => {
       registered: [...READS, ...CHANGING_ACTIONS],
       actionPermissions: true,
     })
-    // The shared kit's key list predates Jelly's `nativeData`, `imageHosts` and `imageRead` (hey-jelly
-    // protocol/contracts/src/plugin-contract.ts, `PluginDeclarationSchema`); test/calendar.test.ts and
-    // test/images.test.ts hold those fields to Jelly's rules. Any other problem fails.
-    const newer = ["nativeData", "imageHosts", "imageRead"].map((key) => `jelly.${key} is not a key Jelly knows`)
+    // The shared kit's key list predates Jelly's `nativeData`, `imageHosts`, `imageRead` and `actions` (hey-jelly
+    // protocol/contracts/src/plugin-contract.ts, `PluginDeclarationSchema`); test/calendar.test.ts,
+    // test/images.test.ts and test/ui-action.test.ts hold those fields to Jelly's rules. Any other problem fails.
+    const newer = ["nativeData", "imageHosts", "imageRead", "actions"].map((key) => `jelly.${key} is not a key Jelly knows`)
     expect(problems.filter((problem) => !newer.includes(problem))).toEqual([])
   })
 
