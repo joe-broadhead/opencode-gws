@@ -529,6 +529,26 @@ describe("images.read", () => {
     expect((await read(THUMB)).mime).toBe("image/png")
   })
 
+  it("counts a read abandoned at its deadline against the limit until its work settles", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    const fake = fakeRuntime()
+    const held: (() => void)[] = []
+    let hold = true
+    // A fetch that ignores its signal: the work goes on after the deadline answers.
+    const impl = (async () => {
+      if (hold) await new Promise<void>((resolve) => held.push(resolve))
+      return new Response(PNG)
+    }) as unknown as typeof fetch
+    const read = imagesRead(fake.runtime, { fetchImpl: impl })
+    const pending = Array.from({ length: IMAGE_CONCURRENCY }, () => read(THUMB).catch((error: Error) => error.message))
+    await vi.advanceTimersByTimeAsync(IMAGE_DEADLINE_MS)
+    for (const answer of await Promise.all(pending)) expect(answer).toMatch(/^TIMEOUT: /)
+    await expect(read(THUMB)).rejects.toThrow(/^IMAGE_UNAVAILABLE: 4 pictures are already being read/)
+    hold = false
+    for (const release of held) release()
+    await vi.waitFor(async () => expect((await read(THUMB)).mime).toBe("image/png"))
+  })
+
   it("gives up after its deadline, inside Jelly's ten seconds", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     const fake = fakeRuntime()

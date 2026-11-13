@@ -101,7 +101,6 @@ export function imagesRead(runtime: Reader, options: ImagesOptions = {}) {
       audit("error", "IMAGE_UNAVAILABLE")
       throw new GwsError("IMAGE_UNAVAILABLE", `${IMAGE_CONCURRENCY} pictures are already being read`, { next: "Retry in a moment." })
     }
-    active++
     const deadline = new AbortController()
     const composed = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -115,10 +114,16 @@ export function imagesRead(runtime: Reader, options: ImagesOptions = {}) {
     try {
       throwIfCancelled(signal)
       const url = imageUrl(address)
-      const work = (isDriveLink(url) ? drive(url, composed) : hosted(url, composed)).then((read) => {
-        account = read.account
-        return imageAnswer(read.bytes)
-      })
+      // A read counts against the limit until its work settles, even after the deadline has answered for it.
+      active++
+      const work = (isDriveLink(url) ? drive(url, composed) : hosted(url, composed))
+        .then((read) => {
+          account = read.account
+          return imageAnswer(read.bytes)
+        })
+        .finally(() => {
+          active--
+        })
       work.catch(() => undefined)
       const answer = await Promise.race([work, late])
       audit("success")
@@ -128,7 +133,6 @@ export function imagesRead(runtime: Reader, options: ImagesOptions = {}) {
       throw error
     } finally {
       clearTimeout(timer)
-      active--
     }
   }
 }
