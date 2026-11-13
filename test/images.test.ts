@@ -211,14 +211,33 @@ describe("the addresses Google returned", () => {
     expect(sources.accounts(new URL(THUMB)).sort()).toEqual(["home", "work"])
   })
 
+  it("are only the fields Google produces, never text someone wrote", () => {
+    const sources = new ImageSources()
+    const link = (name: string) => `https://lh3.googleusercontent.com/${name}`
+    sources.record("work", {
+      description: link("description"),
+      values: [[link("cell")]],
+      body: { content: [{ paragraph: { elements: [{ textRun: { content: link("text") } }] } }] },
+      pageElements: [{ image: { sourceUrl: link("source"), contentUrl: link("slides") } }],
+      inlineObjects: { k: { inlineObjectProperties: { embeddedObject: { imageProperties: { contentUri: link("docs") } } } } },
+      owners: [{ photoLink: link("owner") }],
+      photos: [{ url: link("person") }],
+      links: [{ url: link("link") }],
+      thumbnailPhotoUrl: link("directory"),
+    })
+    const seen = (name: string) => sources.accounts(new URL(link(name)))
+    for (const name of ["slides", "docs", "owner", "person", "directory"]) expect(seen(name), name).toEqual(["work"])
+    for (const name of ["description", "cell", "text", "source", "link"]) expect(seen(name), name).toEqual([])
+  })
+
   it("are forgotten after an hour, and at most SOURCE_MAX are kept, the least recently seen dropped", () => {
     let now = 0
     const sources = new ImageSources(() => now)
-    sources.record("work", THUMB)
+    sources.record("work", { thumbnailLink: THUMB })
     now = SOURCE_TTL_MS + 1
     expect(sources.accounts(new URL(THUMB))).toEqual([])
     const link = (index: number) => `https://lh3.googleusercontent.com/p/${index}`
-    sources.record("work", Array.from({ length: SOURCE_MAX + 5 }, (_, index) => link(index)))
+    sources.record("work", { files: Array.from({ length: SOURCE_MAX + 5 }, (_, index) => ({ thumbnailLink: link(index) })) })
     expect(sources.size).toBe(SOURCE_MAX)
     expect(sources.accounts(new URL(link(0)))).toEqual([])
     expect(sources.accounts(new URL(link(SOURCE_MAX + 4)))).toEqual(["work"])

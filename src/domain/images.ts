@@ -125,6 +125,20 @@ export function tooLarge(): GwsError {
 export const SOURCE_TTL_MS = 60 * 60 * 1000
 export const SOURCE_MAX = 1000
 const WALK_MAX = 20_000
+/**
+ * The fields in which Google's APIs return an address they produced for a picture or a file: Drive's `thumbnailLink`,
+ * `iconLink`, `webViewLink`, `webContentLink` and a user's `photoLink`; Docs' `contentUri`; Slides' `contentUrl` (not
+ * `sourceUrl`, which is whatever address the author inserted); the Directory's `thumbnailPhotoUrl`.
+ */
+export const PICTURE_FIELDS = ["thumbnailLink", "iconLink", "webViewLink", "webContentLink", "photoLink", "contentUri", "contentUrl", "thumbnailPhotoUrl"] as const
+
+/** Whether a string under `key`, in an object inside `parent`, is a picture address Google produced. */
+function pictureField(key: string | undefined, parent: string | undefined): boolean {
+  if (key === undefined) return false
+  if ((PICTURE_FIELDS as readonly string[]).includes(key)) return true
+  // People: photos[].url and coverPhotos[].url.
+  return key === "url" && (parent === "photos" || parent === "coverPhotos")
+}
 
 /**
  * The picture addresses Google returned to each account in this process, from the answers of its reads: an address
@@ -137,17 +151,21 @@ export class ImageSources {
 
   constructor(private readonly now: () => number = Date.now) {}
 
-  /** Remember every picture address in a read's answer as returned to `account`. */
+  /**
+   * Remember the picture addresses Google itself produced in a read's answer, as returned to `account`: only the
+   * fields in PICTURE_FIELDS (and `url` inside People's `photos` or `coverPhotos`), never a string someone wrote,
+   * such as a document's text, a cell or an event's description.
+   */
   record(account: string, data: unknown): void {
     let budget = WALK_MAX
-    const walk = (value: unknown, depth: number): void => {
+    const walk = (value: unknown, key: string | undefined, parent: string | undefined, depth: number): void => {
       if (budget-- <= 0 || depth > 32) return
       if (typeof value === "string") {
-        if (value.startsWith("https://") && value.length <= IMAGE_URL_MAX) this.add(account, value)
-      } else if (Array.isArray(value)) for (const item of value) walk(item, depth + 1)
-      else if (value !== null && typeof value === "object") for (const item of Object.values(value)) walk(item, depth + 1)
+        if (pictureField(key, parent) && value.length <= IMAGE_URL_MAX) this.add(account, value)
+      } else if (Array.isArray(value)) for (const item of value) walk(item, undefined, key, depth + 1)
+      else if (value !== null && typeof value === "object") for (const [name, item] of Object.entries(value)) walk(item, name, key ?? parent, depth + 1)
     }
-    walk(data, 0)
+    walk(data, undefined, undefined, 0)
   }
 
   /** The accounts Google returned this address to, within the last hour. */
