@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { z } from "zod"
 import { EventsListInput, EventsListOutput } from "../src/domain/contract.js"
 import { EVENT_LIMITS, type EventsListInput as Input, type EventsListResult, PAGE, assertEventsListConformance, encodeCursor, resultProblems } from "../src/host/events-list.js"
-import { EVENT_READS, GMAIL_SOURCE } from "../src/host/gmail-events.js"
+import { GMAIL_READS, GMAIL_SOURCE, GMAIL_SETUP } from "../src/host/gmail-events.js"
 import type { PermissionRequest } from "../src/host/permissions.js"
 import { type Call, parse, toolSpecs } from "../src/host/tools.js"
 import type { Runtime } from "../src/runtime/index.js"
@@ -119,13 +119,28 @@ describe("gws_events_list keeps the shared contract", () => {
     await assertEventsListConformance(list, { source: GMAIL_SOURCE, account: "personal", owner: OWNER, since: SINCE, expected: LISTED, sourceInput: true })
   })
 
-  it("names the source and account on an empty first page, and refuses any source but gmail", async () => {
+  it("names the source and account on an empty first page, and refuses a source the plugin does not have", async () => {
     const { list } = await harness()
-    expect(await list({ since: "2026-12-01T00:00:00Z" })).toMatchObject({ source: "gmail", account: "personal", owner: OWNER, events: [], more: false })
-    await expect(list({ since: SINCE, source: "calendar" })).rejects.toThrow(
-      /^GWS_VALIDATION_ERROR: The source 'calendar' is not available: events_list lists Gmail only, until Calendar and Drive are added\. Next step: Call events_list without source, or with source "gmail"\.$/,
+    expect(await list({ since: "2026-12-01T00:00:00Z" })).toMatchObject({ source: "gmail", account: "personal", owner: OWNER, scope: {}, setup: GMAIL_SETUP, events: [], more: false })
+    await expect(list({ since: SINCE, source: "drive" })).rejects.toThrow(
+      /^GWS_VALIDATION_ERROR: The source 'drive' is not available: events_list lists gmail and calendar\. Next step: Call events_list without source, or with source "gmail" or "calendar"\.$/,
     )
-    await expect(list({ since: SINCE, source: "Drive" })).rejects.toThrow(/^GWS_VALIDATION_ERROR: "source" must be a source's name/)
+    await expect(list({ since: SINCE, source: "Gmail" })).rejects.toThrow(/^GWS_VALIDATION_ERROR: "source" must be a source's name/)
+  })
+
+  it("answers the owner-only call with the owner, a cursor and no message, and refuses a scope Gmail does not have", async () => {
+    const { asserted, list } = await harness()
+    const ownerOnly = await list({ limit: 0, since: SINCE })
+    expect(ownerOnly).toMatchObject({ source: "gmail", account: "personal", owner: OWNER, scope: {}, setup: GMAIL_SETUP, events: [], more: false, trust: "untrusted" })
+    expect(resultProblems(ownerOnly, 0)).toEqual([])
+    // The identity read still runs, and none of the message reads.
+    expect(asserted.map((request) => [request.action, request.resources])).toEqual([
+      ["gws.events_list", ["personal:gmail.users.history.list"]],
+      ...GMAIL_READS.map((operation) => ["gws.read", [`personal:${operation}`]]),
+    ])
+    // The cursor it answers lists the mailbox from the same place.
+    expect(ids(await list({ cursor: ownerOnly.cursor }))).toEqual(LISTED)
+    await expect(list({ limit: 0, scope: { calendars: ["primary"] } })).rejects.toThrow(/^GWS_VALIDATION_ERROR: Gmail has no scope/)
   })
 
   it("states the contract's limits in its schemas", () => {
@@ -187,7 +202,7 @@ describe("the events", () => {
     await list({ since: SINCE, limit: 1 })
     expect(asserted.map((request) => [request.action, request.resources])).toEqual([
       ["gws.events_list", ["personal:gmail.users.history.list"]],
-      ...EVENT_READS.map((operation) => ["gws.read", [`personal:${operation}`]]),
+      ...GMAIL_READS.map((operation) => ["gws.read", [`personal:${operation}`]]),
     ])
     expect(asserted.every((request) => request.source?.type === "tool")).toBe(true)
 

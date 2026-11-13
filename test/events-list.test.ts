@@ -13,9 +13,10 @@ const event = (index: number, extra: Partial<Parameters<typeof makeEvent>[0]> = 
   makeEvent({ source: "demo", account: "work", external_id: `item-${index}`, kind: "message", occurred_at: T0 + index * 60_000, title: `Item ${index}`, text: `Text ${index}`, ...extra })
 
 const OWNER = { id: "mailto:sam@example.com", label: "sam@example.com" }
-const WHOSE = { source: "demo", account: "work", owner: OWNER }
+const SETUP = "Choose a folder to list."
+const WHOSE = { source: "demo", account: "work", owner: OWNER, scope: {}, setup: SETUP }
 
-type Broken = { skip?: boolean; anyCursor?: boolean; noLimit?: boolean; newestFirst?: boolean; anySource?: boolean; unnamedWhenEmpty?: boolean }
+type Broken = { skip?: boolean; anyCursor?: boolean; noLimit?: boolean; newestFirst?: boolean; anySource?: boolean; unnamedWhenEmpty?: boolean; noScope?: boolean }
 
 /** A correct in-memory source over `items`, and switches that break one rule each. */
 function source(items: readonly SourceEvent[], broken: Broken = {}) {
@@ -37,10 +38,14 @@ function source(items: readonly SourceEvent[], broken: Broken = {}) {
     }
     const page = items.slice(from, from + request.limit)
     const next = from + page.length + (broken.skip && page.length > 0 ? 1 : 0)
-    const result = eventsListResult(WHOSE, broken.newestFirst ? [...page].reverse() : page, encodeCursor("demo", { n: next }), next < items.length)
+    const result = eventsListResult({ ...WHOSE, scope: request.scope ?? {} }, broken.newestFirst ? [...page].reverse() : page, encodeCursor("demo", { n: next }), next < items.length)
     if (broken.unnamedWhenEmpty && page.length === 0) {
       const { source: _source, account: _account, ...unnamed } = result
       return unnamed
+    }
+    if (broken.noScope) {
+      const { scope: _scope, ...scopeless } = result
+      return scopeless
     }
     return result
   }
@@ -61,12 +66,25 @@ describe("input", () => {
     expect(problems({ query: "x" })).toEqual(['"query" is not an input of events_list'])
     expect(problems({ since: "2026-11-01T10:00" })).toHaveLength(1)
     expect(problems({ since: "2026-13-01" })).toHaveLength(1)
-    for (const limit of [0, 501, 1.5, "10"]) expect(problems({ limit }), String(limit)).toEqual(['"limit" must be an integer from 1 to 500'])
+    for (const limit of [-1, 501, 1.5, "10"]) expect(problems({ limit }), String(limit)).toEqual(['"limit" must be an integer from 0 to 500'])
+    expect(problems({ limit: 0 })).toBeUndefined()
     expect(problems({ cursor: "" })).toHaveLength(1)
     expect(problems({ account: "" })).toHaveLength(1)
     for (const source of ["", "Gmail", "g mail", 7]) expect(problems({ source }), String(source)).toEqual(['"source" must be a source\'s name, a lowercase word such as gmail'])
     expect(problems([])).toEqual(["the input must be an object"])
     expect(JSON.stringify(problems({ since: "secret-value" }))).not.toContain("secret-value")
+  })
+
+  it("reads a scope as ids under lowercase keys, and refuses anything else without echoing an id", () => {
+    const parsed = parseEventsListInput({ scope: { calendars: ["primary"] } })
+    expect(parsed).toEqual({ ok: true, value: { limit: PAGE.default, scope: { calendars: ["primary"] } } })
+    const problems = (scope: unknown) => (parseEventsListInput({ scope }) as { problems?: string[] }).problems
+    expect(problems({ Calendars: ["primary"] })).toEqual(['"scope" has the key "Calendars", which is not a lowercase word'])
+    expect(problems({ calendars: [] })).toEqual(['"scope".calendars must be a list of 1 to 64 ids'])
+    expect(problems({ calendars: ["a", "a"] })).toEqual(['"scope".calendars repeats an id'])
+    expect(problems({ calendars: [7] })?.[0]).toContain('"scope".calendars has an id')
+    expect(problems([])).toEqual(['"scope" must be an object of ids under the source\'s scope keys'])
+    expect(JSON.stringify(problems({ calendars: ["x".repeat(129)] }))).not.toContain("xxxxxxxxxx")
   })
 
   it("starts 24 hours back without since", () => {
@@ -136,11 +154,15 @@ describe("events", () => {
       'the result has the field "extra", which the contract does not define', expect.stringContaining("cursor"), expect.stringContaining("trust"),
     ])
     // Source and account are required, empty pages included, and every event names the same two.
-    expect(resultProblems({ owner: OWNER, events: [], cursor: "c", more: false, trust: "untrusted" })).toEqual([
+    expect(resultProblems({ owner: OWNER, scope: {}, setup: SETUP, events: [], cursor: "c", more: false, trust: "untrusted" })).toEqual([
       "the result's source must be a lowercase name such as gmail", expect.stringContaining("the result's account"),
     ])
     expect(resultProblems(eventsListResult({ ...WHOSE, account: "home" }, [event(1)], "c", false))).toEqual(["events[0] names another account than the result"])
     expect(resultProblems(eventsListResult({ ...WHOSE, source: "other" }, [event(1)], "c", false))).toEqual(["events[0] names another source than the result"])
+    // Contract 2: a scope and a setup line, whatever the source has to say.
+    expect(resultProblems({ ...WHOSE, scope: undefined, setup: SETUP, events: [], cursor: "c", more: false, trust: "untrusted" })).toEqual(['the result\'s scope must be an object of ids under the source\'s scope keys'])
+    expect(resultProblems({ ...WHOSE, scope: { Calendars: ["primary"] }, events: [], cursor: "c", more: false, trust: "untrusted" })).toEqual(['the result\'s scope has the key "Calendars", which is not a lowercase word'])
+    expect(resultProblems({ ...WHOSE, setup: "two\nlines", events: [], cursor: "c", more: false, trust: "untrusted" })).toEqual(["the result's setup must be one line of at most 300 characters"])
   })
 
   it("orders oldest first, keeping ties in order, and fits a page under the byte cap", () => {
@@ -169,16 +191,28 @@ describe("conformance", () => {
 
   it("catches a source that skips, ignores the limit, accepts any cursor, or lists newest first", async () => {
     expect(await eventsListConformance(source(items, { skip: true }), fixtures)).toContainEqual(expect.stringMatching(/^the pages of 2 list \[item-0, item-1, item-3/))
-    expect(await eventsListConformance(source(items, { noLimit: true }), fixtures)).toEqual(["a limit of 501 was not refused", "a limit of 0 was not refused"])
+    expect(await eventsListConformance(source(items, { noLimit: true }), fixtures)).toEqual(["a limit of 501 was not refused", "a limit of -1 was not refused"])
     expect(await eventsListConformance(source(items, { anyCursor: true }), fixtures)).toEqual(["a malformed cursor was not refused", "another source's cursor was not refused"])
     expect(await eventsListConformance(source(items, { anySource: true }), fixtures)).toEqual(["a source the plugin does not have was not refused"])
     // Both empty pages are caught: the one after the last cursor, and a first page from a since in the future.
     expect(await eventsListConformance(source(items, { unnamedWhenEmpty: true }), fixtures)).toEqual([
       "the last cursor: the result's source must be a lowercase name such as gmail", expect.stringContaining("the last cursor: the result's account"),
       "an empty first page: the result's source must be a lowercase name such as gmail", expect.stringContaining("an empty first page: the result's account"),
+      "the owner-only call: the result's source must be a lowercase name such as gmail", expect.stringContaining("the owner-only call: the result's account"),
     ])
     expect(await eventsListConformance(source(items, { newestFirst: true }), fixtures)).toContainEqual(expect.stringContaining("not oldest first"))
     await expect(assertEventsListConformance(source(items, { skip: true }), fixtures)).rejects.toThrow(/^events_list breaks the contract:\n- /)
+  })
+
+  it("catches a source without contract 2's scope echo", async () => {
+    expect(await eventsListConformance(source(items, { noScope: true }), fixtures)).toContainEqual("one call with the largest limit: the result's scope must be an object of ids under the source's scope keys")
+  })
+
+  it("checks the scope a source echoes, and passes a source whose scope is not empty", async () => {
+    const scoped = { ...fixtures, scope: { folders: ["inbox"] } }
+    expect(await eventsListConformance(source(items), scoped)).toEqual([])
+    const wrong = async (input: EventsListInput) => ({ ...(await source(items)(input)), scope: { folders: ["other"] } })
+    expect(await eventsListConformance(wrong, scoped)).toContainEqual(expect.stringContaining('the result echoes the scope {"folders":["other"]}'))
   })
 
   it("catches events from before since, another source or account, and a changing owner", async () => {

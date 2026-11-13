@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `gws_events_list` serves a second source, `calendar`: the primary calendar's events and their cancellations, for Memory. The first call is a full sync from `since`; after that it follows Google's `syncToken`, saving the page token mid-sync because `nextSyncToken` arrives only on the last page, and it starts a full sync again when Google answers 410 GONE for an expired token. Each event is a meeting with its organizer and attendees as `mailto:` ids, the start time, the description and location, and the event link; a cancelled event becomes a withdrawal with the same event id, `kind: "event"` and the `cancelled` label, so the meeting it retires is not kept beside it. It asserts `gws.events_list` on `calendar.events.list`, then `gws.read` on `calendar.calendarList.get` and `calendar.events.list`, and nothing wider.
+
+- `gws_events_list` speaks `events_list` contract 2: a `scope` input, echoed on every result, and `limit: 0`, the owner-only call that answers the owner, the setup line and the scope options and lists nothing. Gmail declares no scope keys, so a non-empty scope is refused.
+
+- `package.json` declares the plugin's Memory connector under `memory` (schema v2): the `gws.read` and `gws.events_list` grants each source asserts, the identity read, the `calendars` scope, contract 2 on both sources, and two job templates.
+
+- The fake gws answers Calendar from `FAKE_GWS_CALENDAR`: the primary calendar's identity, paged listings, sync tokens, an expired token's 410, and cancelled events.
+
 ## [0.0.2] - 2026-11-12
 
 ### Added

@@ -186,33 +186,39 @@ Two skills load automatically: `opencode-gws` (how the tools work: accounts, pla
 
 ## Events list
 
-`gws_events_list` (tools RPC method `events_list`) is Gmail's side of Memory's sources funnel: the shared `events_list` contract in `src/host/events-list.ts`, which every source plugin carries. Memory's collector calls it on a schedule, with no model and no one there.
+`gws_events_list` (tools RPC method `events_list`) is this plugin's side of Memory's sources funnel: the shared `events_list` contract in `src/host/events-list.ts`, which every source plugin carries, and contract 2. Memory's collector calls it on a schedule, with no model and no one there. It serves two sources: `gmail` and `calendar`.
 
 | Input | Default | Rule |
 | --- | --- | --- |
 | `since` | 24 hours ago | Where to start when there is no cursor: an ISO date (a UTC day) or an ISO date-time with `Z` or an offset. |
 | `cursor` | unset | The `cursor` of the previous result. It wins over `since`. A cursor from another account, another source, or the account before it signed in as another address is `CURSOR_INVALID`. |
-| `limit` | `100` | Events, 1–500. |
+| `limit` | `100` | Events, 0–500. **0 is the owner-only call** (contract 2): it answers the owner, the setup line and the scope options, lists nothing, and still makes only the identity read. |
 | `account` | the only account | The account alias, as for every tool. |
-| `source` | `gmail` | The source to list. Only `gmail` exists until Calendar and Drive are added; any other is `GWS_VALIDATION_ERROR`. |
+| `source` | `gmail` | `gmail` for messages, or `calendar` for the primary calendar's events. Any other is `GWS_VALIDATION_ERROR`. |
+| `scope` | `{}` | Contract 2: the ids to read under the source's scope keys, such as `{ "calendars": ["primary"] }`, and every result echoes it. Gmail declares no keys, so a non-empty scope is refused rather than echoed as if it narrowed the read. Calendar accepts `primary` or the account's own primary calendar id, one at a time. |
 
-The result is `{ source, account, owner, events, cursor, more, trust: "untrusted" }`. `source` is `gmail` and `account` the account alias on every result, an empty one included, so Memory can bind the source before it has anything to list. `owner` is `{ "id": "mailto:<address>", "label": "<address>" }`, the account's address from `gmail.users.getProfile`. Each event is one Gmail message:
+The result is `{ source, account, owner, scope, setup, events, cursor, more, trust: "untrusted" }`. `source` and `account` are on every result, an empty one included, so Memory can bind the source before it has anything to list. `scope` echoes what the call read, and `setup` is one line on what the person confirms first. Each event is one Gmail message or one Calendar event:
 
-| Field | Value |
-| --- | --- |
-| `source`, `kind` | `gmail`, `message`. |
-| `account` | The account alias. |
-| `external_id` | The message id. |
-| `occurred_at` | When Gmail received it (`internalDate`), in UTC. |
-| `thread`, `url` | `gmail-thread:<thread id>`, and `https://mail.google.com/mail/u/0/#all/<thread id>`. |
-| `actors` | Everyone in From, To, Cc and Bcc, with the header as the role, as `mailto:` ids, with display names when there are any; at most 20. |
-| `title` | The subject, at most 300 characters. |
-| `text` | The plain part, else the HTML part as text, else the snippet: without quoted lines, a quoted reply and its header ("On … wrote:", Outlook's "From: … Sent: …", "Original Message"), or the signature after `-- ` or "Sent from my …"; at most 4,096 characters. |
-| `labels` | Gmail's system labels it has: `inbox`, `sent`, `important`, `starred`, `unread`, `personal`, `updates`, `forums`. |
+| Field | Gmail (`source: "gmail"`) | Calendar (`source: "calendar"`) |
+| --- | --- | --- |
+| `owner` | `{ "id": "mailto:<address>", "label": "<address>" }`, from `gmail.users.getProfile`. | `{ "id": "<primary calendar id>", "label": "<id>" }`, from `calendar.calendarList.get` with `calendarId: "primary"` (a Calendar-only sign-in has no Gmail scope). |
+| `kind` | `message`. | `meeting`, or `event` for a cancellation. |
+| `external_id` | The message id. | The event id. |
+| `occurred_at` | When Gmail received it (`internalDate`), in UTC. | The event's start, all-day events at UTC midnight; a cancellation is when it was cancelled (`updated`). |
+| `thread`, `url` | `gmail-thread:<thread id>`, and `https://mail.google.com/mail/u/0/#all/<thread id>`. | `null`, and the event's `htmlLink`. |
+| `actors` | Everyone in From, To, Cc and Bcc, with the header as the role, as `mailto:` ids, with display names when there are any; at most 20. | The organizer (`organizer`) and each attendee (`self` for the signed-in account, else `attendee`), as `mailto:` ids with display names; at most 20. A cancellation has none. |
+| `title`, `text` | The subject; the plain part, else the HTML part as text, else the snippet, without quoted replies or a signature; at most 4,096 characters. | The summary; the description and location; at most 4,096 characters. A cancellation keeps the summary and has no text. |
+| `labels` | Gmail's system labels it has: `inbox`, `sent`, `important`, `starred`, `unread`, `personal`, `updates`, `forums`. | `calendar` and the event's status; a cancellation is `["calendar", "cancelled"]`. |
 
-Spam, trash, drafts, Promotions and Social are never events. The first listing (no cursor) notes the mailbox's history id, then searches `messages.list` for the messages after `since`, at most 10,000, and lists them oldest first. After that it follows `history.list` from the noted id, so a message that arrives meanwhile is listed too, at worst twice; Memory drops the repeat. When Gmail no longer keeps a cursor's history id, it searches again from the last event it listed. A message deleted after it was listed is skipped. The cursor holds where the listing stands, so calling again with an older cursor lists the same events again. A result stops early, with `more`, before its JSON passes 900,000 bytes.
+Spam, trash, drafts, Promotions and Social are never Gmail events. The first Gmail listing (no cursor) notes the mailbox's history id, then searches `messages.list` for the messages after `since`, at most 10,000, and lists them oldest first. After that it follows `history.list` from the noted id, so a message that arrives meanwhile is listed too, at worst twice; Memory drops the repeat. When Gmail no longer keeps a cursor's history id, it searches again from the last event it listed. A message deleted after it was listed is skipped.
 
-It only reads and never asks: it asserts `gws.events_list` on `<account>:gmail.users.history.list`, then `gws.read` on `<account>:<operation>` for `gmail.users.getProfile`, `gmail.users.history.list`, `gmail.users.messages.list` and `gmail.users.messages.get`, before any read runs. Each read passes the plugin's read policy and audit like a `gws_read`. A deny rule on `gws.events_list` turns it off without touching `gws_read`.
+The first Calendar listing is a full sync from `since`: one `calendar.events.list` walk with `timeMin`, `showDeleted: true` and `singleEvents: true`. After that it follows the `syncToken` Google answered, which lists what changed since. **`nextSyncToken` arrives only on the last page, so a run that stops early resumes from the page token — and the entry within that page — not from the sync token.** Google's **410 GONE** for an expired sync token starts a full sync again from the last event listed; Memory records the gap on the run. A cancelled event (`status: "cancelled"`, which `showDeleted` supplies) becomes a **withdrawal**: an event with the same `external_id`, `kind: "event"`, the `cancelled` label, no text and no actors, so a meeting page is retired rather than kept beside its cancellation.
+
+The cursor holds where the listing stands, so calling again with an older cursor lists the same events again. A result stops early, with `more`, before its JSON passes 900,000 bytes.
+
+It only reads and never asks, and it asserts exactly the source's reads before any of them runs. For Gmail: `gws.events_list` on `<account>:gmail.users.history.list`, then `gws.read` on `<account>:<operation>` for `gmail.users.getProfile`, `gmail.users.history.list`, `gmail.users.messages.list` and `gmail.users.messages.get`. For Calendar: `gws.events_list` on `<account>:calendar.events.list`, then `gws.read` on `<account>:calendar.calendarList.get` and `<account>:calendar.events.list`. Each read passes the plugin's read policy and audit like a `gws_read`. A deny rule on `gws.events_list` turns it off without touching `gws_read`.
+
+`package.json` declares both sources, their exact grants, the identity read and contract 2 under `memory`, for Memory's plugin discovery; Memory reads it from the installed package.
 
 ## Errors
 

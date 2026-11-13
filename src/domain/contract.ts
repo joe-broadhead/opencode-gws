@@ -283,37 +283,43 @@ export const EventsListInput = z
       .optional()
       .describe("Where to start when there is no cursor: an ISO date (a UTC day) or an ISO date-time with Z or an offset. Default: 24 hours ago"),
     cursor: z.string().min(1).max(1024).optional().describe("The cursor of the previous result, to list what arrived after it. It wins over since"),
-    limit: z.number().int().min(1).max(500).optional().describe("Most events to return, 1 to 500; 100 by default"),
+    limit: z.number().int().min(0).max(500).optional().describe("Most events to return, 0 to 500; 100 by default. 0 is the owner-only call: the owner and the scope options, and no events"),
     account: Account,
     source: z
       .string()
       .max(64)
       .optional()
-      .describe('The source to list: "gmail", the only one until Calendar and Drive are added. Default: "gmail"'),
+      .describe('The source to list: "gmail" for messages, or "calendar" for the primary calendar\'s events. Default: "gmail"'),
+    scope: z
+      .record(z.string().regex(/^[a-z][a-z0-9_]{0,31}$/, "must be a lowercase word"), z.array(z.string().min(1).max(128)).min(1).max(64))
+      .optional()
+      .describe('What to read, as ids under the source\'s scope keys, such as { "calendars": ["primary"] }. It is echoed; an empty scope reads the whole source. Gmail has no keys'),
   })
-  .describe("List Gmail messages since a cursor, as Memory's events")
+  .describe("List a source's events since a cursor, as Memory's events")
 
 const EventActor = z.object({ role: z.string(), id: z.string().describe("mailto: and the address"), name: z.string().optional() })
 
 export const SourceEvent = z.object({
-  source: z.literal("gmail"),
+  source: z.enum(["gmail", "calendar"]),
   account: z.string().describe("The account alias"),
-  external_id: z.string().describe("The Gmail message id"),
-  kind: z.literal("message"),
-  occurred_at: z.string().describe("When Gmail received it, UTC ISO"),
-  thread: z.string().nullable().describe("gmail-thread: and the thread id"),
-  actors: z.array(EventActor).max(20).describe("From, To, Cc and Bcc, as mailto: ids"),
-  title: z.string().max(300).describe(`The subject. ${Untrusted}`),
-  text: z.string().max(4096).describe(`The message's own text, without quoted replies or signature. ${Untrusted}`),
-  url: z.string().nullable().describe("The thread in Gmail"),
-  labels: z.array(z.string()).max(20).describe("Gmail system labels such as inbox, sent, important"),
+  external_id: z.string().describe("The Gmail message id, or the Calendar event id"),
+  kind: z.enum(["message", "meeting", "event"]).describe('"message" for Gmail; "meeting" for a Calendar event; "event" for a cancellation, a withdrawal of that event id'),
+  occurred_at: z.string().describe("When Gmail received it, or when the calendar event starts (or was cancelled), UTC ISO"),
+  thread: z.string().nullable().describe("gmail-thread: and the thread id; null for Calendar"),
+  actors: z.array(EventActor).max(20).describe("From, To, Cc and Bcc as mailto: ids; the organizer and attendees for a Calendar event; none for a cancellation"),
+  title: z.string().max(300).describe(`The subject, or the event summary. ${Untrusted}`),
+  text: z.string().max(4096).describe(`The message's own text without quoted replies or signature, or the event description and location. ${Untrusted}`),
+  url: z.string().nullable().describe("The thread in Gmail, or the event in Calendar"),
+  labels: z.array(z.string()).max(20).describe('Gmail system labels such as inbox; "calendar" and the event status, with "cancelled" for a withdrawal'),
   hash: z.string().describe("sha256: of the other fields"),
 })
 
 export const EventsListOutput = z.object({
-  source: z.literal("gmail").describe("The source listed, also on an empty page"),
+  source: z.enum(["gmail", "calendar"]).describe("The source listed, also on an empty page"),
   account: z.string().describe("The account alias listed, also on an empty page"),
-  owner: z.object({ id: z.string(), label: z.string() }).describe("The signed-in Gmail address"),
+  owner: z.object({ id: z.string(), label: z.string() }).describe("The signed-in Gmail address, or the primary calendar's id"),
+  scope: z.record(z.string(), z.array(z.string())).describe("The scope this call read, echoed so Memory can pin it; {} is the whole source"),
+  setup: z.string().max(300).describe("One line on what the person sets up first, empty when there is nothing to choose"),
   events: z.array(SourceEvent).describe("Oldest first"),
   cursor: z.string().describe("Pass it to the next call"),
   more: z.boolean().describe("True when another call now would list more"),

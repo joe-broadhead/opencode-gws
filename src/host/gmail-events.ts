@@ -13,7 +13,6 @@ import {
   fitPage,
   makeEvent,
   oldestFirst,
-  parseEventsListInput,
   startTime,
 } from "./events-list.js"
 
@@ -40,7 +39,13 @@ import {
 export const GMAIL_SOURCE = "gmail"
 
 /** Every read events_list makes, the history read second. The tool asserts gws.read on `<account>:<operation>` for each before it runs any. */
-export const EVENT_READS = ["gmail.users.getProfile", "gmail.users.history.list", "gmail.users.messages.list", "gmail.users.messages.get"] as const
+export const GMAIL_READS = ["gmail.users.getProfile", "gmail.users.history.list", "gmail.users.messages.list", "gmail.users.messages.get"] as const
+
+/** The operation `gws.events_list` is asserted on: the one the listing follows. */
+export const GMAIL_FOLLOW = "gmail.users.history.list"
+
+/** Contract 2's setup line: what the person confirms before Memory collects from this source. */
+export const GMAIL_SETUP = "Nothing to choose: events_list reads the whole signed-in Gmail mailbox."
 
 /** Ids per messages.list or history.list page. */
 const PAGE_SIZE = 500
@@ -91,22 +96,6 @@ const step = (id: string, by: bigint) => {
   return (value < 0n ? 0n : value).toString()
 }
 const before = (a: string, b: string) => BigInt(a) < BigInt(b)
-
-/** The sources events_list lists today. Calendar and Drive come later, each as its own source. */
-export const EVENT_SOURCES: readonly string[] = [GMAIL_SOURCE]
-
-/** A request's problems as GWS_VALIDATION_ERROR, or the parsed request; a source other than gmail is refused. */
-export function eventsRequest(input: unknown): EventsListRequest {
-  const parsed = parseEventsListInput(input)
-  if (!parsed.ok) throw new GwsError("GWS_VALIDATION_ERROR", parsed.problems.join("; "))
-  const { source } = parsed.value
-  if (source !== undefined && !EVENT_SOURCES.includes(source)) {
-    throw new GwsError("GWS_VALIDATION_ERROR", `the source '${source}' is not available: events_list lists Gmail only, until Calendar and Drive are added`, {
-      next: 'Call events_list without source, or with source "gmail".',
-    })
-  }
-  return parsed.value
-}
 
 /** The state a cursor holds, when this account's mailbox issued it. */
 function stateOf(cursor: string, account: string, mailbox: string): State {
@@ -176,6 +165,14 @@ export async function gmailEvents(runtime: Pick<Runtime, "read">, account: strin
   const owner = { id: `mailto:${address}`, label: address }
   const mailbox = createHash("sha256").update(address).digest("hex").slice(0, 16)
 
+  // Contract 2: Gmail has no scope keys, so a non-empty scope is refused rather than echoed as if it narrowed the read.
+  const scope = request.scope ?? {}
+  if (Object.keys(scope).length > 0) {
+    throw new GwsError("GWS_VALIDATION_ERROR", "Gmail has no scope: events_list reads the signed-in mailbox whole", {
+      next: "Call events_list without scope.",
+    })
+  }
+
   /** Every message after `t` the search finds, oldest first. */
   const searched = new Map<number, string[]>()
   const search = async (t: number): Promise<string[]> => {
@@ -238,6 +235,9 @@ export async function gmailEvents(runtime: Pick<Runtime, "read">, account: strin
   }
 
   let state: State = request.cursor === undefined ? { p: "s", h0: head, t: startTime(request, now) } : stateOf(request.cursor, account, mailbox)
+  const identity = { source: GMAIL_SOURCE, account, owner, scope, setup: GMAIL_SETUP }
+  // Contract 2's owner-only call: the identity and the cursor, and not one message read.
+  if (request.limit === 0) return eventsListResult(identity, [], encodeCursor(GMAIL_SOURCE, { a: account, o: mailbox, ...state }), false)
   const candidates: Candidate[] = []
   let more = false
   let fellBack = false
@@ -304,5 +304,5 @@ export async function gmailEvents(runtime: Pick<Runtime, "read">, account: strin
     const last = Math.max(state.t, ...events.map((event) => Date.parse(event.occurred_at)))
     state = { ...state, t: last }
   }
-  return eventsListResult({ source: GMAIL_SOURCE, account, owner }, oldestFirst(events), encodeCursor(GMAIL_SOURCE, { a: account, o: mailbox, ...state }), more)
+  return eventsListResult(identity, oldestFirst(events), encodeCursor(GMAIL_SOURCE, { a: account, o: mailbox, ...state }), more)
 }
