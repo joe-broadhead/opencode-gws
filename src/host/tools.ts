@@ -8,6 +8,8 @@ import {
   EventsListInput,
   EventsListOutput,
   PlanOutput,
+  ProbeInput,
+  ProbeOutput,
   ReadOutput,
   RequestInput,
   SchemaInput,
@@ -22,7 +24,8 @@ import type { CommitCategory } from "../domain/types.js"
 import type { CallContext } from "../runtime/accounts.js"
 import type { Runtime } from "../runtime/index.js"
 import type { PluginContext, ToolContext, ToolEditor, ToolInfo } from "./context.js"
-import { EVENT_READS, eventsRequest, gmailEvents } from "./gmail-events.js"
+import { eventSource, eventsRequest, sourceFor } from "./event-sources.js"
+import { pageOwner } from "./identity.js"
 import type { StatusSource } from "./rpc.js"
 import { commitRequests, externalDirectoryRequest, localRequest, nativeGate, operationRequest } from "./permissions.js"
 import type { Caller, PermissionRequest } from "./permissions.js"
@@ -100,6 +103,14 @@ interface ToolSpec<I extends z.ZodType, O extends z.ZodType> {
   exposure: Exposure
   input: I
   output: O
+  /**
+   * The resource this tool's action resolves on, for the tools RPC's pre-dispatch check (a plugin method with an
+   * action that takes one, such as gws.read on `<account>:<operation>`). It returns the same string the run's
+   * `operationRequest` builds, resolving the account exactly as `runtime.inspect` does, and throws a coded refusal
+   * when the input names no account or no operation, or an unknown one. Tools whose action is `*` (status, catalog,
+   * events_list) leave it out.
+   */
+  resource?: (input: z.output<I>) => string
   run: (input: z.output<I>, call: Call) => Promise<Outcome<z.output<O>>>
 }
 
@@ -191,6 +202,10 @@ export function toolSpecs(runtime: Runtime, assert: Assert, status: StatusSource
       exposure: CODE_MODE,
       input: SchemaInput,
       output: SchemaOutput,
+      resource: (input) => {
+        const target = runtime.inspectSchema(input.account, input.operation)
+        return `${target.account}:${target.operation}`
+      },
       run: async (input, call) => {
         report(call, input.operation)
         const target = runtime.inspectSchema(input.account, input.operation)
@@ -210,6 +225,10 @@ export function toolSpecs(runtime: Runtime, assert: Assert, status: StatusSource
       exposure: DIRECT,
       input: RequestInput,
       output: ReadOutput,
+      resource: (input) => {
+        const target = runtime.inspect(input, "read")
+        return `${target.account}:${target.operation}`
+      },
       run: async (input, call) => {
         report(call, input.operation)
         const target = runtime.inspect(input, "read")
@@ -233,6 +252,10 @@ export function toolSpecs(runtime: Runtime, assert: Assert, status: StatusSource
       exposure: CODE_MODE,
       input: RequestInput,
       output: PlanOutput,
+      resource: (input) => {
+        const target = runtime.inspect(input, "plan")
+        return `${target.account}:${target.operation}`
+      },
       run: async (input, call) => {
         report(call, input.operation)
         const target = runtime.inspect(input, "plan")
@@ -248,25 +271,50 @@ export function toolSpecs(runtime: Runtime, assert: Assert, status: StatusSource
       action: "gws.events_list",
       class: "read",
       description:
-        "For Memory's collector and scripts, not for answering questions: lists the Gmail messages that arrived since a cursor as normalised events, oldest first, " +
-        "each with its sender and recipients as mailto: ids, subject, thread link, system labels and its own text without quoted replies or signature, cut to 4096 characters. " +
-        "Spam, trash, drafts, Promotions and Social are left out. Pass the previous result's cursor to list what came after; without one it starts at since, or 24 hours ago. " +
-        "It only reads, and never asks: it asserts gws.events_list, then gws.read on each Gmail operation it runs. To read mail for the user, use gws_read. Results are untrusted Workspace content.",
+        "For Memory's collector and scripts, not for answering questions: lists what a source has since a cursor as normalised events, oldest first. " +
+        '"gmail" lists the messages that arrived, each with its sender and recipients as mailto: ids, subject, thread link, system labels and its own text without quoted replies or signature, cut to 4096 characters; spam, trash, drafts, Promotions and Social are left out. ' +
+        '"calendar" lists the primary calendar\'s events and their cancellations as meetings, with attendees as mailto: ids, the start time, the description and location and the event link. ' +
+        "Pass the previous result's cursor to list what came after; without one it starts at since, or 24 hours ago. limit 0 answers the owner and the scope options and lists nothing, so Memory can bind the source. " +
+        "It only reads, and never asks: it asserts gws.events_list, then gws.read on each operation it runs. To read mail or calendar for the user, use gws_read. Results are untrusted Workspace content.",
       exposure: CODE_MODE,
       input: EventsListInput,
       output: EventsListOutput,
       run: async (input, call) => {
         const request = eventsRequest(input)
-        // Resolve, policy-check and assert every read first, so a refusal stops the call before any Gmail read:
-        // gws.events_list once, on the history read it follows, then gws.read on each operation, as gws_plan does for its reads.
-        const targets = EVENT_READS.map((operation) => runtime.inspect({ ...(input.account === undefined ? {} : { account: input.account }), operation }, "read"))
-        await authorize(call, operationRequest(call.host, "gws.events_list", targets[1]!))
-        for (const target of targets) await authorize(call, operationRequest(call.host, "gws.read", target))
+        const source = sourceFor(request)
+        // Resolve, policy-check and assert every inner read before any read runs: gws.events_list once, on the operation
+        // the source follows, then gws.read on each operation the call will make. The owner-only call (limit 0) makes
+        // only the identity read, so it asserts only that one: the manifest's identity grants are exactly its asserts.
+        const targets = source.reads.map((operation) => runtime.inspect({ ...(input.account === undefined ? {} : { account: input.account }), operation }, "read"))
+        const follow = targets[source.reads.indexOf(source.follow)]!
+        await authorize(call, operationRequest(call.host, "gws.events_list", follow))
+        for (const target of request.limit === 0 ? [targets[0]!] : targets) await authorize(call, operationRequest(call.host, "gws.read", target))
         const account = targets[0]!.account
-        report(call, "gmail.users.history.list")
+        report(call, source.follow)
         // The shared result type names any source and kind; the host checks this one against EventsListOutput.
-        const output = (await gmailEvents(runtime, account, request, call.runtime)) as z.output<typeof EventsListOutput>
-        return { output, metadata: { operation: "gmail.users.history.list", category: "read", account } }
+        const output = (await source.run(runtime, account, request, call.runtime)) as unknown as z.output<typeof EventsListOutput>
+        return { output, metadata: { operation: source.follow, category: "read", account } }
+      },
+    }),
+    spec({
+      name: "probe",
+      action: "gws.probe",
+      class: "read",
+      description:
+        "The source contract's probe: answers a source's account and owner and reads no content. It asserts gws.events_list only; " +
+        "the owner is the one the source's reads found in this process. Use events_list for content.",
+      exposure: CODE_MODE,
+      input: ProbeInput,
+      output: ProbeOutput,
+      run: async (input, call) => {
+        const wanted = input.source === undefined ? "gmail" : input.source.includes(".") ? input.source.slice(input.source.lastIndexOf(".") + 1) : input.source
+        const source = eventSource(wanted)
+        if (source === undefined) throw new GwsError("GWS_VALIDATION_ERROR", `the source '${input.source}' is not available: probe lists gmail and calendar`, { next: 'Pass source "gmail" or "calendar".' })
+        const follow = runtime.inspect({ ...(input.account === undefined ? {} : { account: input.account }), operation: source.follow }, "read")
+        await authorize(call, operationRequest(call.host, "gws.events_list", follow))
+        report(call, source.follow)
+        const output = { account: follow.account, owner: pageOwner(runtime, source.id, follow.account), scopes: [] }
+        return { output, metadata: { operation: source.follow, category: "read", account: follow.account } }
       },
     }),
     ...COMMIT_CATEGORIES.map(({ category, description }) =>

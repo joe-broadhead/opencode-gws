@@ -13,7 +13,7 @@ import { startHost, type Harness } from "./harness.js"
  * process is all the SDK supports.
  */
 
-const READS = ["status", "catalog", "schema", "read", "plan", "events_list"]
+const READS = ["status", "catalog", "schema", "read", "plan", "events_list", "probe"]
 const COMMIT_CLASSES = { write: "write", send: "send", share: "send", delete: "destructive", export: "export", admin: "destructive" } as const
 
 // The client side only names the methods: the plugin checks each input against the tool's own contract.

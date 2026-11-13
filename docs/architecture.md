@@ -38,15 +38,18 @@ src/
     accounts.ts     tokens, spawn, status
   host/             the only other modules that import @opencode/plugin
     agents.ts       default ask rules
-    tools.ts        the 12 tool adapters
-    gmail-events.ts events_list for Gmail: search, then history, as events
-    events-list.ts  the shared events_list contract (a copy every source plugin carries; check-copies pins it)
+    tools.ts        the 13 tool adapters (events_list and probe are the source contract's)
+    gmail-events.ts events_list for Gmail: search, then history, as events (secret-screened)
+    identity.ts     the owner a source's read found, for probe
+    calendar-events.ts events_list for Calendar: a full sync, then a sync token, as events
+    event-sources.ts the events_list sources, their reads and the one that follows
+    events-page.ts   this plugin's contract-2 events_list page on the vendored package's events and cursor
     permissions.ts  permission.assert inputs; no signal field
     skills.ts       the two skills
     integrations.ts sign-in
     commands.ts     /gws-status, /gws-doctor
     rpc.ts          status implementation
-    tools-rpc.ts    tools RPC: every tool spec as a method, for a script running as a session
+    tools-rpc.ts    tools RPC: every tool spec as a method, for a script running as a session (a copy several plugins share; check-copies pins it)
     jelly-rpc.ts    the RPC named after the package, holding every method Jelly reads: calendar.today and images.read
     calendar.ts     calendar.today, the read Jelly's native calendar makes
     images.ts       images.read, the read Jelly makes to draw a Google picture in an agent's UI

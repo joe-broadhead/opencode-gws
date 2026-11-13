@@ -16,7 +16,7 @@ const Tools = Rpc.define({
   methods: {
     describe: { input: open, output: open },
     ...Object.fromEntries(
-      ["status", "catalog", "schema", "read", "plan", "events_list"].map((name) => [
+      ["status", "catalog", "schema", "read", "plan", "events_list", "probe"].map((name) => [
         name,
         { input: open, output: open, errors: { failed: open } },
       ]),
@@ -68,7 +68,7 @@ const asked = (session: string) => host.events.filter((event) => event.type === 
 describe("tools RPC on a real host", () => {
   it("describes exactly the read tools as methods, each with its input and output schema", async () => {
     const description = (await tools().describe!({}, at())) as { methods: Array<{ name: string; input: unknown; output: unknown }> }
-    expect(description.methods.map((method) => method.name).sort()).toEqual(["catalog", "events_list", "plan", "read", "schema", "status"])
+    expect(description.methods.map((method) => method.name).sort()).toEqual(["catalog", "events_list", "plan", "probe", "read", "schema", "status"])
     for (const method of description.methods) expect({ name: method.name, input: method.input, output: method.output }).toMatchObject({ input: { type: "object" }, output: { type: "object" } })
   })
 

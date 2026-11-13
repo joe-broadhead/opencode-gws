@@ -704,5 +704,83 @@
         }
       ]
     }
+  },
+  "sources": {
+    "contractVersion": 1,
+    "items": [
+      {
+        "id": "gws.gmail",
+        "kind": "events",
+        "reads": "message",
+        "tool": "events_list",
+        "input": {
+          "source": "gmail"
+        },
+        "accounts": {
+          "named": true
+        },
+        "details": [
+          {
+            "id": "gws.gmail.message",
+            "tool": "read",
+            "from": [
+              "external_id"
+            ]
+          }
+        ],
+        "permission": {
+          "events": "gws.events_list",
+          "operations": [
+            "gmail.users.getProfile",
+            "gmail.users.history.list",
+            "gmail.users.messages.list",
+            "gmail.users.messages.get"
+          ]
+        },
+        "private": true,
+        "cost": {
+          "class": "free"
+        },
+        "maxBytes": 262144,
+        "retentionDays": 30,
+        "urlHosts": [
+          "mail.google.com"
+        ]
+      },
+      {
+        "id": "gws.calendar",
+        "kind": "events",
+        "reads": "meeting",
+        "tool": "events_list",
+        "input": {
+          "source": "calendar"
+        },
+        "accounts": {
+          "named": true
+        },
+        "scope": {
+          "keys": [
+            "calendars"
+          ],
+          "describe": "Which calendar to read. The primary calendar is the default."
+        },
+        "permission": {
+          "events": "gws.events_list",
+          "operations": [
+            "calendar.calendarList.get",
+            "calendar.events.list"
+          ]
+        },
+        "private": true,
+        "cost": {
+          "class": "free"
+        },
+        "maxBytes": 262144,
+        "retentionDays": 30,
+        "urlHosts": [
+          "calendar.google.com"
+        ]
+      }
+    ]
   }
 }

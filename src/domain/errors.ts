@@ -38,6 +38,14 @@ export const ErrorCode = {
       "The request is malformed: a schema violation, a field helpers do not take, a missing field mask on list or search, a relative path, a download on gws_read, or arguments gws rejected.",
     next: "Fix the request as the message says; gws_schema shows the parameters and request body.",
   },
+  SCHEMA_VIOLATION: {
+    meaning: "An input or an answer broke the source contract.",
+    next: "Check the call against the tool schema, and retry once; if it repeats, report the operation.",
+  },
+  UNAVAILABLE: {
+    meaning: "The provider or one read is unavailable.",
+    next: "Try again later; the page's failed[] names the item to retry.",
+  },
   CURSOR_INVALID: {
     meaning:
       "The events_list cursor was not issued by events_list for this account and its mailbox: another account's or source's cursor, one from before the account signed in as another address, or a malformed one. Nothing ran.",
