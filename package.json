@@ -458,7 +458,7 @@
               "resource": "{account}:gmail.users.getProfile"
             }
           ],
-          "account": "$.owner.id",
+          "account": "$.account",
           "owner": {
             "id": "$.owner.id",
             "label": "$.owner.label"
