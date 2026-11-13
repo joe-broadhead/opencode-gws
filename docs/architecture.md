@@ -48,7 +48,7 @@ src/
     integrations.ts sign-in
     commands.ts     /gws-status, /gws-doctor
     rpc.ts          status implementation
-    tools-rpc.ts    tools RPC: every tool spec as a method, for a script running as a session
+    tools-rpc.ts    tools RPC: every tool spec as a method, for a script running as a session (a copy several plugins share; check-copies pins it)
     calendar.ts     calendar.today, the read Jelly's native calendar makes, on the RPC named after the package
   domain/           pure logic; imports only domain/
     contract.ts     tool schemas

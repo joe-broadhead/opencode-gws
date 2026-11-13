@@ -9,9 +9,10 @@
  * the host's own order (the last matching rule wins), which is also the order the model path uses:
  * - the rule for the method's permission action is resolved BEFORE dispatch; only `allow` runs, so an `ask` is refused
  *   with no prompt and no tool call, and a `deny` is refused with no tool call. **When the action takes a resource**
- *   (a plugin method such as `gws.read` on `<account>:<operation>`), the method resolves that resource before dispatch
- *   and the rule is evaluated on it, so a session that allows one operation does not allow every operation of the
- *   action; a method that cannot resolve it refuses rather than falling back to `*`;
+ *   (a plugin method such as `gws.read` on `<account>:<operation>`), the method may declare a resource resolver; the
+ *   pre-dispatch check evaluates the rule on the resource it returns, so a session that allows one operation does not
+ *   allow every operation of the action. A method without a resolver keeps `*`; a resolver that cannot name the
+ *   resource refuses rather than falling back to `*`;
  * - an MCP method then runs through OpenCode's own executor from `ctx.tool.list()`, which checks `<server>_<tool>`
  *   against the agent's rules, the session's rules and saved approvals, and sends OpenCode's own credential;
  * - a plugin-owned method runs its own spec, with its own `ctx.permission.assert` calls;
@@ -231,10 +232,11 @@ export interface PluginMethod {
   /**
    * The resource this method's action resolves on, when the action takes one (`gws.read` on `<account>:<operation>`).
    * The pre-dispatch check evaluates the action on this resource, exactly as the run's own assert will build it, so a
-   * session that allows one operation does not allow every operation of that action. It throws the coded refusal when
-   * the input names no account or no operation, or an unknown one; a method whose action is `*` leaves it out.
+   * session that allows one operation does not allow every operation of that action. It throws the coded refusal, or
+   * returns `null`, when the input names no account or no operation, or an unknown one; `null` is refused too and never
+   * falls back to `*`. A method whose action is `*` leaves the resolver out and keeps that behaviour.
    */
-  resource?(input: unknown): string
+  resource?(input: unknown): string | null
   run(input: unknown, call: ToolCall): Promise<unknown>
   /**
    * Whether the method can run now, for describe only: undefined when it can, otherwise the plugin's own code for why
@@ -736,8 +738,15 @@ export async function registerToolsRpc(ctx: ToolsRpcContext, options: ToolsRpcOp
     const action = actionOf(method, envelope)
     if (method.kind === "plugin") {
       // A method whose action takes a resource resolves it before dispatch, exactly as its run's own assert will. A
-      // coded refusal here (no account, no operation, an unknown operation) stops the call before anything runs.
+      // coded refusal or a `null` (no account, no operation, an unknown one) stops the call before anything runs.
       const resource = method.resource?.(envelope.input)
+      if (resource === null) {
+        throw new ScriptError({
+          code: "OPERATION_UNKNOWN",
+          what: `${method.name} could not resolve the ${action} resource from its input`,
+          next: `Name the account and the operation the method reads, and retry.`,
+        })
+      }
       return pluginTarget(method, envelope, action, resource)
     }
     return mcpTarget(method, envelope, action, serverOf(envelope.account))
