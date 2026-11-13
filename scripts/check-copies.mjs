@@ -2,8 +2,8 @@
 //   node scripts/check-copies.mjs          check the copies this plugin has
 //   node scripts/check-copies.mjs --print  print each copy's hash, after a change made in every plugin at once
 // Each plugin keeps its own copy, because each bundle and each test suite stands alone. The hashes below name the one
-// version all plugins carry: the tools RPC outside its PLUGIN-SPECIFIC block, the declaration test kit whole, and the
-// events_list source contract whole (only source plugins carry it).
+// version all plugins carry: the tools RPC outside its PLUGIN-SPECIFIC block, the declaration test kit whole, Jelly's
+// setting rules whole, and the events_list source contract whole (only source plugins carry it).
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync } from "node:fs"
 
@@ -14,6 +14,8 @@ const COPIES = [
   { path: "vendor/source-contract-dist/conformance.js", optional: false, sha256: "d3831df80914b916c01bc25aed598414f4e6c69feb5bdc322ea0a17c74e22e42", part: (text) => text },
   { path: "src/host/tools-rpc.ts", optional: true, sha256: "9210d0a531788d1f0d70d44a13a032816ef240b04aa5303f6ba4b2e2a52b6c94", part: sharedPart },
   { path: "test/support/jelly-kit.ts", optional: false, sha256: "ab599abcf041044c77e7938c3d9a081e00072487a7ec20b654d86c8230951190", part: (text) => text },
+  // Jelly's setting rules, restated without zod (the file's header says what it restates and how to update it).
+  { path: "test/support/jelly-settings.ts", optional: false, sha256: "966aeac7eddce490da51e8e46780f1fbcfaf9b3e892bd62f2c3952c2a6111383", part: (text) => text },
   { path: "src/host/events-list.ts", optional: true, sha256: "b2652e388034202fd021ab47b617e7598389e8754bb63f624f647e93e86ab59f", part: (text) => text },
   { path: "src/process/install.ts", optional: false, sha256: "8ce0d8505f7577dc793ad2b279117f1118de404bbfacf08a8bd70b976425159a", part: (text) => text },
 ]

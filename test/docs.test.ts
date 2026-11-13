@@ -89,6 +89,8 @@ describe("the README's generated blocks", () => {
       "EEXIST", "EXDEV", "EPERM", "ENOTSUP", "ENOENT",
       // "CODE" is the placeholder a doc comment writes the message shape with, not a code.
       "CODE",
+      // Sheets' own valueInputOption and majorDimension values, and a JWK's key type, in the UI action's schemas.
+      "RAW", "ROWS", "COLUMNS", "OKP",
     ])
     // "NATIVE_*" are the shared release-binary installer's own codes (src/process/install.ts, the kit's module). Its
     // one caller, src/process/binary.ts, maps each to a GWS_ code before any tool reports it.
