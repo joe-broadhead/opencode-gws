@@ -151,6 +151,29 @@ export const ErrorCode = {
       "The read Jelly's calendar makes, calendar.today, has no answer: no configured account enables calendar, or Google's answer for the primary calendar named no time zone.",
     next: "Add calendar to an account's enabledServices; if it is enabled, retry later.",
   },
+  IMAGE_HOST_REFUSED: {
+    meaning:
+      "The picture Jelly asked images.read for has an address the plugin does not take: not https, a user name, password, port or IP address in it, a host other than drive.google.com or a name under googleusercontent.com, or a Drive link that names no file. Nothing was fetched.",
+    next: "Show the picture from a Drive file link or an address Google returned, such as a file's thumbnailLink.",
+  },
+  IMAGE_TYPE_REFUSED: {
+    meaning: "The picture's first bytes are not a PNG, JPEG, GIF or WebP; SVG and every other kind are refused.",
+    next: "Show a PNG, JPEG, GIF or WebP picture instead.",
+  },
+  IMAGE_TOO_LARGE: {
+    meaning: "The picture is over 1 MB, the most Jelly draws; the plugin stops reading at that size and answers nothing.",
+    next: "Show the file's thumbnail (its thumbnailLink) instead.",
+  },
+  IMAGE_UNAVAILABLE: {
+    meaning:
+      "The picture could not be read: Google answered with an error or a redirect (never followed), a Drive file is not a picture and has no thumbnail, or too many pictures are being read at once.",
+    next: "Check that the account can open the file; retry later.",
+  },
+  IMAGE_ACCOUNT_AMBIGUOUS: {
+    meaning:
+      "No single account can read the picture: no account enables drive, or several could and none is the default account. The plugin never tries each account in turn.",
+    next: "Add drive to one account's enabledServices, or name an account default.",
+  },
   GWS_DISCOVERY_ERROR: {
     meaning: "gws could not load the API description (the Discovery document) it builds requests from.",
     next: "Check that this machine can reach www.googleapis.com, then retry.",

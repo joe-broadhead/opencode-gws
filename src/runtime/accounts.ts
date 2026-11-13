@@ -197,6 +197,24 @@ export class Accounts {
   }
 
   /**
+   * The account's access token for `images.read`'s fetch from Google's image servers, checked as a call of `operation`
+   * would be: no sign-in is AUTH_REQUIRED, a grant without a scope the operation accepts is AUTH_SCOPE_MISSING.
+   * Undefined for a credentials-file account, whose token only gws holds.
+   */
+  async bearer(account: string, operation: string, ctx: CallContext): Promise<string | undefined> {
+    const profile = this.runtime.config.accounts[account]
+    if (!profile) throw new Error(`ACCOUNT_UNKNOWN: '${account}' is not configured`)
+    throwIfCancelled(ctx.signal)
+    if (profile.mode === "credentials_file") return undefined
+    if (profile.mode === "access_token") {
+      const value = profile.tokenEnv ? process.env[profile.tokenEnv] : undefined
+      if (!value) throw new Error(`AUTH_REQUIRED: ${profile.tokenEnv ?? "The access token variable"} is not set. Next step: Set it to a current access token and restart OpenCode.`)
+      return value
+    }
+    return (await this.credential(account, profile, operation, ctx)).access
+  }
+
+  /**
    * The interactive account's credential, checked against the operation
    * before anything spawns: no sign-in fails with AUTH_REQUIRED, and a
    * grant without any scope the operation accepts fails with

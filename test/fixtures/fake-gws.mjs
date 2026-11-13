@@ -139,7 +139,9 @@ const method = (flags < 0 ? argv : argv.slice(0, flags)).at(-1)
 
 // A download writes its file where --output names it, inside gws's working directory.
 const output = argv.indexOf("--output")
-if (output !== -1 && !argv.includes("--dry-run")) writeFileSync(argv[output + 1], "fake export\n")
+// FAKE_GWS_OUTPUT_FILE, when set, names a file whose bytes it writes there instead.
+if (output !== -1 && !argv.includes("--dry-run"))
+  writeFileSync(argv[output + 1], process.env.FAKE_GWS_OUTPUT_FILE === undefined ? "fake export\n" : readFileSync(process.env.FAKE_GWS_OUTPUT_FILE))
 
 const responses = process.env.FAKE_GWS_RESPONSES ? JSON.parse(process.env.FAKE_GWS_RESPONSES) : {}
 const id = (flags < 0 ? argv : argv.slice(0, flags)).join(".")

@@ -1,9 +1,6 @@
-import { Rpc } from "@opencode/plugin/rpc"
 import { CALENDAR_MAX_EVENTS, type CalendarEvent, type CalendarToday, EVENT_FIELDS, calendarAccount, dayKey, fitAnswer, iso, knownZone, todayBounds, todayEvents } from "../domain/calendar.js"
 import { GwsError } from "../domain/errors.js"
-import { PACKAGE_NAME } from "../domain/version.js"
 import type { Runtime } from "../runtime/index.js"
-import type { PluginContext } from "./context.js"
 
 /**
  * `calendar.today`, the read Jelly's native calendar makes (hey-jelly `docs/architecture/plugin-native-data.md`).
@@ -62,14 +59,6 @@ export const TODAY_OUTPUT = {
     },
   },
 } as const
-const FAILED = { type: "object", properties: { code: { type: "string" }, next: { type: "string" } }, required: ["code", "next"] } as const
-
-export const CalendarRpc = Rpc.define({
-  id: PACKAGE_NAME,
-  methods: { "calendar.today": { input: TODAY_INPUT, output: TODAY_OUTPUT, errors: { failed: FAILED } } },
-  events: {},
-})
-
 type Reader = Pick<Runtime, "config" | "read"> & { readonly audit?: Pick<Runtime["audit"], "emit"> }
 type Kept = { account: string; zone: string; day: string; at: number; events: CalendarEvent[] }
 
@@ -144,24 +133,5 @@ export function calendarToday(runtime: Reader, now: () => number = Date.now) {
     } finally {
       clearTimeout(timer)
     }
-  }
-}
-
-/** Register `calendar.today` on the RPC named after the package. A failure is `failed` with its code and next step. */
-export async function registerCalendarRpc(ctx: Pick<PluginContext, "rpc">, runtime: Runtime): Promise<() => Promise<void>> {
-  const today = calendarToday(runtime)
-  const registration = await ctx.rpc.register(CalendarRpc, {
-    "calendar.today": async (_input, context) => {
-      try {
-        return await runtime.wait((settled) => today(settled), context.signal)
-      } catch (error) {
-        const failure = GwsError.from(error)
-        if (failure === undefined) throw error
-        return context.error("failed", failure.message, { code: failure.code, next: failure.next })
-      }
-    },
-  })
-  return async () => {
-    await registration.dispose().catch(() => undefined)
   }
 }

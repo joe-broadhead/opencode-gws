@@ -3,7 +3,7 @@ import { dirname } from "node:path"
 import { GwsError, isErrorCode } from "./errors.js"
 import { commandIndex } from "./manifest.js"
 
-const EVENTS = new Set(["plugin.loaded", "operation.read", "helper.read", "operation.plan", "operation.commit", "calendar.today"])
+const EVENTS = new Set(["plugin.loaded", "operation.read", "helper.read", "operation.plan", "operation.commit", "calendar.today", "images.read"])
 const CATEGORIES = new Set(["read", "write", "send", "share", "delete", "export", "admin"])
 /** Recorded for an error that is not a plugin error. */
 const UNKNOWN_ERROR = "UNKNOWN_ERROR"

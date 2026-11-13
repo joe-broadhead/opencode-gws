@@ -76,6 +76,32 @@ export class Stage {
     return { path: output.destination, bytes: info.size, sha256, ...(cleanupDegraded ? { cleanupDegraded: true } : {}) }
   }
 
+  /**
+   * The bytes gws wrote to `rel`, read without following a symlink, or undefined when there are more than
+   * `maxBytes`: the read stops one byte past the cap.
+   */
+  async readCapped(rel: string, maxBytes: number): Promise<Buffer | undefined> {
+    throwIfCancelled(this.signal)
+    const path = join(this.dir, rel)
+    const info = await lstat(path).catch(() => undefined)
+    if (!info?.isFile()) throw new GwsError("DOWNLOAD_INVALID", "gws did not write the output file", { next: "Retry; if it fails again, report it." })
+    const handle = await open(path, READ_FLAGS)
+    try {
+      const buffer = Buffer.alloc(maxBytes + 1)
+      let bytes = 0
+      for (;;) {
+        throwIfCancelled(this.signal)
+        const { bytesRead } = await handle.read(buffer, bytes, buffer.length - bytes, null)
+        if (bytesRead === 0) break
+        bytes += bytesRead
+        if (bytes > maxBytes) return undefined
+      }
+      return buffer.subarray(0, bytes)
+    } finally {
+      await handle.close()
+    }
+  }
+
   async dispose(): Promise<void> {
     await rm(this.dir, { recursive: true, force: true })
   }
