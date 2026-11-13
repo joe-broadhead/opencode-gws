@@ -127,6 +127,7 @@ The block for each value, generated from `defaultRules(access)` in `src/host/age
 | `gws.read` | `*` | `allow` |
 | `gws.plan` | `*` | `allow` |
 | `gws.events_list` | `*` | `allow` |
+| `gws.probe` | `*` | `allow` |
 | `gws.write` | `*` | `allow` |
 | `gws.export` | `*` | `allow` |
 | `gws.send` | `*` | `allow` |
@@ -149,6 +150,7 @@ The block for each value, generated from `defaultRules(access)` in `src/host/age
 | `gws.read` | `*` | `allow` |
 | `gws.plan` | `*` | `allow` |
 | `gws.events_list` | `*` | `allow` |
+| `gws.probe` | `*` | `allow` |
 | `gws.write` | `*` | `ask` |
 | `gws.export` | `*` | `ask` |
 | `gws.send` | `*` | `ask` |
@@ -171,6 +173,7 @@ The block for each value, generated from `defaultRules(access)` in `src/host/age
 | `gws.read` | `*` | `allow` |
 | `gws.plan` | `*` | `allow` |
 | `gws.events_list` | `*` | `allow` |
+| `gws.probe` | `*` | `allow` |
 | `gws.write` | `*` | `deny` |
 | `gws.export` | `*` | `deny` |
 | `gws.send` | `*` | `deny` |

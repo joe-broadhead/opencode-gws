@@ -3,6 +3,7 @@ import { GwsError, throwIfCancelled } from "../domain/errors.js"
 import type { CallContext } from "../runtime/accounts.js"
 import type { Runtime } from "../runtime/index.js"
 import {
+  type EventDrop,
   type EventsGap,
   type EventsListRequest,
   type EventsListResult,
@@ -17,6 +18,8 @@ import {
   oldestFirst,
   startTime,
 } from "./events-list.js"
+import { rememberOwner } from "./identity.js"
+import { screenEvents, secretKinds } from "../../vendor/source-contract-dist/events.js"
 
 /**
  * events_list for Calendar: the events of the account's primary calendar
@@ -43,17 +46,17 @@ import {
  *   cursor from another account or calendar is refused.
  */
 
-/** The `source` of Calendar events. */
+/** The `source` input that names Calendar. */
 export const CALENDAR_SOURCE = "calendar"
+
+/** The contract source id a page names. */
+export const CALENDAR_SOURCE_ID = "gws.calendar"
 
 /** Every read events_list makes, the identity read first. The tool asserts gws.read on `<account>:<operation>` for each before it runs any. */
 export const CALENDAR_READS = ["calendar.calendarList.get", "calendar.events.list"] as const
 
 /** The operation `gws.events_list` is asserted on: the one the listing follows. */
 export const CALENDAR_FOLLOW = "calendar.events.list"
-
-/** Contract 2's setup line: what the person confirms before Memory collects from this source. */
-export const CALENDAR_SETUP = "Choose the calendar to collect when you confirm; the primary calendar is the default."
 
 /** The one scope key this source declares. */
 export const CALENDAR_SCOPE_KEY = "calendars"
@@ -177,7 +180,8 @@ export async function calendarEvents(runtime: Pick<Runtime, "read">, account: st
   const primary = await read("calendar.calendarList.get", { calendarId: "primary" }, "id,summary,timeZone")
   const calendar = typeof primary["id"] === "string" ? primary["id"].trim() : ""
   if (!calendar) throw new GwsError("GWS_API_ERROR", "the primary calendar answered without an id")
-  const owner = { id: calendar, label: calendar }
+  const owner = { id: calendar, label: typeof primary["summary"] === "string" && primary["summary"] !== "" ? primary["summary"] : calendar }
+  rememberOwner(runtime, CALENDAR_SOURCE, account, owner)
   const scope = scopeOf(request, calendar)
   // A first full sync reads from `since`, but never further back than contract 2 allows; a shorter window is a gap.
   const wanted = startTime(request, now)
@@ -188,9 +192,10 @@ export async function calendarEvents(runtime: Pick<Runtime, "read">, account: st
     request.cursor === undefined
       ? { k: "s", y: "", w: truncated ? floor : wanted, t: truncated ? floor : wanted, n: 0 }
       : stateOf(request.cursor, account, calendar)
-  const identity = { source: CALENDAR_SOURCE, account, owner, scope, setup: CALENDAR_SETUP }
-  // Contract 2's owner-only call: the identity and the scope options, and no events read.
-  if (request.limit === 0) return eventsListResult(identity, [], encodeCursor(CALENDAR_SOURCE, { a: account, o: digest(calendar), ...state }), false, gap)
+  const identity = { source: CALENDAR_SOURCE_ID, account, owner, scope }
+  const refused: EventDrop[] = []
+  // The deprecated owner-only call: the identity and the scope, and no events read.
+  if (request.limit === 0) return eventsListResult(identity, [], encodeCursor(CALENDAR_SOURCE, { a: account, o: digest(calendar), ...state }), false, { now, gap })
 
   const listed: Array<{ event: SourceEvent; after: Sync }> = []
   let resynced = false
@@ -209,7 +214,7 @@ export async function calendarEvents(runtime: Pick<Runtime, "read">, account: st
         if (resynced) throw error
         resynced = true
         const from = Math.max(state.t, now - GAP_FLOOR_MS)
-        gap = { reason: "sync-token-expired", since: new Date(from).toISOString() }
+        gap = { reason: "expired", since: new Date(from).toISOString() }
         state = { k: "s", y: "", w: from, t: from, n: 0 }
         continue
       }
@@ -232,6 +237,12 @@ export async function calendarEvents(runtime: Pick<Runtime, "read">, account: st
       time = Math.max(time, events[index]!.time)
       // Where the listing stands after this event: within the page it was read from, never the new sync token yet.
       const after: Sync = { k: "s", y: state.y, w: state.w, ...(pageToken ? { p: pageToken } : {}), n: index + 1, t: time }
+      const screened = screenEvents([event], { secrets: secretKinds })
+      if (screened.refused.length > 0) {
+        const drop = screened.refused[0]!
+        refused.push({ external_id: drop.external_id, reason: drop.detail ?? (drop.reason === "secret" ? "holds a secret" : drop.reason) })
+        continue
+      }
       listed.push({ event, after })
     }
     // The whole page is read (an API page is never larger than the call's limit), so a last page's sync token is adopted now.
@@ -252,5 +263,5 @@ export async function calendarEvents(runtime: Pick<Runtime, "read">, account: st
   } else {
     more = state.p !== undefined
   }
-  return eventsListResult(identity, oldestFirst(listed.slice(0, kept).map((item) => item.event)), encodeCursor(CALENDAR_SOURCE, { a: account, o: digest(calendar), ...state }), more, gap)
+  return eventsListResult(identity, oldestFirst(listed.slice(0, kept).map((item) => item.event)), encodeCursor(CALENDAR_SOURCE, { a: account, o: digest(calendar), ...state }), more, { now, gap, refused })
 }

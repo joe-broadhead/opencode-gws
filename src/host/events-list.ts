@@ -88,7 +88,7 @@ export type EventsScope = Readonly<Record<string, readonly string[]>>
 export const FIRST_RUN_HOURS = 24
 
 /** Contract 2's `gap`: the reasons a source restarted its window, and the furthest back `since` may name. */
-export const GAP_REASONS = ["sync-token-expired", "cursor-invalid", "window-truncated"] as const
+export const GAP_REASONS = ["expired", "window-truncated"] as const
 export type GapReason = (typeof GAP_REASONS)[number]
 export const GAP_MAX_DAYS = 31
 
@@ -146,22 +146,36 @@ export interface EventsListInput {
   readonly scope?: EventsScope
 }
 
+/** A final (`refused`) or retryable (`failed`) drop, with the reason a person can read. */
+export interface EventDrop {
+  readonly external_id: string
+  readonly reason: string
+}
+
 export interface EventsListResult {
-  /** The source every event names, also on an empty page. */
+  /** The contract source id every page names (`gws.gmail`), also on an empty page. */
   readonly source: string
   /** The account every event names, also on an empty page. */
   readonly account: string
   readonly owner: EventsOwner
-  /** Contract 2: the scope this call read, echoed so Memory can pin it. `{}` is the whole source. */
+  /** The scope this call read, echoed; `{}` is the whole source. */
   readonly scope: EventsScope
-  /** Contract 2: one line on what the person sets up first, empty when there is nothing to choose. */
-  readonly setup: string
+  /** The package every page names. */
+  readonly plugin: string
+  /** When the page was read, ISO UTC. */
+  readonly asOf: string
   readonly events: SourceEvent[]
   readonly cursor: string
   readonly more: boolean
   readonly trust: typeof TRUST
+  /** Final drops: the consumer may advance past them. */
+  readonly refused: EventDrop[]
+  /** Retryable drops: any entry holds the cursor back. */
+  readonly failed: EventDrop[]
   /** Present only when the source restarted its window; absent on an ordinary page. */
   readonly gap?: EventsGap
+  /** What the provider reported; free sources omit it. */
+  readonly cost?: Readonly<Record<string, unknown>>
 }
 
 /** An input after `parseEventsListInput`: `since` in epoch milliseconds, `limit` with its default. */
@@ -181,6 +195,9 @@ export const SINCE_PATTERN = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{
 
 /** A source's name: a lowercase word such as gmail or history. */
 export const SOURCE_PATTERN = /^[a-z][a-z0-9-]*$/
+
+/** The contract source id: a plugin prefix and a source name, such as gws.gmail. */
+export const SOURCE_ID_PATTERN = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/
 
 const INPUT_KEYS: readonly string[] = ["since", "cursor", "limit", "account", "source", "scope"]
 /** True when the text has a control character (U+0000 to U+001F, or U+007F). */
@@ -426,28 +443,43 @@ export function fitPage(events: readonly SourceEvent[], limit: number): number {
   return count
 }
 
-/** Whose a result is: the source and account it lists, the signed-in owner, its scope and its setup line. */
+/** Whose a page is: the contract source id, the account, the signed-in owner and the scope read. */
 export interface EventsListIdentity {
   readonly source: string
   readonly account: string
   readonly owner: EventsOwner
   readonly scope: EventsScope
-  readonly setup: string
 }
 
-/** A result, with its source, account, owner, scope, setup, trust marker and, only when it restarted, its gap. */
-export function eventsListResult(identity: EventsListIdentity, events: readonly SourceEvent[], cursor: string, more: boolean, gap?: EventsGap): EventsListResult {
+/** This plugin's package name, which every page names as `plugin`. */
+export const PLUGIN_PACKAGE = "@joe-broadhead/opencode-gws"
+
+/** What one page adds beyond its identity: the time, the drops, the gap and the cost. */
+export interface PageExtras {
+  readonly now: number
+  readonly refused?: readonly EventDrop[]
+  readonly failed?: readonly EventDrop[]
+  readonly gap?: EventsGap
+  readonly cost?: Readonly<Record<string, unknown>>
+}
+
+/** A page, with its attribution, its drops and the time it read. */
+export function eventsListResult(identity: EventsListIdentity, events: readonly SourceEvent[], cursor: string, more: boolean, extras: PageExtras): EventsListResult {
   return {
     source: identity.source,
     account: identity.account,
     owner: identity.owner,
     scope: copyScope(identity.scope),
-    setup: identity.setup,
+    plugin: PLUGIN_PACKAGE,
+    asOf: new Date(extras.now).toISOString(),
     events: [...events],
     cursor,
     more,
     trust: TRUST,
-    ...(gap === undefined ? {} : { gap: { ...gap } }),
+    refused: [...(extras.refused ?? [])],
+    failed: [...(extras.failed ?? [])],
+    ...(extras.gap === undefined ? {} : { gap: { ...extras.gap } }),
+    ...(extras.cost === undefined ? {} : { cost: { ...extras.cost } }),
   }
 }
 
@@ -514,20 +546,30 @@ export function eventProblems(event: unknown, where = "event"): string[] {
 export function resultProblems(result: unknown, limit: number = PAGE.max, now = Date.now()): string[] {
   if (!plainObject(result)) return ["the result is not an object"]
   const problems: string[] = []
-  const keys = ["source", "account", "owner", "scope", "setup", "events", "cursor", "more", "trust", "gap"]
+  const keys = ["source", "account", "owner", "scope", "plugin", "asOf", "events", "cursor", "more", "trust", "refused", "failed", "gap", "cost"]
   for (const key of Object.keys(result)) if (!keys.includes(key)) problems.push(`the result has the field "${key}", which the contract does not define`)
   const { source, account } = result
-  const named = line(source, EVENT_LIMITS.source) && SOURCE_PATTERN.test(source)
-  if (!named) problems.push("the result's source must be a lowercase name such as gmail")
+  const named = line(source, EVENT_LIMITS.source) && SOURCE_ID_PATTERN.test(source)
+  if (!named) problems.push("the result's source must be a contract source id such as gws.gmail")
   if (!line(account, EVENT_LIMITS.account)) problems.push(`the result's account must be a non-empty name of at most ${EVENT_LIMITS.account} characters`)
   const owner = result["owner"]
   if (!plainObject(owner) || !line(owner["id"], EVENT_LIMITS.ownerId) || !line(owner["label"], EVENT_LIMITS.ownerLabel) || Object.keys(owner).some((key) => key !== "id" && key !== "label")) {
     problems.push("the result's owner must be { id, label }, two non-empty lines")
   }
   problems.push(...scopeProblems(result["scope"], "the result's scope"))
+  for (const key of ["refused", "failed"]) {
+    const drops = result[key]
+    if (!Array.isArray(drops)) {
+      problems.push(`the result's ${key} must be a list`)
+      continue
+    }
+    for (const [index, drop] of drops.entries()) {
+      if (!plainObject(drop) || !line(drop["external_id"], EVENT_LIMITS.externalId) || !line(drop["reason"], 200)) problems.push(`the result's ${key}[${index}] must be { external_id, reason }`)
+    }
+  }
   if (result["gap"] !== undefined) problems.push(...gapProblems(result["gap"], now))
-  const setup = result["setup"]
-  if (typeof setup !== "string" || setup.length > 300 || setup.includes("\n") || setup.includes("\u0000")) problems.push("the result's setup must be one line of at most 300 characters")
+  if (typeof result["plugin"] !== "string" || result["plugin"].length === 0) problems.push("the result's plugin must be the package name")
+  if (typeof result["asOf"] !== "string" || !Number.isFinite(Date.parse(result["asOf"]))) problems.push("the result's asOf must be an ISO date-time")
   const cursor = result["cursor"]
   if (typeof cursor !== "string" || cursor.length === 0 || cursor.length > EVENT_LIMITS.cursor) problems.push(`the result's cursor must be a non-empty string of at most ${EVENT_LIMITS.cursor} characters`)
   if (typeof result["more"] !== "boolean") problems.push("the result's more must be true or false")
@@ -537,7 +579,6 @@ export function resultProblems(result: unknown, limit: number = PAGE.max, now = 
   if (events.length > limit) problems.push(`the result has ${events.length} events, over the limit of ${limit}`)
   for (const [index, event] of events.entries()) {
     problems.push(...eventProblems(event, `events[${index}]`))
-    if (plainObject(event) && named && event["source"] !== source) problems.push(`events[${index}] names another source than the result`)
     if (plainObject(event) && typeof account === "string" && event["account"] !== account) problems.push(`events[${index}] names another account than the result`)
   }
   const times = events.map((event) => Date.parse(plainObject(event) ? String(event["occurred_at"]) : ""))
@@ -549,156 +590,4 @@ export function resultProblems(result: unknown, limit: number = PAGE.max, now = 
   return problems
 }
 
-// ── Conformance ─────────────────────────────────────────────────────────
-
-/** What a source's fixture holds, for `eventsListConformance`. */
-export interface ConformanceFixtures {
-  /** The `source` every result and event names. */
-  readonly source: string
-  /** The `account` every result and event names; also passed as the input's account when set. */
-  readonly account?: string
-  /** Pass `source` on every call, as a collector does for a plugin with several sources. */
-  readonly sourceInput?: boolean
-  /** The owner every result names. */
-  readonly owner?: EventsOwner
-  /** Passed as `since` on every call without a cursor. Every event must be at or after it. */
-  readonly since?: string
-  /** Contract 2: passed as `scope` on every call; every result must echo it (`{}` when unset). */
-  readonly scope?: EventsScope
-  /** The external_ids a full listing from `since` yields, oldest first. At most `PAGE.max`. */
-  readonly expected: readonly string[]
-  /** The limit of the paged walk; 2 by default. */
-  readonly pageSize?: number
-}
-
-export type EventsList = (input: EventsListInput) => Promise<unknown>
-
-type Listed = { readonly result?: EventsListResult; readonly error?: unknown }
-
-async function call(list: EventsList, input: EventsListInput): Promise<Listed> {
-  try {
-    return { result: (await list(input)) as EventsListResult }
-  } catch (error) {
-    return { error }
-  }
-}
-
-const describeError = (error: unknown) => (error instanceof Error ? error.message.split("\n", 1)[0] : String(error))
-
-/**
- * Every way `list` breaks the contract over `fixtures`, one sentence each; none when it keeps it. It lists everything
- * at once and page by page, checks each result, that the pages join up to exactly the expected events with nothing
- * repeated or skipped, that an earlier cursor lists the same page again, that the last cursor lists nothing, that every
- * result names the source and account, an empty first page included, that the owner, setup line and hashes hold steady,
- * that contract 2's owner-only call (`limit: 0`) lists nothing and echoes the scope, and that a bad limit, a source the
- * plugin does not have or a cursor it did not issue is refused. `list` runs the source's events_list as its tool or RPC
- * method does, input check included, over data that does not change.
- */
-export async function eventsListConformance(list: EventsList, fixtures: ConformanceFixtures): Promise<string[]> {
-  const problems: string[] = []
-  const wanted = fixtures.scope ?? {}
-  const scopeInput: EventsListInput = { ...(fixtures.account === undefined ? {} : { account: fixtures.account }), ...(fixtures.sourceInput ? { source: fixtures.source } : {}), scope: wanted }
-  const base: EventsListInput = { ...(fixtures.since === undefined ? {} : { since: fixtures.since }), ...scopeInput }
-  const after = (cursor: string): EventsListInput => ({ cursor, ...scopeInput })
-  const pageSize = fixtures.pageSize ?? 2
-  const since = fixtures.since === undefined ? undefined : sinceTime(fixtures.since)
-  const owners = new Set<string>()
-  const accounts = new Set<string>()
-  const setups = new Set<string>()
-  const hashes = new Map<string, string>()
-
-  const check = (listed: Listed, what: string, limit: number): EventsListResult | undefined => {
-    if (listed.error !== undefined) {
-      problems.push(`${what} failed: ${describeError(listed.error)}`)
-      return undefined
-    }
-    const found = resultProblems(listed.result, limit)
-    problems.push(...found.map((problem) => `${what}: ${problem}`))
-    if (found.length > 0) return undefined
-    const result = listed.result!
-    if (result.source !== fixtures.source) problems.push(`${what}: the result names the source ${result.source}, not ${fixtures.source}`)
-    if (fixtures.account !== undefined && result.account !== fixtures.account) problems.push(`${what}: the result names the account ${result.account}, not ${fixtures.account}`)
-    accounts.add(result.account)
-    owners.add(JSON.stringify(result.owner))
-    setups.add(result.setup)
-    if (fixtures.owner && JSON.stringify(result.owner) !== JSON.stringify({ id: fixtures.owner.id, label: fixtures.owner.label })) problems.push(`${what}: the owner is not the fixture's owner`)
-    if (JSON.stringify(result.scope) !== JSON.stringify(wanted)) problems.push(`${what}: the result echoes the scope ${JSON.stringify(result.scope)}, not ${JSON.stringify(wanted)}`)
-    if (result.gap !== undefined) problems.push(`${what}: the result answered a gap, and this fixture changes nothing`)
-    for (const event of result.events) {
-      if (event.source !== fixtures.source) problems.push(`${what}: an event names the source ${event.source}, not ${fixtures.source}`)
-      if (fixtures.account !== undefined && event.account !== fixtures.account) problems.push(`${what}: an event names the account ${event.account}, not ${fixtures.account}`)
-      if (since !== undefined && Date.parse(event.occurred_at) < since) problems.push(`${what}: the event ${event.external_id} is from before since`)
-      const known = hashes.get(event.external_id)
-      if (known !== undefined && known !== event.hash) problems.push(`${what}: the event ${event.external_id} has another hash than before`)
-      hashes.set(event.external_id, event.hash)
-    }
-    return result
-  }
-  const ids = (result: EventsListResult | undefined) => result?.events.map((event) => event.external_id) ?? []
-
-  // Everything at once.
-  const whole = check(await call(list, { ...base, limit: PAGE.max }), "one call with the largest limit", PAGE.max)
-  if (whole) {
-    if (JSON.stringify(ids(whole)) !== JSON.stringify(fixtures.expected)) problems.push(`one call with the largest limit lists [${ids(whole).join(", ")}], not [${fixtures.expected.join(", ")}]`)
-    if (fixtures.expected.length <= PAGE.max && whole.more) problems.push("one call with the largest limit lists everything but says more")
-  }
-
-  // Page by page.
-  const pages: EventsListResult[] = []
-  let page = check(await call(list, { ...base, limit: pageSize }), "the first page", pageSize)
-  const most = fixtures.expected.length + 10
-  while (page) {
-    pages.push(page)
-    if (!page.more) break
-    if (pages.length > most) {
-      problems.push(`the paged walk did not end after ${most} pages`)
-      break
-    }
-    page = check(await call(list, { ...after(page.cursor), limit: pageSize }), `page ${pages.length + 1}`, pageSize)
-  }
-  const walked = pages.flatMap(ids)
-  if (JSON.stringify(walked) !== JSON.stringify(fixtures.expected)) problems.push(`the pages of ${pageSize} list [${walked.join(", ")}], not [${fixtures.expected.join(", ")}]`)
-
-  // An earlier cursor lists the same page again.
-  if (pages.length >= 2) {
-    const again = check(await call(list, { ...after(pages[0]!.cursor), limit: pageSize }), "the first cursor again", pageSize)
-    if (again && JSON.stringify(again.events) !== JSON.stringify(pages[1]!.events)) problems.push("the first cursor, used again, does not list the second page again")
-  }
-
-  // The last cursor lists nothing.
-  const last = pages.at(-1)
-  if (last && !last.more) {
-    const end = check(await call(list, { ...after(last.cursor), limit: pageSize }), "the last cursor", pageSize)
-    if (end && (end.events.length > 0 || end.more)) problems.push("the last cursor lists events again, or says more")
-  }
-
-  // An empty first page still names its source and account, so Memory can bind a source that has nothing yet.
-  const empty = check(await call(list, { ...scopeInput, since: "2999-01-01T00:00:00Z", limit: pageSize }), "an empty first page", pageSize)
-  if (empty && (empty.events.length > 0 || empty.more)) problems.push("a first page from a since in the future lists events, or says more")
-
-  // Contract 2: the owner-only call lists nothing, names the owner and echoes its scope, so Memory can bind and confirm.
-  const ownerOnly = check(await call(list, { ...scopeInput, since: "2999-01-01T00:00:00Z", limit: 0 }), "the owner-only call", 0)
-  if (ownerOnly && (ownerOnly.events.length > 0 || ownerOnly.more)) problems.push("the owner-only call lists events, or says more")
-
-  if (owners.size > 1) problems.push("the owner changes between calls")
-  if (accounts.size > 1) problems.push("the account changes between calls")
-  if (setups.size > 1) problems.push("the setup line changes between calls")
-
-  // Refusals.
-  const refused = async (input: EventsListInput, what: string) => {
-    const listed = await call(list, input)
-    if (listed.error === undefined) problems.push(`${what} was not refused`)
-  }
-  await refused({ ...base, limit: PAGE.max + 1 }, `a limit of ${PAGE.max + 1}`)
-  await refused({ ...base, limit: -1 }, "a limit of -1")
-  await refused({ ...after("not-a-cursor"), limit: pageSize }, "a malformed cursor")
-  await refused({ ...after(encodeCursor(`${fixtures.source}-other`, {})), limit: pageSize }, "another source's cursor")
-  await refused({ ...base, source: `${fixtures.source}-other`, limit: pageSize }, "a source the plugin does not have")
-  return problems
-}
-
-/** `eventsListConformance`, for a test: throws one error that lists every problem. */
-export async function assertEventsListConformance(list: EventsList, fixtures: ConformanceFixtures): Promise<void> {
-  const problems = await eventsListConformance(list, fixtures)
-  if (problems.length > 0) throw new Error(`events_list breaks the contract:\n- ${problems.join("\n- ")}`)
-}
+// The conformance kit is the source-contract package's: `conformance` (vendored under vendor/).

@@ -11,11 +11,10 @@ const BEGIN = "// >>> PLUGIN-SPECIFIC >>>"
 const END = "// <<< PLUGIN-SPECIFIC <<<"
 
 const COPIES = [
+  { path: "vendor/source-contract-dist/conformance.js", optional: false, sha256: "6ed4d0e0e9fd6b26653917b890315f27e9ff5e1dd5c08f01dfdaf8f972423227", part: (text) => text },
   { path: "src/host/tools-rpc.ts", optional: true, sha256: "9210d0a531788d1f0d70d44a13a032816ef240b04aa5303f6ba4b2e2a52b6c94", part: sharedPart },
   { path: "test/support/jelly-kit.ts", optional: false, sha256: "ab599abcf041044c77e7938c3d9a081e00072487a7ec20b654d86c8230951190", part: (text) => text },
-  { path: "src/host/events-list.ts", optional: true, sha256: "9aa00fdabe67a59712979203f10e86c13bb8ab4fb0a72baadb602b77857f1d80", part: (text) => text },
-  { path: "test/support/memory-kit.mjs", optional: false, sha256: "9c0c26f8bfd6218454955804219da48100804b31e6554a05a3e71efa2ffac0b2", part: (text) => text },
-  { path: "test/support/conformance.mjs", optional: false, sha256: "816fb4411a3c4e7077c6a8f25c16d07e533b0f7ebb4ce0849a5e4dcd93ce07a5", part: (text) => text },
+  { path: "src/host/events-list.ts", optional: true, sha256: "b460c0d0827c93aea43e21de4d13c3107c20c1fdc5c1a74b843129e41104301a", part: (text) => text },
   { path: "src/process/install.ts", optional: false, sha256: "8ce0d8505f7577dc793ad2b279117f1118de404bbfacf08a8bd70b976425159a", part: (text) => text },
 ]
 

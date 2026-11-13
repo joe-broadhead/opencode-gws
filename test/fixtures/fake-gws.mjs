@@ -138,6 +138,10 @@ function mailbox(box) {
     return [{ ...page(box.history.filter((record) => BigInt(record.id) > start), "history"), historyId: box.historyId }, 0]
   }
   if (call === "messages.get") {
+    // A test can fail one message while the others answer, for the retryable-drop path.
+    if (Array.isArray(box.failIds) && box.failIds.includes(params.id)) {
+      return [{ error: { code: 500, message: "Backend Error", status: "INTERNAL", errors: [{ reason: "backendError" }] } }, 1]
+    }
     const message = box.messages.find((candidate) => candidate.id === params.id)
     return message ? [message, 0] : notFound
   }

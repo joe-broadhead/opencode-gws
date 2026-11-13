@@ -38,8 +38,9 @@ src/
     accounts.ts     tokens, spawn, status
   host/             the only other modules that import @opencode/plugin
     agents.ts       default ask rules
-    tools.ts        the 12 tool adapters
-    gmail-events.ts events_list for Gmail: search, then history, as events
+    tools.ts        the 13 tool adapters (events_list and probe are the source contract's)
+    gmail-events.ts events_list for Gmail: search, then history, as events (secret-screened)
+    identity.ts     the owner a source's read found, for probe
     calendar-events.ts events_list for Calendar: a full sync, then a sync token, as events
     event-sources.ts the events_list sources, their reads and the one that follows
     events-list.ts  the shared events_list contract (a copy every source plugin carries; check-copies pins it)

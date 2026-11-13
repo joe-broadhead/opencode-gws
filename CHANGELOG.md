@@ -14,7 +14,13 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - The tools RPC resolves a method's own resource (`<account>:<operation>`) before dispatch, with the direct tool path's account defaulting, and refuses a call that names no account, no operation or an unknown one. A session that allows `gws.read` on one operation no longer allows every gws read: another operation, another account, and a missing account are all refused.
 
-- `package.json` declares the plugin's Memory connector under `memory` (schema v2): each source's grants as exactly the reads its `events_list` call asserts, each source's own identity, the connector's direct `calendar.events.list` read with `operationScoped: true`, a `calendars` scope, and two DSL job templates. It passes Memory's connector kit (schema v2, Memory Jobs design revision 7) at 3,812 bytes of compact JSON. See [Memory](docs/memory.md).
+- `package.json` declares the plugin's sources under `sources` (contract version 1): `gws.gmail` and `gws.calendar`, with their scope, operations, `private`, cost and `urlHosts`. `package.json#memory` and its job templates are gone.
+
+- `probe` answers a source's account and owner and reads no content; `events_list` with `limit: 0` remains as a deprecated alias. Pages name the contract source id (`gws.gmail`) and carry `refused[]` (secret-shaped items, screened by the package's detector), `failed[]` (a retryable message failure holds the cursor back) and `gap` with the contract's reasons.
+
+- The source-contract conformance kit is vendored from commit `3fe6255` and run for Gmail in the tests; Calendar's case is skipped until the kit's `atomicPages` lands (source-contract#13), because its page read is atomic.
+
+- The fake gws answers one message's `messages.get` with a 500 for the retryable-drop test (`FAKE_GWS_MAILBOX` `failIds`).
 
 - The fake gws answers Calendar from `FAKE_GWS_CALENDAR`: the primary calendar's identity, paged listings, sync tokens, an expired token's 410, and cancelled events.
 

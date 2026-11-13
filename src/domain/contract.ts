@@ -315,23 +315,40 @@ export const SourceEvent = z.object({
 })
 
 export const EventsListOutput = z.object({
-  source: z.enum(["gmail", "calendar"]).describe("The source listed, also on an empty page"),
-  account: z.string().describe("The account alias listed, also on an empty page"),
-  owner: z.object({ id: z.string(), label: z.string() }).describe("The signed-in Gmail address, or the primary calendar's id"),
-  scope: z.record(z.string(), z.array(z.string())).describe("The scope this call read, echoed so Memory can pin it; {} is the whole source"),
-  setup: z.string().max(300).describe("One line on what the person sets up first, empty when there is nothing to choose"),
+  source: z.enum(["gws.gmail", "gws.calendar"]).describe("The contract source id a page names"),
+  account: z.string().describe("The account alias, also on an empty page"),
+  owner: z.object({ id: z.string(), label: z.string() }).describe("The signed-in owner, as the source read it"),
+  scope: z.record(z.string(), z.array(z.string())).describe("The scope read; {} is the whole source"),
+  plugin: z.string().describe("The package every page names"),
+  asOf: z.string().describe("When the page was read, ISO UTC"),
   events: z.array(SourceEvent).describe("Oldest first"),
   cursor: z.string().describe("Pass it to the next call"),
   more: z.boolean().describe("True when another call now would list more"),
   trust: z.literal("untrusted"),
+  refused: z.array(z.object({ external_id: z.string(), reason: z.string() })).describe("Final drops; the consumer may advance past them"),
+  failed: z.array(z.object({ external_id: z.string(), reason: z.string() })).describe("Retryable drops; any entry holds the cursor back"),
   gap: z
     .object({
-      reason: z.enum(["sync-token-expired", "cursor-invalid", "window-truncated"]),
+      reason: z.enum(["expired", "window-truncated"]),
       since: z.string(),
       until: z.string().optional(),
     })
     .optional()
-    .describe("Present only when the source restarted its window (contract 2)"),
+    .describe("Present only when the source restarted its window"),
+  cost: z.record(z.string(), z.unknown()).optional().describe("What the provider reported; free sources omit it"),
+})
+
+export const ProbeInput = z
+  .strictObject({
+    source: z.string().max(64).optional().describe('The source to probe: "gmail" or "calendar". Default: "gmail"'),
+    account: Account,
+  })
+  .describe("Read a source's account and owner, and no content (the source contract's identity call)")
+
+export const ProbeOutput = z.object({
+  account: z.string().describe("The plugin's account alias"),
+  owner: z.object({ id: z.string(), label: z.string() }).describe("The signed-in owner, as the source read it"),
+  scopes: z.array(z.string()).describe("The provider scopes granted, when the plugin reads them"),
 })
 
 export type RequestInput = z.infer<typeof RequestInput>
@@ -349,3 +366,5 @@ export type PlanOutput = z.infer<typeof PlanOutput>
 export type CommitOutput = z.infer<typeof CommitOutput>
 export type EventsListInput = z.infer<typeof EventsListInput>
 export type EventsListOutput = z.infer<typeof EventsListOutput>
+export type ProbeInput = z.infer<typeof ProbeInput>
+export type ProbeOutput = z.infer<typeof ProbeOutput>

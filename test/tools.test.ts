@@ -154,11 +154,11 @@ afterEach(() => {
 })
 
 describe("tool registration", () => {
-  it("declares the gws namespace and twelve tools with input and output schemas", async () => {
+  it("declares the gws namespace and thirteen tools with input and output schemas", async () => {
     const h = await setup({})
     expect(h.namespaces).toEqual([NAMESPACE])
     expect(NAMESPACE.description).toMatch(/catalog.*schema.*read.*plan.*planId.*untrusted/s)
-    expect([...h.tools.keys()]).toEqual(["status", "catalog", "schema", "read", "plan", "events_list", "write", "send", "share", "delete", "export", "admin"])
+    expect([...h.tools.keys()]).toEqual(["status", "catalog", "schema", "read", "plan", "events_list", "probe", "write", "send", "share", "delete", "export", "admin"])
     for (const registered of h.tools.values()) {
       expect(registered.options).toMatchObject({ namespace: "gws", permission: `gws.${registered.name}` })
       expect(registered.input).toBeInstanceOf(z.ZodType)
@@ -177,6 +177,7 @@ describe("tool registration", () => {
       read: { codemode: false, pinned: undefined },
       plan: { codemode: true, pinned: undefined },
       events_list: { codemode: true, pinned: undefined },
+      probe: { codemode: true, pinned: undefined },
       write: { codemode: false, pinned: undefined },
       send: { codemode: false, pinned: undefined },
       share: { codemode: false, pinned: undefined },

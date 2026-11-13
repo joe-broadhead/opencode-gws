@@ -8,6 +8,8 @@ import {
   EventsListInput,
   EventsListOutput,
   PlanOutput,
+  ProbeInput,
+  ProbeOutput,
   ReadOutput,
   RequestInput,
   SchemaInput,
@@ -22,7 +24,8 @@ import type { CommitCategory } from "../domain/types.js"
 import type { CallContext } from "../runtime/accounts.js"
 import type { Runtime } from "../runtime/index.js"
 import type { PluginContext, ToolContext, ToolEditor, ToolInfo } from "./context.js"
-import { eventsRequest, sourceFor } from "./event-sources.js"
+import { eventSource, eventsRequest, sourceFor } from "./event-sources.js"
+import { pageOwner } from "./identity.js"
 import type { StatusSource } from "./rpc.js"
 import { commitRequests, externalDirectoryRequest, localRequest, nativeGate, operationRequest } from "./permissions.js"
 import type { Caller, PermissionRequest } from "./permissions.js"
@@ -289,8 +292,29 @@ export function toolSpecs(runtime: Runtime, assert: Assert, status: StatusSource
         const account = targets[0]!.account
         report(call, source.follow)
         // The shared result type names any source and kind; the host checks this one against EventsListOutput.
-        const output = (await source.run(runtime, account, request, call.runtime)) as z.output<typeof EventsListOutput>
+        const output = (await source.run(runtime, account, request, call.runtime)) as unknown as z.output<typeof EventsListOutput>
         return { output, metadata: { operation: source.follow, category: "read", account } }
+      },
+    }),
+    spec({
+      name: "probe",
+      action: "gws.probe",
+      class: "read",
+      description:
+        "The source contract's probe: answers a source's account and owner and reads no content. It asserts gws.events_list only; " +
+        "the owner is the one the source's reads found in this process. Use events_list for content.",
+      exposure: CODE_MODE,
+      input: ProbeInput,
+      output: ProbeOutput,
+      run: async (input, call) => {
+        const wanted = input.source === undefined ? "gmail" : input.source.includes(".") ? input.source.slice(input.source.lastIndexOf(".") + 1) : input.source
+        const source = eventSource(wanted)
+        if (source === undefined) throw new GwsError("GWS_VALIDATION_ERROR", `the source '${input.source}' is not available: probe lists gmail and calendar`, { next: 'Pass source "gmail" or "calendar".' })
+        const follow = runtime.inspect({ ...(input.account === undefined ? {} : { account: input.account }), operation: source.follow }, "read")
+        await authorize(call, operationRequest(call.host, "gws.events_list", follow))
+        report(call, source.follow)
+        const output = { account: follow.account, owner: pageOwner(runtime, source.id, follow.account), scopes: [] }
+        return { output, metadata: { operation: source.follow, category: "read", account: follow.account } }
       },
     }),
     ...COMMIT_CATEGORIES.map(({ category, description }) =>

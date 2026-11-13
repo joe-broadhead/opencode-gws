@@ -425,263 +425,81 @@
       ]
     }
   },
-  "memory": {
-    "$schema": "https://raw.githubusercontent.com/joe-broadhead/opencode-mem/HEAD/plugin-kit/schema/memory-plugin.v2.json",
-    "version": 2,
-    "namespace": "gws",
-    "connector": {
-      "accounts": "multi",
-      "reads": [
-        {
-          "method": "read",
-          "input": {
-            "operation": "calendar.events.list"
-          },
-          "grants": [
-            {
-              "action": "gws.read",
-              "resource": "{account}:calendar.events.list"
-            }
-          ],
-          "scopeInputs": {
-            "calendarId": "calendars"
-          },
-          "kinds": [
-            "meeting",
-            "event"
-          ],
-          "cursor": "syncToken",
-          "billing": null
-        }
-      ],
-      "scope": [
-        {
-          "key": "calendars",
-          "title": "Calendars",
-          "kind": "ids",
-          "pattern": "^(?:primary|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+)$",
-          "max": 1,
-          "required": false
-        }
-      ],
-      "billing": null,
-      "operationScoped": true
-    },
-    "sources": [
+  "sources": {
+    "contractVersion": 1,
+    "items": [
       {
-        "id": "gmail",
-        "title": "Gmail",
-        "summary": "The messages in the signed-in mailbox.",
-        "contract": 2,
-        "kinds": [
-          "message"
-        ],
-        "grants": [
+        "id": "gws.gmail",
+        "kind": "events",
+        "reads": "message",
+        "tool": "events_list",
+        "input": {
+          "source": "gmail"
+        },
+        "accounts": {
+          "named": true
+        },
+        "details": [
           {
-            "action": "gws.events_list",
-            "resource": "*"
-          },
-          {
-            "action": "gws.read",
-            "resource": "{account}:gmail.users.getProfile"
-          },
-          {
-            "action": "gws.read",
-            "resource": "{account}:gmail.users.history.list"
-          },
-          {
-            "action": "gws.read",
-            "resource": "{account}:gmail.users.messages.list"
-          },
-          {
-            "action": "gws.read",
-            "resource": "{account}:gmail.users.messages.get"
+            "id": "gws.gmail.message",
+            "tool": "read",
+            "from": [
+              "external_id"
+            ]
           }
         ],
-        "scope": [],
-        "identity": {
-          "method": "events_list",
-          "input": {
-            "source": "gmail",
-            "limit": 0
-          },
-          "grants": [
-            {
-              "action": "gws.events_list",
-              "resource": "*"
-            },
-            {
-              "action": "gws.read",
-              "resource": "{account}:gmail.users.getProfile"
-            }
-          ],
-          "account": "$.account",
-          "owner": {
-            "id": "$.owner.id",
-            "label": "$.owner.label"
-          }
+        "permission": {
+          "events": "gws.events_list",
+          "operations": [
+            "gmail.users.getProfile",
+            "gmail.users.history.list",
+            "gmail.users.messages.list",
+            "gmail.users.messages.get"
+          ]
         },
-        "cadence": {
-          "everyMinutes": 30
+        "private": true,
+        "cost": {
+          "class": "free"
         },
-        "billing": null,
-        "setupHint": "Nothing to choose: events_list reads the whole signed-in Gmail mailbox."
+        "maxBytes": 262144,
+        "retentionDays": 30,
+        "urlHosts": [
+          "mail.google.com"
+        ]
       },
       {
-        "id": "calendar",
-        "title": "Calendar",
-        "summary": "The events and cancellations of the primary calendar.",
-        "contract": 2,
-        "kinds": [
-          "meeting",
-          "event"
-        ],
-        "grants": [
-          {
-            "action": "gws.events_list",
-            "resource": "*"
-          },
-          {
-            "action": "gws.read",
-            "resource": "{account}:calendar.calendarList.get"
-          },
-          {
-            "action": "gws.read",
-            "resource": "{account}:calendar.events.list"
-          }
-        ],
-        "identity": {
-          "method": "events_list",
-          "input": {
-            "source": "calendar",
-            "limit": 0
-          },
-          "grants": [
-            {
-              "action": "gws.events_list",
-              "resource": "*"
-            },
-            {
-              "action": "gws.read",
-              "resource": "{account}:calendar.calendarList.get"
-            }
+        "id": "gws.calendar",
+        "kind": "events",
+        "reads": "meeting",
+        "tool": "events_list",
+        "input": {
+          "source": "calendar"
+        },
+        "accounts": {
+          "named": true
+        },
+        "scope": {
+          "keys": [
+            "calendars"
           ],
-          "account": "$.account",
-          "owner": {
-            "id": "$.owner.id",
-            "label": "$.owner.label"
-          }
+          "describe": "Which calendar to read. The primary calendar is the default."
         },
-        "scope": [
-          {
-            "key": "calendars",
-            "title": "Calendars",
-            "kind": "ids",
-            "pattern": "^(?:primary|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+)$",
-            "max": 1,
-            "required": false
-          }
-        ],
-        "cadence": {
-          "everyMinutes": 30
-        },
-        "billing": null,
-        "setupHint": "Choose the calendar to collect when you confirm; the primary calendar is the default."
-      }
-    ],
-    "templates": [
-      {
-        "id": "gmail-commitments",
-        "title": "Gmail commitments and people",
-        "summary": "Commitments people make in the mailbox, proposed for review, with timeline lines on their person pages.",
-        "extract": {
-          "steps": [
-            {
-              "use": "events_list",
-              "connector": "google-workspace.gws",
-              "source": "gmail"
-            }
+        "permission": {
+          "events": "gws.events_list",
+          "operations": [
+            "calendar.calendarList.get",
+            "calendar.events.list"
           ]
         },
-        "transform": {
-          "into": "events",
-          "map": {}
+        "private": true,
+        "cost": {
+          "class": "free"
         },
-        "curate": {
-          "stages": [
-            {
-              "engine": "extract",
-              "outputs": [
-                "proposal:commitment_open",
-                "proposal:commitment_close"
-              ]
-            },
-            {
-              "engine": "render",
-              "into": "timeline",
-              "line": "{title}: {count} messages {cite}",
-              "max": 20
-            }
-          ]
-        },
-        "outputs": [
-          "proposal:commitment_close",
-          "proposal:commitment_open",
-          "timeline"
-        ],
-        "budget": {
-          "tokensPerRun": 15000
-        }
-      },
-      {
-        "id": "calendar-meetings",
-        "title": "Calendar meeting pages",
-        "summary": "A meeting page for each event, with its attendees as person links, and follow-ups proposed after it.",
-        "extract": {
-          "steps": [
-            {
-              "use": "events_list",
-              "connector": "google-workspace.gws",
-              "source": "calendar"
-            }
-          ]
-        },
-        "transform": {
-          "into": "events",
-          "map": {
-            "external_id": "{{item.external_id}}",
-            "kind": "meeting",
-            "occurred_at": "{{item.occurred_at}}",
-            "title": "{{item.title}}",
-            "text": "{{item.text}}",
-            "actors": "{{item.actors}}",
-            "url": "{{item.url}}"
-          }
-        },
-        "curate": {
-          "stages": [
-            {
-              "engine": "render",
-              "into": "section:Meetings",
-              "line": "{title} at {first_at} {cite}",
-              "max": 20
-            },
-            {
-              "engine": "extract",
-              "outputs": [
-                "proposal:commitment_open"
-              ]
-            }
-          ]
-        },
-        "outputs": [
-          "proposal:commitment_open",
-          "section:Meetings",
-          "timeline"
-        ],
-        "budget": {
-          "tokensPerRun": 15000
-        }
+        "maxBytes": 262144,
+        "retentionDays": 30,
+        "urlHosts": [
+          "calendar.google.com"
+        ]
       }
     ]
   }
