@@ -253,9 +253,19 @@ These need Jelly 0.3.2 or later; an older Jelly refuses the declaration's new ke
 
 Jelly folds the declared sign-ins into this plugin's one card, which shows each as Connected, Not signed in or Sign in again (expired or revoked), and starts, renews and signs out of each. An agent's `jelly_connection_request`, or a tool result that names this plugin's "Run /connect and choose …" next step, opens the same card. The plugin still signs in through OpenCode, as it does without Jelly; the declaration only tells Jelly which of the engine's integrations and servers are this plugin's.
 
+## Settings
+
+`jelly.contributes.settings` declares one setting, `access`, the option of the same name, as a choice of three:
+**Allowed** (`all`, the default), **Ask before changes** (`ask-changes`) and **Read only** (`read-only`), with Jelly's
+own line for each. Jelly draws it as a choice, never as free text, and saves only one of the three, the options
+parser's own set. A Jelly that does not know declared choices (before app#1301) refuses the whole declaration. The
+other options are not declared: `uiActions` is a list, `accounts`, `execution`, `policy` and `admin` are objects, and
+Jelly writes only flat values. `test/jelly.test.ts` checks the setting against Jelly's setting rules, restated in
+`test/support/jelly-settings.ts`, and each declared value against the options parser.
+
 ## Versions
 
 Jelly's curated catalogue pins an exact version. Publish each release under a new version so a
 review in Jelly can tell the two apart.
 
-The declaration test runs the shared kit, `test/support/jelly-kit.ts`, which checks the declaration and this page against Jelly's plugin authors' standard. `scripts/check-copies.mjs` holds the kit equal to the copy every plugin carries. The kit's list of keys does not yet name `nativeData`, `imageHosts`, `imageRead` or `actions`, so `test/jelly.test.ts` accepts those findings, and `test/calendar.test.ts`, `test/images.test.ts` and `test/ui-action.test.ts` check the fields instead.
+The declaration test runs the shared kit, `test/support/jelly-kit.ts`, which checks the declaration and this page against Jelly's plugin authors' standard. `scripts/check-copies.mjs` holds the kit and Jelly's setting rules (`test/support/jelly-settings.ts`) equal to the copies every plugin carries. The kit's list of keys does not yet name `nativeData`, `imageHosts`, `imageRead` or `actions`, so `test/jelly.test.ts` accepts those findings, and `test/calendar.test.ts`, `test/images.test.ts` and `test/ui-action.test.ts` check the fields instead.

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { CHANGING_ACTIONS } from "../src/domain/access.js"
+import { ACCESS_VALUES, CHANGING_ACTIONS } from "../src/domain/access.js"
 import { loadConfig } from "../src/domain/config.js"
 import { defaultRules } from "../src/host/agents.js"
 import { type Declaration, type DeclaredTool, declarationProblems, docProblems, effectFromRules, readPackage } from "./support/jelly-kit.js"
+import { ACCESS_CHOICES, type PluginSetting, settingChoices, settingsProblems, settingValueIssue } from "./support/jelly-settings.js"
 
 /**
  * The `jelly` section of package.json, which Jelly reads without loading the plugin. Jelly's agents have no base
@@ -26,12 +27,34 @@ describe("the jelly declaration", () => {
     expect(config.accounts.work).toEqual({ mode: "interactive", enabledServices: loadConfig({}).accounts.default?.enabledServices, access: "read", scopes: [] })
   })
 
-  it("declares the flat access option", () => {
-    const settings = (jelly.contributes as { settings: { key: string; type: string; default: unknown }[] }).settings
-    expect(settings.map(({ key, type }) => ({ key, type }))).toEqual([{ key: "access", type: "string" }])
-    expect(loadConfig({ access: "read-only" }).access).toBe("read-only")
-    expect(settings[0]?.default).toBe(loadConfig({}).access)
+  it("declares the flat access option, with Jelly's own words for its three values", () => {
+    const settings = (jelly.contributes as { settings: PluginSetting[] }).settings
+    expect(settings).toEqual([
+      {
+        key: "access",
+        label: "Access",
+        type: "string",
+        description: "How much the plugin's tools may do. Generates default rules for agents with a base allow rule; plan-then-commit still applies.",
+        choices: ACCESS_CHOICES,
+        default: loadConfig({}).access,
+      },
+    ])
   })
+
+  it("the settings follow Jelly's rules for a declared setting", () => {
+    expect(settingsProblems((jelly.contributes as { settings: unknown }).settings)).toEqual([])
+  })
+
+  it("the options parser takes every declared access choice, its default included, and refuses a value outside them", () => {
+    const access = (jelly.contributes as { settings: PluginSetting[] }).settings.find((setting) => setting.key === "access")!
+    const values = (settingChoices(access) ?? []).map((choice) => choice.value)
+    expect(values).toEqual([...ACCESS_VALUES])
+    for (const value of values) expect<string>(loadConfig({ access: value }).access).toBe(value)
+    expect<string>(loadConfig({}).access).toBe(access.default as string)
+    expect(settingValueIssue(access, "write")).not.toBeNull()
+    expect(() => loadConfig({ access: "write" })).toThrow("OPTIONS_INVALID")
+  })
+
   it("follows the plugin authors' standard, with the effects the plugin's own default rules give", () => {
     const problems = declarationProblems(ROOT, {
       effectOf: effectFromRules(RULES),
