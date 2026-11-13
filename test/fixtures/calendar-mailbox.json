@@ -50,6 +50,20 @@
             },
             "updated": "2026-11-01T09:00:00Z",
             "htmlLink": "https://calendar.google.com/calendar/event?eid=evt-b"
+          },
+          {
+            "id": "evt-secret",
+            "status": "confirmed",
+            "summary": "Deploy",
+            "description": "key:\n-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA1234567890abcdefghijklmnopqrstuvwxyz\n-----END RSA PRIVATE KEY-----",
+            "start": {
+              "dateTime": "2026-11-01T11:00:00Z"
+            },
+            "end": {
+              "dateTime": "2026-11-01T12:00:00Z"
+            },
+            "updated": "2026-10-28T09:00:00Z",
+            "htmlLink": "https://calendar.google.com/calendar/event?eid=evt-secret"
           }
         ]
       },

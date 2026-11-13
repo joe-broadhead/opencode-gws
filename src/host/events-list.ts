@@ -146,10 +146,18 @@ export interface EventsListInput {
   readonly scope?: EventsScope
 }
 
-/** A final (`refused`) or retryable (`failed`) drop, with the reason a person can read. */
-export interface EventDrop {
+/** A final drop, with the contract's reason. */
+export interface RefusedDrop {
   readonly external_id: string
-  readonly reason: string
+  readonly reason: "instruction" | "secret" | "owner"
+  readonly detail?: string
+}
+
+/** A retryable drop, with the contract's error code. */
+export interface FailedDrop {
+  readonly external_id: string
+  readonly code: string
+  readonly retryAfterSec?: number
 }
 
 export interface EventsListResult {
@@ -169,9 +177,9 @@ export interface EventsListResult {
   readonly more: boolean
   readonly trust: typeof TRUST
   /** Final drops: the consumer may advance past them. */
-  readonly refused: EventDrop[]
+  readonly refused: RefusedDrop[]
   /** Retryable drops: any entry holds the cursor back. */
-  readonly failed: EventDrop[]
+  readonly failed: FailedDrop[]
   /** Present only when the source restarted its window; absent on an ordinary page. */
   readonly gap?: EventsGap
   /** What the provider reported; free sources omit it. */
@@ -457,8 +465,8 @@ export const PLUGIN_PACKAGE = "@joe-broadhead/opencode-gws"
 /** What one page adds beyond its identity: the time, the drops, the gap and the cost. */
 export interface PageExtras {
   readonly now: number
-  readonly refused?: readonly EventDrop[]
-  readonly failed?: readonly EventDrop[]
+  readonly refused?: readonly RefusedDrop[]
+  readonly failed?: readonly FailedDrop[]
   readonly gap?: EventsGap
   readonly cost?: Readonly<Record<string, unknown>>
 }
@@ -557,14 +565,14 @@ export function resultProblems(result: unknown, limit: number = PAGE.max, now = 
     problems.push("the result's owner must be { id, label }, two non-empty lines")
   }
   problems.push(...scopeProblems(result["scope"], "the result's scope"))
-  for (const key of ["refused", "failed"]) {
+  for (const [key, field] of [["refused", "reason"], ["failed", "code"]] as const) {
     const drops = result[key]
     if (!Array.isArray(drops)) {
       problems.push(`the result's ${key} must be a list`)
       continue
     }
     for (const [index, drop] of drops.entries()) {
-      if (!plainObject(drop) || !line(drop["external_id"], EVENT_LIMITS.externalId) || !line(drop["reason"], 200)) problems.push(`the result's ${key}[${index}] must be { external_id, reason }`)
+      if (!plainObject(drop) || !line(drop["external_id"], EVENT_LIMITS.externalId) || !line(drop[field], 200)) problems.push(`the result's ${key}[${index}] must be { external_id, ${field} }`)
     }
   }
   if (result["gap"] !== undefined) problems.push(...gapProblems(result["gap"], now))

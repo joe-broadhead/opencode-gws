@@ -3,7 +3,7 @@ import { GwsError, throwIfCancelled } from "../domain/errors.js"
 import type { CallContext } from "../runtime/accounts.js"
 import type { Runtime } from "../runtime/index.js"
 import {
-  type EventDrop,
+  type RefusedDrop,
   type EventsGap,
   type EventsListRequest,
   type EventsListResult,
@@ -192,8 +192,8 @@ export async function calendarEvents(runtime: Pick<Runtime, "read">, account: st
     request.cursor === undefined
       ? { k: "s", y: "", w: truncated ? floor : wanted, t: truncated ? floor : wanted, n: 0 }
       : stateOf(request.cursor, account, calendar)
-  const identity = { source: CALENDAR_SOURCE_ID, account, owner, scope }
-  const refused: EventDrop[] = []
+  const identity = { source: CALENDAR_SOURCE, account, owner, scope }
+  const refused: RefusedDrop[] = []
   // The deprecated owner-only call: the identity and the scope, and no events read.
   if (request.limit === 0) return eventsListResult(identity, [], encodeCursor(CALENDAR_SOURCE, { a: account, o: digest(calendar), ...state }), false, { now, gap })
 
@@ -240,7 +240,7 @@ export async function calendarEvents(runtime: Pick<Runtime, "read">, account: st
       const screened = screenEvents([event], { secrets: secretKinds })
       if (screened.refused.length > 0) {
         const drop = screened.refused[0]!
-        refused.push({ external_id: drop.external_id, reason: drop.detail ?? (drop.reason === "secret" ? "holds a secret" : drop.reason) })
+        refused.push({ external_id: drop.external_id, reason: drop.reason })
         continue
       }
       listed.push({ event, after })

@@ -16,7 +16,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - `package.json` declares the plugin's sources under `sources` (contract version 1): `gws.gmail` and `gws.calendar`, with their scope, operations, `private`, cost and `urlHosts`. `package.json#memory` and its job templates are gone.
 
-- `probe` answers a source's account and owner and reads no content; `events_list` with `limit: 0` remains as a deprecated alias. Pages name the contract source id (`gws.gmail`) and carry `refused[]` (secret-shaped items, screened by the package's detector), `failed[]` (a retryable message failure holds the cursor back) and `gap` with the contract's reasons.
+- `probe` answers a source's account and owner and reads no content; `events_list` with `limit: 0` remains as a deprecated alias. Pages name their source (`gmail`, `calendar`) and carry `refused[]` (secret-shaped items, screened by the package's detector), `failed[]` (a retryable message failure holds the cursor back) and `gap` with the contract's reasons.
 
 - The source-contract conformance kit is vendored from commit `3fe6255` and run for Gmail in the tests; Calendar's case is skipped until the kit's `atomicPages` lands (source-contract#13), because its page read is atomic.
 

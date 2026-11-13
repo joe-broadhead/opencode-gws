@@ -10,20 +10,20 @@ import { EventsListInput, ProbeInput, RequestInput } from "../src/domain/contrac
 import { type GmailMessage, MESSAGE_FIELDS } from "../src/domain/gmail.js"
 import { CALENDAR_SOURCE } from "../src/host/calendar-events.js"
 import { encodeCursor, PLUGIN_PACKAGE } from "../src/host/events-list.js"
-import { GMAIL_SOURCE, GMAIL_SOURCE_ID, gmailMessageEvent } from "../src/host/gmail-events.js"
+import { GMAIL_SOURCE, gmailMessageEvent } from "../src/host/gmail-events.js"
 import type { PermissionRequest } from "../src/host/permissions.js"
 import { type Call, parse, toolSpecs } from "../src/host/tools.js"
 import type { Runtime } from "../src/runtime/index.js"
 import { account, testRuntime } from "./support/config.js"
 
 /**
- * The source-contract conformance kit, vendored from the package at commit 3fe6255 (`vendor/VENDOR.md`), run against
- * the plugin's declaration and its real reads through the tool specs. The Gmail source runs every check; Calendar's
- * kit case is pending the package's `atomicPages` option (a page cannot hold `failed[]` when the provider read is
- * atomic), and is skipped with that reason.
+ * The source-contract conformance kit, vendored from PR #17 head e5a3fef (`vendor/VENDOR.md`), run against the plugin's
+ * declaration and its real reads through the tool specs. Both sources pass; Calendar declares `atomicPages`, because
+ * `calendar.events.list` is one provider read and its page cannot hold a per-event failure.
  */
 
 const GMAIL_FIXTURE = fileURLToPath(new URL("./fixtures/gmail-source.json", import.meta.url))
+const CALENDAR_FIXTURE = fileURLToPath(new URL("./fixtures/calendar-mailbox.json", import.meta.url))
 const SINCE = "2026-11-01T00:00:00Z"
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
@@ -33,17 +33,22 @@ const sourceOf = (id: string) => pkg.sources.items.find((item) => item.id === id
 
 let dir: string
 let mailboxPath: string
+let calendarPath: string
 const runtimes: Runtime[] = []
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "opencode-gws-source-"))
   mailboxPath = join(dir, "mailbox.json")
   copyFileSync(GMAIL_FIXTURE, mailboxPath)
+  calendarPath = join(dir, "calendar.json")
+  copyFileSync(CALENDAR_FIXTURE, calendarPath)
   process.env["FAKE_GWS_MAILBOX"] = mailboxPath
+  process.env["FAKE_GWS_CALENDAR"] = calendarPath
 })
 
 afterEach(async () => {
   delete process.env["FAKE_GWS_MAILBOX"]
+  delete process.env["FAKE_GWS_CALENDAR"]
   for (const runtime of runtimes.splice(0)) await runtime.close()
   rmSync(dir, { recursive: true, force: true })
 })
@@ -74,7 +79,7 @@ function harness(runtime: Runtime) {
 }
 
 const detailPage = (account: string, events: unknown[]): Record<string, unknown> => ({
-  source: GMAIL_SOURCE_ID,
+  source: GMAIL_SOURCE,
   account,
   owner: { id: account, label: account },
   scope: {},
@@ -129,6 +134,33 @@ async function gmailReport(): Promise<ConformanceReport> {
   })
 }
 
+async function calendarReport(): Promise<ConformanceReport> {
+  const runtime = await testRuntime({ accounts: { personal: account({ services: ["gmail", "calendar"] }) } })
+  runtimes.push(runtime)
+  const { run } = harness(runtime)
+  const expired = encodeCursor(CALENDAR_SOURCE, { a: "personal", o: digest("sam.rivera@example.com"), k: "s", y: "sync-expired", w: 0, t: Date.parse(SINCE), n: 0 })
+  return sourceConformance({
+    plugin: PLUGIN_PACKAGE,
+    source: sourceOf("gws.calendar") as never,
+    tools: [
+      { id: "events_list", readOnly: true },
+      { id: "read", readOnly: true },
+      { id: "probe", readOnly: true },
+    ],
+    calls: {
+      list: (input, context) => run("events_list", EventsListInput, { source: "calendar", ...input }, context.permission) as Promise<unknown>,
+      probe: (input, context) => run("probe", ProbeInput, input, context.permission) as Promise<unknown>,
+    },
+    cases: [
+      { name: "a page of events", input: { source: "calendar", account: "personal", since: SINCE, limit: 500 }, expect: "page" },
+      { name: "an expired sync token", input: { source: "calendar", account: "personal", cursor: expired }, expect: "expired" },
+    ],
+    identityOperations: [],
+    account: "personal",
+    atomicPages: { reason: "calendar.events.list is one provider read, so a page has no per-event failure" },
+  })
+}
+
 describe("the source contract", () => {
   it("validates the declaration the plugin ships", () => {
     const checked = SOURCES_SCHEMA.check(pkg.sources)
@@ -144,10 +176,11 @@ describe("the source contract", () => {
     expect(report.checks.filter((check) => !check.ran && !check.notApplicable).map((check) => check.name)).toEqual([])
   }, 60_000)
 
-  it.skip("passes the conformance kit for Calendar once the kit's atomicPages lands (source-contract#13)", () => {
-    // Calendar's page read is atomic: one provider read, so a page has no per-event failed[] to demonstrate. The kit's
-    // `failed-holds-cursor` and `refused-is-final` checks need `atomicPages: { reason }`, which is landing on PR #13.
-    expect(CALENDAR_SOURCE).toBe("calendar")
-  })
+  it("passes the conformance kit for Calendar, with atomicPages", async () => {
+    const report = await calendarReport()
+    expect(report.problems).toEqual([])
+    expect(report.ok).toBe(true)
+    expect(report.checks.find((check) => check.name === "failed-holds-cursor")?.notApplicable).toBe(true)
+  }, 60_000)
 })
 

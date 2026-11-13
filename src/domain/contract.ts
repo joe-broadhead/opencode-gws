@@ -315,7 +315,7 @@ export const SourceEvent = z.object({
 })
 
 export const EventsListOutput = z.object({
-  source: z.enum(["gws.gmail", "gws.calendar"]).describe("The contract source id a page names"),
+  source: z.enum(["gmail", "calendar"]).describe("The source name a page names"),
   account: z.string().describe("The account alias, also on an empty page"),
   owner: z.object({ id: z.string(), label: z.string() }).describe("The signed-in owner, as the source read it"),
   scope: z.record(z.string(), z.array(z.string())).describe("The scope read; {} is the whole source"),
@@ -326,7 +326,7 @@ export const EventsListOutput = z.object({
   more: z.boolean().describe("True when another call now would list more"),
   trust: z.literal("untrusted"),
   refused: z.array(z.object({ external_id: z.string(), reason: z.string() })).describe("Final drops; the consumer may advance past them"),
-  failed: z.array(z.object({ external_id: z.string(), reason: z.string() })).describe("Retryable drops; any entry holds the cursor back"),
+  failed: z.array(z.object({ external_id: z.string(), code: z.string(), retryAfterSec: z.number().optional() })).describe("Retryable drops; any entry holds the cursor back"),
   gap: z
     .object({
       reason: z.enum(["expired", "window-truncated"]),

@@ -4,7 +4,8 @@ import type { CallContext } from "../runtime/accounts.js"
 import type { Runtime } from "../runtime/index.js"
 import { screenEvents, secretKinds } from "../../vendor/source-contract-dist/events.js"
 import {
-  type EventDrop,
+  type FailedDrop,
+  type RefusedDrop,
   type EventsListRequest,
   type EventsListResult,
   type SourceEvent,
@@ -168,7 +169,7 @@ export async function gmailEvents(runtime: Pick<Runtime, "read">, account: strin
   if (Object.keys(scope).length > 0) {
     throw new GwsError("GWS_VALIDATION_ERROR", "Gmail has no scope: events_list reads the signed-in mailbox whole", { next: "Call events_list without scope." })
   }
-  const identity = { source: GMAIL_SOURCE_ID, account, owner, scope }
+  const identity = { source: GMAIL_SOURCE, account, owner, scope }
   let state: State = request.cursor === undefined ? { p: "s", t: startTime(request, now) } : stateOf(request.cursor, account)
   // The deprecated owner-only call: the identity and the cursor, and not one message read.
   if (request.limit === 0) return eventsListResult(identity, [], encodeCursor(GMAIL_SOURCE, { a: account, ...state }), false, { now })
@@ -262,25 +263,25 @@ export async function gmailEvents(runtime: Pick<Runtime, "read">, account: strin
     break
   }
 
-  const fetched = await each(candidates, FETCHES, async (candidate): Promise<{ event?: SourceEvent; failed?: EventDrop }> => {
+  const fetched = await each(candidates, FETCHES, async (candidate): Promise<{ event?: SourceEvent; failed?: FailedDrop }> => {
     const get = (fields: string, format: string) => read("gmail.users.messages.get", { id: candidate.id, format }, fields) as Promise<GmailMessage>
     try {
       const facts = messageFacts(await get(MESSAGE_FIELDS, "full"))
-      return facts === undefined ? { failed: { external_id: candidate.id, reason: "the provider answered a message with no id or date" } } : { event: toEvent(facts, account) }
+      return facts === undefined ? { failed: { external_id: candidate.id, code: "SCHEMA_VIOLATION" } } : { event: toEvent(facts, account) }
     } catch (error) {
       const known = GwsError.from(error)
       if (known?.status === 404) return {}
       if (known?.code === "OUTPUT_LIMIT") {
         const facts = messageFacts(await get(METADATA_FIELDS, "metadata"))
-        return facts === undefined ? { failed: { external_id: candidate.id, reason: "the provider answered a message with no id or date" } } : { event: toEvent(facts, account) }
+        return facts === undefined ? { failed: { external_id: candidate.id, code: "SCHEMA_VIOLATION" } } : { event: toEvent(facts, account) }
       }
-      return { failed: { external_id: candidate.id, reason: `the provider answered ${known?.code ?? "an error"} for this message` } }
+      return { failed: { external_id: candidate.id, code: "UNAVAILABLE" } }
     }
   })
 
   const listed: Array<{ event: SourceEvent; after: State }> = []
-  const refused: EventDrop[] = []
-  const failed: EventDrop[] = []
+  const refused: RefusedDrop[] = []
+  const failed: FailedDrop[] = []
   for (const [index, result] of fetched.entries()) {
     const candidate = candidates[index]!
     if (result.failed !== undefined) {
@@ -292,7 +293,7 @@ export async function gmailEvents(runtime: Pick<Runtime, "read">, account: strin
       const screened = screenEvents([result.event], { secrets: secretKinds })
       if (screened.refused.length > 0) {
         const drop = screened.refused[0]!
-        refused.push({ external_id: drop.external_id, reason: drop.detail ?? (drop.reason === "secret" ? "holds a secret" : drop.reason) })
+        refused.push({ external_id: drop.external_id, reason: drop.reason })
         continue
       }
       listed.push({ event: result.event, after: candidate.after })

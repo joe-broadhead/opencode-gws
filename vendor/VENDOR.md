@@ -1,13 +1,12 @@
 # @we-the-rebel-alliance/source-contract (vendored)
 
-From opencode-mem PR #13 head `3fe6255`, package 0.1.0, MIT. Do not edit.
+From opencode-mem PR #17 head `e5a3fef` (package 0.1.0, MIT), with `atomicPages` and the screening. Do not edit.
 
 ## SHA-256
 
 1a00d3f937d6c65cd6987bbd0f0da1591d6f423bd7751aedfdc8cdd152bfa04e  vendor/source-contract-dist/THIRD-PARTY-NOTICES.md
 cf65170b6e960ae4b3501f91913fb4ddbf95d600239ef6bdeac12f872c8b9801  vendor/source-contract-dist/broker-client.d.ts
-94aa4052f582f3cbcc060bd81d15a538868151a47f47425e82225426f7113216  vendor/source-contract-dist/broker-client.js
-49c1b816a69d77d2bed85b4f657e3d1e33cb663c469d31970b41b4ce8699b605  vendor/source-contract-dist/chunks/chunk-3SYLFXAZ.js
+804cebe25ce06d71a0ed1510594a9c07cf1c4a7240939cea74aca435c6fd05d1  vendor/source-contract-dist/broker-client.js
 3e7a28fc9df5062ebf527a2693a2a6175b0fee3bec269af3085c3213ba844ff4  vendor/source-contract-dist/chunks/chunk-6RDMPYYW.js
 fc5628752bcaf1832c79302f619e46bed9dc3b63c2f75105d8f403d77b64ed74  vendor/source-contract-dist/chunks/chunk-AXAGCSNI.js
 d8e1a5c27078e5ce1cfe2ef7e3f6381fffe242e625fa6370251b6fbfc03105ff  vendor/source-contract-dist/chunks/chunk-ELPJD3ND.js
@@ -15,23 +14,24 @@ abc747cca337beb2c94d3b7ce5568c29a59ced48c6b1b9a362b20a063a203f33  vendor/source-
 d0c7a4785744974cc4cf01af0f21495fc13b5ecea729aa8d162f800f16a56d6f  vendor/source-contract-dist/chunks/chunk-HLVAKAYG.js
 c964bf09825e8467fff3efc821df9345399fbf58ae207795b44f6dcd9cd38b9b  vendor/source-contract-dist/chunks/chunk-HVKVERIX.js
 6f9f2b56ea30e3aa7629f823cc19b9438b5178f7448e2c292d2b07d28b0bc8e8  vendor/source-contract-dist/chunks/chunk-I2RXJJJM.js
+f2e480d73879735550676ff2d4af54490418c9e36633db088504a86fcb0038fa  vendor/source-contract-dist/chunks/chunk-QPXY6ZPF.js
 c384c7af7ae1fc1d58999221adc1a4830001fb467b86cdb7678016eea174daaa  vendor/source-contract-dist/chunks/chunk-RYNKNCPP.js
 ffc13427af11c3bf6bfb0b906921c0e64527664553d4322ba55cf8a0bf0019f6  vendor/source-contract-dist/chunks/chunk-UGUA267L.js
-90d3cd68dda6a7358c07a87a67b365dd0f37520f055798775e04d1023f93dc96  vendor/source-contract-dist/chunks/chunk-WTP57O3E.js
+c1adf149c502f3140740dce4aac6aa167816e3a6ca116d110dde391c0d67fae6  vendor/source-contract-dist/chunks/chunk-ZQI5K3R5.js
 e3d137f31d1f6544766d7fe4cf1ef7688defb1ad2c45f875465dee1e873f77d8  vendor/source-contract-dist/chunks/chunk-ZTRH3FEM.js
 de26d1a6e6a6aa2f2da35608bcc6fea0d1240a502d67b0481920d3ed228a18ca  vendor/source-contract-dist/conformance.d.ts
-6ed4d0e0e9fd6b26653917b890315f27e9ff5e1dd5c08f01dfdaf8f972423227  vendor/source-contract-dist/conformance.js
+d3831df80914b916c01bc25aed598414f4e6c69feb5bdc322ea0a17c74e22e42  vendor/source-contract-dist/conformance.js
 b6bd52b4f5267fba84fc6ac4c46f06aeddc8f77d216980929aaed8577f8caa32  vendor/source-contract-dist/cursor.d.ts
 28482ff668ec5680fe7c3e38ae7ee87c36da99ee447dbb851d055cdc49b0bea1  vendor/source-contract-dist/cursor.js
-4089b0f1efda642dad715e46fb95263b8071c585a7d52c6ac4f8a116f7c5d538  vendor/source-contract-dist/descriptor.d.ts
-527005bb144027085db5f5c3757b66a8d46f5856199232cafe1bc4097df7cb21  vendor/source-contract-dist/descriptor.js
+4521256f3dffb0ff9c23521be6a5caf9239b5eb87cc29df86ae2ba5fa15d6a3c  vendor/source-contract-dist/descriptor.d.ts
+8a7558894f9a97e99105f91fc94e72833aca7b2d49d478f83f3dc4ebada0da31  vendor/source-contract-dist/descriptor.js
 cee2042a1a8216ceabd1ea22a997f6fb1754516ce4d3fa241ab135904e5d33db  vendor/source-contract-dist/events.d.ts
 fa33c97da7d81167860440da2dce8ea23703b53fbedc78412f9571f9555e8cab  vendor/source-contract-dist/events.js
 04416e21fe8ff873f320ddc2e55b4c061760fc5c3a908d9636119135dc4272d2  vendor/source-contract-dist/index.d.ts
 52208818a550d9317dc263906f9a001bf0b4b56fb3d19319c43fe8fe68a7cc28  vendor/source-contract-dist/index.js
 b139039477b76f14aa42683729f059607218a059180e638620c98c70ac4a8d09  vendor/source-contract-dist/internal/checked.d.ts
 abc4d34f01b11ac668510030a10646d306919f176de72d245454a8fbe1c8061c  vendor/source-contract-dist/internal/conformance/details.d.ts
-7877b4fdbe5dcc97303cf246dc8c8c3f660c5a0ee7844a943a97900ea0292621  vendor/source-contract-dist/internal/conformance/kit.d.ts
+506cadf2079d3ee1f422c099be90f99f4e1bd109b1c0d13e1a72e5f5111dbd3c  vendor/source-contract-dist/internal/conformance/kit.d.ts
 ba5199e0af8d6b7e0fb9e962c53bcf35e88e1dc26f48713cdf252e0d1d7b7b0d  vendor/source-contract-dist/internal/conformance/page.d.ts
 d0e4db28c65600a9cf829c718367016837f638e746541e873428d26766d9f899  vendor/source-contract-dist/internal/conformance/permission.d.ts
 fa33c7b857adba41c1d9bc666b72722c4208fbf43888084b072eb621be978de9  vendor/source-contract-dist/internal/conformance/probe.d.ts
@@ -49,7 +49,7 @@ ae6488cffc8e4354330dd51984a2777ebd527959589862c6940ebcaaa0853187  vendor/source-
 e3ab077ebf343257243aa9701af5db36324c0cf75db2bfb1f69e8fa41df0ad59  vendor/source-contract-dist/pick.d.ts
 9a552b6a63fc0041f0f51b080de32f7e696e3f27f0ff0802c8d9bf77eca9f51b  vendor/source-contract-dist/pick.js
 a8c66c4ffa828732d21a6ff7717b18b6af702cab2de5210179268c95c12ca9b6  vendor/source-contract-dist/read.d.ts
-71f071862ad11c0184574a56783375b02f62ac714b30eb923f3af4720dc8b7c4  vendor/source-contract-dist/read.js
+3294a5d5640cd688e9d6d61bcfa4c8d3130e78591db0c0bbb665bf48e08f004e  vendor/source-contract-dist/read.js
 d5420c1da851d659ec0c1848d627b8a65f8c85e0789d9092cd0499a75f0d8c95  vendor/source-contract-dist/registry.d.ts
 1baf31d3a6dd55f13794edb9701e49b69a9160ac775a82bb4f93a9a0e16d152a  vendor/source-contract-dist/registry.js
 e7322f2604e2dac1cca02fc8d2201de5e369cecf817accea3b28c2760a7a44e3  vendor/source-contract-dist/schema.d.ts

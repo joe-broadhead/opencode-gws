@@ -15,7 +15,7 @@ const Tools = Rpc.define({
   methods: {
     describe: { input: open, output: open },
     ...Object.fromEntries(
-      ["status", "catalog", "schema", "read", "plan", "events_list"].map((name) => [
+      ["status", "catalog", "schema", "read", "plan", "events_list", "probe"].map((name) => [
         name,
         { input: open, output: open, errors: { failed: open } },
       ]),
