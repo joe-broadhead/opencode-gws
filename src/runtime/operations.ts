@@ -59,6 +59,18 @@ interface Resolved {
   helper?: HelperAdapter
 }
 
+/** A checked, dry-run change: what `plan` stores and `preview` shows. */
+interface Prepared {
+  request: Request
+  entry: MethodEntry
+  category: CommitCategory
+  commitArgv: string[]
+  preview: Plan["preview"]
+  dryRun: unknown
+  files?: PlannedFiles
+  recheck?: Plan["recheck"]
+}
+
 /** Request fields a helper does not take: its flags go in `input`. */
 const METHOD_FIELDS = ["params", "body", "fields", "pagination", "upload", "download"] as const
 
@@ -288,7 +300,7 @@ export class Operations {
         category: "read",
         operation: entry.id,
         durationMs: Date.now() - started,
-        caller: ctx.caller,
+        ...who(ctx),
       })
       return {
         ok: true,
@@ -301,7 +313,7 @@ export class Operations {
         trust: { workspaceContent: "untrusted" },
       }
     } catch (error) {
-      this.runtime.audit.emit({ event: "operation.read", outcome: "error", account: request.account, operation: entry.id, durationMs: Date.now() - started, errorCode: auditErrorCode(error), caller: ctx.caller })
+      this.runtime.audit.emit({ event: "operation.read", outcome: "error", account: request.account, operation: entry.id, durationMs: Date.now() - started, errorCode: auditErrorCode(error), ...who(ctx) })
       throw error
     }
   }
@@ -328,20 +340,65 @@ export class Operations {
         throw processError(result, parsed, entry.service, this.accounts.remediation(request.account, entry.scopes, entry.service))
       }
       const bytes = await stage.readCapped(IMAGE_OUTPUT, maxBytes)
-      this.runtime.audit.emit({ event: "operation.read", outcome: "success", account: request.account, category: "read", operation: entry.id, durationMs: Date.now() - started, caller: ctx.caller })
+      this.runtime.audit.emit({ event: "operation.read", outcome: "success", account: request.account, category: "read", operation: entry.id, durationMs: Date.now() - started, ...who(ctx) })
       return bytes
     } catch (error) {
-      this.runtime.audit.emit({ event: "operation.read", outcome: "error", account: request.account, operation: entry.id, durationMs: Date.now() - started, errorCode: auditErrorCode(error), caller: ctx.caller })
+      this.runtime.audit.emit({ event: "operation.read", outcome: "error", account: request.account, operation: entry.id, durationMs: Date.now() - started, errorCode: auditErrorCode(error), ...who(ctx) })
       throw error
     } finally {
       await stage?.dispose().catch(() => undefined)
     }
   }
 
+  /**
+   * A change's plan without storing it: the same resolve, gate, recipient facts, policy, build and `gws --dry-run` as
+   * `plan`, for `preview`, which shows a person the change a UI asks for before any plan exists.
+   */
+  async preview(input: RequestInput, ctx: CallContext): Promise<Omit<PlanOutput, "planId" | "expiresAt">> {
+    const { category, preview, dryRun } = await this.prepare(input, ctx)
+    return { ok: true, category, preview, dryRun }
+  }
+
   async plan(input: RequestInput, ctx: CallContext): Promise<PlanOutput> {
+    const started = Date.now()
+    const prepared = await this.prepare(input, ctx)
+    const { category, preview, dryRun, request, entry } = prepared
+    const plan = this.runtime.plans.create({
+      account: request.account,
+      sessionId: ctx.sessionId,
+      agentId: ctx.agentId,
+      category,
+      operation: entry.id,
+      service: entry.service,
+      argv: prepared.commitArgv,
+      preview,
+      files: prepared.files,
+      ...(prepared.recheck ? { recheck: prepared.recheck } : {}),
+      ttlSeconds: this.runtime.config.policy.planTtlSeconds,
+    })
+    this.runtime.audit.emit({
+      event: "operation.plan",
+      outcome: "success",
+      account: request.account,
+      category,
+      operation: entry.id,
+      durationMs: Date.now() - started,
+      ...who(ctx),
+    })
+    return {
+      ok: true,
+      planId: plan.id,
+      expiresAt: new Date(plan.expiresAt).toISOString(),
+      category,
+      preview,
+      dryRun,
+    }
+  }
+
+  /** Everything a plan holds, checked and dry-run, before it is stored. */
+  private async prepare(input: RequestInput, ctx: CallContext): Promise<Prepared> {
     const resolved = this.resolve(input)
     const { entry, helper, request } = resolved
-    const started = Date.now()
     const { category } = this.gate(resolved, "plan")
     const commitCategory = category as CommitCategory
     const recipientsPlan = recipientPlan(entry.id, category, request)
@@ -399,37 +456,16 @@ export class Operations {
         ? { ...preview, recipients: recipientLabels(recipients), ...(recipients.unknown ? { recipientsUnknown: recipients.unknown } : {}) }
         : preview
     const planPreview = reason ? { ...reached, reason } : reached
-
-    const plan = this.runtime.plans.create({
-      account: request.account,
-      sessionId: ctx.sessionId,
-      agentId: ctx.agentId,
+    return {
+      request,
+      entry,
       category: commitCategory,
-      operation: entry.id,
-      service: entry.service,
-      argv: commitArgv,
+      commitArgv,
       preview: planPreview,
+      dryRun: redactDryRun(parsed.data),
       files: planned,
       // Recipients read at plan time can change before the commit (a draft, an event's guests): the commit reads them again.
       ...(recipientsPlan.lookups.length > 0 ? { recheck: { request, recipients: facts.recipients.addresses.concat(facts.recipients.domains) } } : {}),
-      ttlSeconds: this.runtime.config.policy.planTtlSeconds,
-    })
-    this.runtime.audit.emit({
-      event: "operation.plan",
-      outcome: "success",
-      account: request.account,
-      category,
-      operation: entry.id,
-      durationMs: Date.now() - started,
-      caller: ctx.caller,
-    })
-    return {
-      ok: true,
-      planId: plan.id,
-      expiresAt: new Date(plan.expiresAt).toISOString(),
-      category: commitCategory,
-      preview: planPreview,
-      dryRun: redactDryRun(parsed.data),
     }
   }
 
@@ -476,7 +512,7 @@ export class Operations {
         category,
         operation: plan.operation,
         durationMs: Date.now() - started,
-        caller: ctx.caller,
+        ...who(ctx),
       })
       const answer = plan.files?.output ? parsed.data : withoutSavedBody(parsed.data)
       receipt = { ok: true, planId: plan.id, category, operation: plan.operation, result: answer ?? parsed.raw, file, ...(delivered?.cleanupDegraded ? { cleanupDegraded: true } : {}) }
@@ -491,7 +527,7 @@ export class Operations {
         operation: plan.operation,
         durationMs: Date.now() - started,
         errorCode: auditErrorCode(error),
-        caller: ctx.caller,
+        ...who(ctx),
       })
       if (ctx.signal?.aborted) {
         throw new GwsError(
@@ -588,6 +624,12 @@ export class Operations {
     if (!parsed.ok) throw processError(result, parsed, entry.service, this.accounts.remediation(account, entry.scopes, entry.service))
     return parsed.data
   }
+}
+
+/** Who made a call, for the audit: a script, or a person under a Jelly grant with its member and id. */
+function who(ctx: Pick<CallContext, "caller" | "person">): { caller?: "rpc" | "person"; member?: string; grant?: string } {
+  if (ctx.caller === "person") return { caller: "person", member: ctx.person?.member, grant: ctx.person?.grant }
+  return { caller: ctx.caller }
 }
 
 function fileLimits(decision: PolicyDecision): FileLimits {
