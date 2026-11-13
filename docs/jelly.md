@@ -95,6 +95,65 @@ method fails with `GWS_UNAVAILABLE`. A day with more than 250 entries is cut at 
 `test/calendar.test.ts` checks the declaration against Jelly's native data rules, and the method against fake
 Calendar answers; `test/host/calendar.test.ts` calls it on a real OpenCode host.
 
+## Pictures in an agent's UI
+
+`jelly.imageHosts` lists exactly the hosts the method takes: `drive.google.com` and Google's own image servers,
+`lh3` to `lh7`, `lh7-rt` and `lh7-us` under `googleusercontent.com`, each by its full name. `jelly.imageRead` is
+`{ "method": "images.read" }`: when an agent's UI shows a picture whose address is on one of those hosts, Jelly asks
+this plugin for it, and the window never gets the address or a token. `images.read` is declared in `jelly.rpc` with
+`readOnly: true`, the label "read a Google Workspace picture", and the permission `gws.read`, the one `gws_read`
+declares. Jelly calls it on the RPC named after the package with `{ url }`, the picture's address, after judging
+`gws.read` against the agent's rules: an ask or a deny shows no picture, and nobody is asked. Outside Jelly, any
+client of the OpenCode server can call the method, as it can `calendar.today`.
+
+What it answers: `{ mime, base64 }`, a PNG, JPEG, GIF or WebP of at most 1 MB. The type comes from the picture's first
+bytes, never from a `Content-Type` or Drive's `mimeType`; SVG, HTML and every other kind are `IMAGE_TYPE_REFUSED`. A
+picture over 1 MB is `IMAGE_TOO_LARGE`: the plugin stops reading at that size and answers nothing, never a picture cut
+short. Jelly checks the answer again before it draws it.
+
+Which addresses it takes. The address must be https, with no user name, password, port or IP address, on
+`drive.google.com` or one of those image servers; anything else is `IMAGE_HOST_REFUSED`, and nothing is fetched. Any
+other `googleusercontent.com` name is refused too: Apps Script pages and every Compute Engine machine's reverse DNS
+name live there, so a prompt-injected agent could otherwise put data in a picture address and have the person's
+machine send it to a server anyone can run. The plugin checks this itself, whatever Jelly checked.
+
+- **A Drive link** (`https://drive.google.com/file/d/<id>/…`, `/open?id=`, `/uc?id=` or `/thumbnail?id=`) is never
+  fetched. The plugin reads the file through gws, as the account, with the read policy and the audit, as `gws_read`
+  does: `drive.files.get` with `fields: mimeType,size,thumbnailLink`, then, for a PNG, JPEG, GIF or WebP of at most
+  1 MB, its bytes (`alt=media`). gws writes those bytes to a file in a private directory under the plugin's work
+  folder, which the plugin reads back with the cap and removes before it answers. Any other file, and a picture over
+  1 MB, answers its thumbnail; a file with neither is `IMAGE_UNAVAILABLE`.
+- **An image-server address** (a Drive `thumbnailLink`, a Docs or Slides picture, a profile photo) is fetched over HTTPS by
+  the plugin itself: gws reads Google's APIs, not an arbitrary address. A redirect is never followed, any answer but
+  200 is `IMAGE_UNAVAILABLE`, no cookie or referrer is sent, and the size is checked while the body streams.
+
+Where the account's token goes. Only to those image servers, and only for an address Google returned to that account
+in this process: the plugin remembers, in memory for an hour, the addresses in the fields Google itself fills with a
+picture or file link (Drive's `thumbnailLink`, `iconLink`, `webViewLink`, `webContentLink` and a user's `photoLink`,
+Docs' `contentUri`, Slides' `contentUrl`, People's `photos[].url` and `coverPhotos[].url`, the Directory's
+`thumbnailPhotoUrl`), at most 1,000, never the bytes. Text that people write, such as a document, a cell, an event's
+description or a slide's `sourceUrl`, never counts. An image-server address Google did not return is fetched without
+credentials, so a private picture there shows nothing. A credentials-file account's token stays inside gws, so its
+pictures come only from Drive links.
+
+Which account reads it: the one Google returned the address to; else the only account that enables `drive`; else the
+`default` account when it is one of them. Otherwise it is `IMAGE_ACCOUNT_AMBIGUOUS`, and the plugin never tries each
+account in turn. An account must also enable `drive` for its token to be used. When that account is signed out, the
+answer is `AUTH_REQUIRED`; Jelly shows no picture, and its card for this plugin asks the person to sign in.
+
+At most four pictures are read at once (one more is `IMAGE_UNAVAILABLE`), and each gives up after eight seconds,
+inside Jelly's ten. A failure is the declared error `failed`, with the plugin's code and next step; Jelly shows any
+failure as no picture. No error, log line or audit record names the address, the file or the token: an
+`images.read` audit record notes only the outcome, the account, the duration and the code.
+
+Jelly's limit today: Jelly's picture contract allows 1 MB (`AGENT_UI_IMAGE_MAX_BYTES`), but its host refuses any plugin
+RPC answer over 64 KB of JSON (`VIEW_DATA_MAX_BYTES`), so a picture over about 47 KB, which base64 makes larger than
+that, shows no picture in Jelly until Jelly lifts that limit for pictures. The plugin answers the whole picture
+regardless; the limit is Jelly's.
+
+`test/images.test.ts` checks the address gate, the token hosts, the cap while streaming, the type from the bytes, the
+account rule and the declaration against Jelly's rules, all against fake answers with no network.
+
 ## Signing in
 
 `jelly.signIns` declares one sign-in, `google`, for OpenCode's integration `gws-*`: every account (`gws-<alias>`) folds into it, so the card waits while any account waits. The sign-in declares what Jelly does for it, so Jelly has no code of its own for gws:
@@ -112,4 +171,4 @@ Jelly folds the declared sign-ins into this plugin's one card, which shows each 
 Jelly's curated catalogue pins an exact version. Publish each release under a new version so a
 review in Jelly can tell the two apart.
 
-The declaration test runs the shared kit, `test/support/jelly-kit.ts`, which checks the declaration and this page against Jelly's plugin authors' standard. `scripts/check-copies.mjs` holds the kit equal to the copy every plugin carries. The kit's list of keys does not yet name `nativeData`, so `test/jelly.test.ts` accepts that one finding and `test/calendar.test.ts` checks the field instead.
+The declaration test runs the shared kit, `test/support/jelly-kit.ts`, which checks the declaration and this page against Jelly's plugin authors' standard. `scripts/check-copies.mjs` holds the kit equal to the copy every plugin carries. The kit's list of keys does not yet name `nativeData`, `imageHosts` or `imageRead`, so `test/jelly.test.ts` accepts those findings, and `test/calendar.test.ts` and `test/images.test.ts` check the fields instead.
