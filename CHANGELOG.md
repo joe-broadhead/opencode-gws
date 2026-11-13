@@ -2,9 +2,11 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.0.3] - 2026-11-13
 
 ### Added
+
+- The `jelly` settings declare their choices: `access` is drawn as Allowed, Ask before changes or Read only, with Jelly's own line for each (needs a jelly that includes app#1301).
 
 - The `uiActions` option, empty (off) by default, and Jelly's `commit` action: a person can approve a Sheets value update (`sheets.spreadsheets.values.update`, the only value the option takes) from a UI an agent made in Jelly. The action is plan-shaped: its input is a gws plan request, its preview, the new read-only method `plan.preview` (permission `gws.plan`), is gws's own dry run of that exact request with every cell it writes (the spreadsheet, range and cells quoted, and control, line-separator and bidi characters shown as escapes, so no field can fake or reorder a line; it needs no grant and writes no audit record), and Jelly asks every time (`confirm: "always"`) from an owner device only (`class: "local"`). The plugin checks Jelly's single-use action grant (its key, this plugin and action, the digest of exactly this input, at most a minute old, never used before, an owner device's class), then refuses when the option does not list the operation (`UI_ACTION_OFF`), when `access` is `read-only`, for any other operation, for `USER_ENTERED` values, extra fields or more than 100 rows of 26 cells, and for a preview over Jelly's 4,000 characters (`UI_ACTION_REFUSED`); a bad grant is `UI_GRANT_REFUSED`. It then plans and commits the change as the person through the normal plan and commit path, so `access`, policy and the admin gate apply (the person's OpenCode permission rules for agents are not consulted: no agent makes the call), and answers what Google says changed. Each call writes a `ui.act` audit record with `caller: "person"`, the Jelly member and the grant's id, as do the plan and commit records. The declaration adds the action (`tool: "gws.write"`), the preview method and a minimal settings page, `views/ui-changes.html`, which Jelly's schema needs until it relaxes its rule for agent-UI actions ([In Jelly](docs/jelly.md#changes-a-person-approves-in-an-agents-ui)).
 
