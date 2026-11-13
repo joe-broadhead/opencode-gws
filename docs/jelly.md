@@ -97,7 +97,8 @@ Calendar answers; `test/host/calendar.test.ts` calls it on a real OpenCode host.
 
 ## Pictures in an agent's UI
 
-`jelly.imageHosts` is `[".googleusercontent.com", "drive.google.com"]` and `jelly.imageRead` is
+`jelly.imageHosts` lists exactly the hosts the method takes: `drive.google.com` and Google's own image servers,
+`lh3` to `lh7`, `lh7-rt` and `lh7-us` under `googleusercontent.com`, each by its full name. `jelly.imageRead` is
 `{ "method": "images.read" }`: when an agent's UI shows a picture whose address is on one of those hosts, Jelly asks
 this plugin for it, and the window never gets the address or a token. `images.read` is declared in `jelly.rpc` with
 `readOnly: true`, the label "read a Google Workspace picture", and the permission `gws.read`, the one `gws_read`
@@ -111,8 +112,10 @@ picture over 1 MB is `IMAGE_TOO_LARGE`: the plugin stops reading at that size an
 short. Jelly checks the answer again before it draws it.
 
 Which addresses it takes. The address must be https, with no user name, password, port or IP address, on
-`drive.google.com` or a name under `googleusercontent.com`; anything else is `IMAGE_HOST_REFUSED`, and nothing is
-fetched. The plugin checks this itself, whatever Jelly checked.
+`drive.google.com` or one of those image servers; anything else is `IMAGE_HOST_REFUSED`, and nothing is fetched. Any
+other `googleusercontent.com` name is refused too: Apps Script pages and every Compute Engine machine's reverse DNS
+name live there, so a prompt-injected agent could otherwise put data in a picture address and have the person's
+machine send it to a server anyone can run. The plugin checks this itself, whatever Jelly checked.
 
 - **A Drive link** (`https://drive.google.com/file/d/<id>/…`, `/open?id=`, `/uc?id=` or `/thumbnail?id=`) is never
   fetched. The plugin reads the file through gws, as the account, with the read policy and the audit, as `gws_read`
@@ -120,14 +123,16 @@ fetched. The plugin checks this itself, whatever Jelly checked.
   1 MB, its bytes (`alt=media`). gws writes those bytes to a file in a private directory under the plugin's work
   folder, which the plugin reads back with the cap and removes before it answers. Any other file, and a picture over
   1 MB, answers its thumbnail; a file with neither is `IMAGE_UNAVAILABLE`.
-- **Any other address** (a Drive `thumbnailLink`, a Docs or Slides picture, a profile photo) is fetched over HTTPS by
+- **An image-server address** (a Drive `thumbnailLink`, a Docs or Slides picture, a profile photo) is fetched over HTTPS by
   the plugin itself: gws reads Google's APIs, not an arbitrary address. A redirect is never followed, any answer but
   200 is `IMAGE_UNAVAILABLE`, no cookie or referrer is sent, and the size is checked while the body streams.
 
-Where the account's token goes. Only to Google's own image servers (`lh3` to `lh7` under `googleusercontent.com`), and
-only for an address Google returned to that account in this process: the plugin remembers, in memory for an hour,
-the picture addresses in the answers of its reads (at most 1,000, never the bytes). A Drive file's `thumbnailLink` is
-one. Every other address, such as another `googleusercontent.com` name that anyone can hold, is fetched without
+Where the account's token goes. Only to those image servers, and only for an address Google returned to that account
+in this process: the plugin remembers, in memory for an hour, the addresses in the fields Google itself fills with a
+picture or file link (Drive's `thumbnailLink`, `iconLink`, `webViewLink`, `webContentLink` and a user's `photoLink`,
+Docs' `contentUri`, Slides' `contentUrl`, People's `photos[].url` and `coverPhotos[].url`, the Directory's
+`thumbnailPhotoUrl`), at most 1,000, never the bytes. Text that people write, such as a document, a cell, an event's
+description or a slide's `sourceUrl`, never counts. An image-server address Google did not return is fetched without
 credentials, so a private picture there shows nothing. A credentials-file account's token stays inside gws, so its
 pictures come only from Drive links.
 

@@ -58,7 +58,7 @@ Ask the agent for what you need. It works in four steps:
 
 In Jelly, the plugin also answers `calendar.today`, a read-only RPC method that lists today's events on one account's primary calendar for Jelly's calendar and the **Today** Home tile. It reads with that account's own sign-in, never writes, and returns no descriptions or guests ([In Jelly](https://github.com/joe-broadhead/opencode-gws/blob/HEAD/docs/jelly.md#todays-calendar)).
 
-It also answers `images.read`, which Jelly calls to draw a Google Drive or Workspace picture an agent puts in a UI: a Drive file link, or a picture address Google returned, such as a file's `thumbnailLink`. It reads with the account's own sign-in, which Jelly never sees, and answers a PNG, JPEG, GIF or WebP of at most 1 MB, judged from its bytes; never SVG ([In Jelly](https://github.com/joe-broadhead/opencode-gws/blob/HEAD/docs/jelly.md#pictures-in-an-agents-ui)).
+It also answers `images.read`, which Jelly calls to draw a Google Drive or Workspace picture an agent puts in a UI: a Drive file link, or an address on Google's own image servers, such as a file's `thumbnailLink`. It reads with the account's own sign-in, which Jelly never sees, and answers a PNG, JPEG, GIF or WebP of at most 1 MB, judged from its bytes; never SVG ([In Jelly](https://github.com/joe-broadhead/opencode-gws/blob/HEAD/docs/jelly.md#pictures-in-an-agents-ui)).
 
 ### Scripts
 
