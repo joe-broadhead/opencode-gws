@@ -70,4 +70,4 @@ The status RPC cannot approve or commit. A commit happens when the agent calls a
 
 Scripts call the tools through a separate RPC, `google-workspace.gws.tools`: see [Scripting](scripting.md).
 
-A third RPC, named after the package (`@joe-broadhead/opencode-gws`), has one read-only method, `calendar.today`, for Jelly's calendar: see [In Jelly](jelly.md#todays-calendar).
+A third RPC, named after the package (`@joe-broadhead/opencode-gws`), has two read-only methods for Jelly: `calendar.today`, for Jelly's calendar ([In Jelly](jelly.md#todays-calendar)), and `images.read`, which draws a Google Drive or Workspace picture in an agent's UI ([In Jelly](jelly.md#pictures-in-an-agents-ui)).

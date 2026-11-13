@@ -4,6 +4,7 @@ import { effectiveCategory, isCommittable } from "../domain/classify.js"
 import { buildCommand, itemCap, wantsPages } from "../domain/command.js"
 import type { CommitOutput, PlanOutput, ReadOutput, RequestInput, SchemaOutput } from "../domain/contract.js"
 import { GwsError, throwIfCancelled } from "../domain/errors.js"
+import type { ImageSources } from "../domain/images.js"
 import { hasFiles, type FileLimits, type FileSpecs, type PlannedFiles, type StagedInput } from "../domain/files.js"
 import { helperAdapter, helperCategory, type HelperAdapter } from "../domain/helpers.js"
 import { commandIndex, HELPER_ALTERNATIVES, helperInput, resolveOperation } from "../domain/manifest.js"
@@ -45,6 +46,8 @@ interface OperationsContext {
   readonly workDir: string
   readonly schema: SchemaClient
   readonly audit: Audit
+  /** The picture addresses Google returned to each account, for `images.read`. */
+  readonly imageSources: ImageSources
   assertActive(signal?: AbortSignal): void
   isVisible(service: string): boolean
 }
@@ -63,6 +66,9 @@ const PLAN_INSTEAD = "Call gws_plan with the same request, then commit with the 
 
 /** What a read whose body is not JSON says to do to save it. */
 const SAVE_INSTEAD = "Google answered with a body that is not JSON. To save it, plan the same request with download.path, then commit it with gws_export."
+
+/** Where gws writes a picture `readDriveFile` reads, inside the call's staging directory. */
+const IMAGE_OUTPUT = "out/picture"
 
 /** How long the account's own address, once read, is trusted. */
 const ADDRESS_TTL_MS = 10 * 60 * 1000
@@ -274,6 +280,7 @@ export class Operations {
       const pages = paged ? capPageItems(parsed.data, itemCap(request, limits)) : undefined
       const cap = inlineCap(this.runtime.config.execution.maxInlineBytes, request.response?.mode, request.response?.maxInlineBytes)
       const truncated = pages ? Buffer.byteLength(JSON.stringify(pages.data)) > cap : parsed.truncated
+      this.runtime.imageSources.record(request.account, parsed.data)
       this.runtime.audit.emit({
         event: helper ? "helper.read" : "operation.read",
         outcome: "success",
@@ -296,6 +303,38 @@ export class Operations {
     } catch (error) {
       this.runtime.audit.emit({ event: "operation.read", outcome: "error", account: request.account, operation: entry.id, durationMs: Date.now() - started, errorCode: auditErrorCode(error), caller: ctx.caller })
       throw error
+    }
+  }
+
+  /**
+   * A Drive file's bytes for `images.read`: `drive.files.get` with `alt=media`, as the account, under the read policy
+   * and audit, run as a read. gws writes the body into a private staging directory, which is removed before this
+   * returns; the bytes are read back with a cap and never kept. Undefined when the file is over `maxBytes`.
+   */
+  async readDriveFile(input: { account: string; fileId: string }, maxBytes: number, ctx: CallContext): Promise<Buffer | undefined> {
+    const resolved = this.resolve({ account: input.account, operation: "drive.files.get", params: { fileId: input.fileId, alt: "media", "supportsAllDrives": true } })
+    const { entry, request } = resolved
+    const started = Date.now()
+    let stage: Stage | undefined
+    try {
+      this.gate(resolved, "read")
+      const argv = [...buildCommand(entry, request, this.runtime.config, { dryRun: false, category: "read" }).argv, "--output", IMAGE_OUTPUT]
+      stage = await Stage.create(this.runtime.workDir, ctx.signal)
+      await stage.prepareOutput({ destination: IMAGE_OUTPUT, rel: IMAGE_OUTPUT, overwrite: false })
+      const result = await this.accounts.run(argv, request.account, entry.id, ctx, { scopes: entry.scopes, cwd: stage.dir })
+      this.runtime.assertActive(ctx.signal)
+      if (result.exitCode !== 0) {
+        const parsed = parseResult(result, { maxInlineBytes: this.runtime.config.execution.maxInlineBytes })
+        throw processError(result, parsed, entry.service, this.accounts.remediation(request.account, entry.scopes, entry.service))
+      }
+      const bytes = await stage.readCapped(IMAGE_OUTPUT, maxBytes)
+      this.runtime.audit.emit({ event: "operation.read", outcome: "success", account: request.account, category: "read", operation: entry.id, durationMs: Date.now() - started, caller: ctx.caller })
+      return bytes
+    } catch (error) {
+      this.runtime.audit.emit({ event: "operation.read", outcome: "error", account: request.account, operation: entry.id, durationMs: Date.now() - started, errorCode: auditErrorCode(error), caller: ctx.caller })
+      throw error
+    } finally {
+      await stage?.dispose().catch(() => undefined)
     }
   }
 

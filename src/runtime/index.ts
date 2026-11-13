@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { Audit } from "../domain/audit.js"
 import { GWS_VERSION } from "../domain/backend.js"
 import type { CommitOutput, PlanOutput, ReadOutput, RequestInput, SchemaOutput } from "../domain/contract.js"
+import { ImageSources } from "../domain/images.js"
 import { Lifecycle } from "../domain/lifecycle.js"
 import { canonicalService, loadManifest } from "../domain/manifest.js"
 import { PlanStore } from "../domain/plans.js"
@@ -31,6 +32,8 @@ const SCHEMA_TIMEOUT_MS = 15_000
 
 export class Runtime {
   readonly plans = new PlanStore()
+  /** The picture addresses Google returned to each account in this process, for `images.read`. */
+  readonly imageSources = new ImageSources()
   readonly workDir: string
   readonly paths: PluginPaths
   readonly audit: Audit
@@ -190,6 +193,21 @@ export class Runtime {
 
   async read(request: RequestInput, ctx: CallContext): Promise<ReadOutput> {
     return this.invocation(ctx, control => this.operations.read(request, { ...ctx, ...control }))
+  }
+
+  /** A Drive file's bytes for `images.read`, or undefined when it is over `maxBytes` (`Operations.readDriveFile`). */
+  async readDriveFile(input: { account: string; fileId: string }, maxBytes: number, ctx: CallContext): Promise<Buffer | undefined> {
+    return this.invocation(ctx, control => this.operations.readDriveFile(input, maxBytes, { ...ctx, ...control }))
+  }
+
+  /**
+   * The account's access token for `images.read`'s fetch from Google's image servers, after the same policy check a
+   * Drive read of the account passes. Undefined for a credentials-file account. It never needs gws.
+   */
+  async imageToken(account: string, ctx: CallContext): Promise<string | undefined> {
+    this.operations.inspect({ account, operation: "drive.files.get", params: {} }, "read")
+    const signal = this.lifetime.compose(ctx.signal)
+    return this.lifetime.track(() => this.accounts.bearer(account, "drive.files.get", { ...ctx, signal }))
   }
 
   async plan(request: RequestInput, ctx: CallContext): Promise<PlanOutput> {

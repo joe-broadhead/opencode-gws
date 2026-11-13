@@ -49,7 +49,9 @@ src/
     commands.ts     /gws-status, /gws-doctor
     rpc.ts          status implementation
     tools-rpc.ts    tools RPC: every tool spec as a method, for a script running as a session (a copy several plugins share; check-copies pins it)
-    calendar.ts     calendar.today, the read Jelly's native calendar makes, on the RPC named after the package
+    jelly-rpc.ts    the RPC named after the package, holding every method Jelly reads: calendar.today and images.read
+    calendar.ts     calendar.today, the read Jelly's native calendar makes
+    images.ts       images.read, the read Jelly makes to draw a Google picture in an agent's UI
   domain/           pure logic; imports only domain/
     contract.ts     tool schemas
     config.ts       options
@@ -59,7 +61,8 @@ src/
     manifest.ts     catalog and coverage
     gmail.ts        what events_list takes from a message: noise, people, text
     calendar.ts     today's calendar: the answering account, today's bounds, events in Jelly's shape
-  process/          the only spawn site
+    images.ts       pictures for Jelly: the address gate, the token hosts, the type from the bytes, the account
+  process/          the only spawn site; image-fetch.ts, the one HTTPS fetch of a picture
   auth/             OAuth client, form, setup, doctor; no host import
 ```
 

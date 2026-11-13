@@ -5,7 +5,8 @@ import { CALENDAR_MAX_BYTES, CALENDAR_MAX_EVENTS, EVENT_FIELDS, UNTITLED, calend
 import { loadConfig } from "../src/domain/config.js"
 import { GwsError } from "../src/domain/errors.js"
 import { PACKAGE_NAME } from "../src/domain/version.js"
-import { FRESH_MS, READ_DEADLINE_MS, TODAY_INPUT, TODAY_OUTPUT, calendarToday, registerCalendarRpc } from "../src/host/calendar.js"
+import { FRESH_MS, READ_DEADLINE_MS, TODAY_INPUT, TODAY_OUTPUT, calendarToday } from "../src/host/calendar.js"
+import { registerJellyRpc } from "../src/host/jelly-rpc.js"
 import type { Runtime } from "../src/runtime/index.js"
 import { account, accountDir, testRuntime } from "./support/config.js"
 
@@ -317,7 +318,7 @@ describe("calendar.today's answer", () => {
           },
         },
       }
-      await registerCalendarRpc(ctx as never, reader as unknown as Runtime)
+      await registerJellyRpc(ctx as never, reader as unknown as Runtime)
       const context = { signal: new AbortController().signal, error: (type: string, message: string, data: unknown) => ({ type, message, data }) }
       const answer = handler!({}, context)
       await vi.advanceTimersByTimeAsync(READ_DEADLINE_MS)
