@@ -366,8 +366,14 @@
       }
     ],
     "imageHosts": [
-      ".googleusercontent.com",
-      "drive.google.com"
+      "drive.google.com",
+      "lh3.googleusercontent.com",
+      "lh4.googleusercontent.com",
+      "lh5.googleusercontent.com",
+      "lh6.googleusercontent.com",
+      "lh7.googleusercontent.com",
+      "lh7-rt.googleusercontent.com",
+      "lh7-us.googleusercontent.com"
     ],
     "imageRead": {
       "method": "images.read"

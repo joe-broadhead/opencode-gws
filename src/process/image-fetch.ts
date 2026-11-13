@@ -4,7 +4,8 @@ import { IMAGE_MAX_BYTES, imageUrl, tooLarge, tokenHost } from "../domain/images
 /**
  * The one place the plugin fetches a picture over HTTPS itself, for `images.read`: gws reads Google's APIs only, and
  * a Drive thumbnail or a Docs picture is an address on Google's image servers. It is also the only code that puts an
- * account's token in an `Authorization` header, and only for a host `tokenHost` names.
+ * account's token in an `Authorization` header. It fetches only Google's image servers (`tokenHost`), with or without
+ * the token.
  *
  * - The address is checked again here (`imageUrl`), whatever the caller checked.
  * - A redirect is never followed: any 3xx is `IMAGE_UNAVAILABLE`, so the token never reaches another address.
@@ -14,7 +15,7 @@ import { IMAGE_MAX_BYTES, imageUrl, tooLarge, tokenHost } from "../domain/images
  */
 
 export interface ImageFetchOptions {
-  /** The account's access token. Refused for any host `tokenHost` does not name. */
+  /** The account's access token. */
   readonly token?: string
   readonly signal?: AbortSignal
   readonly maxBytes?: number
@@ -27,7 +28,8 @@ const ACCEPT = "image/png,image/jpeg,image/gif,image/webp"
 export async function fetchImage(address: string, options: ImageFetchOptions = {}): Promise<Uint8Array> {
   const url = imageUrl(address)
   const max = options.maxBytes ?? IMAGE_MAX_BYTES
-  if (options.token !== undefined && !tokenHost(url.hostname)) throw new GwsError("IMAGE_HOST_REFUSED", "the account's sign-in is never sent to this host")
+  // Only Google's image servers are fetched; a Drive link is read through gws, never fetched.
+  if (!tokenHost(url.hostname)) throw new GwsError("IMAGE_HOST_REFUSED", "only Google's image servers are fetched")
   const headers: Record<string, string> = { accept: ACCEPT }
   if (options.token !== undefined) headers["authorization"] = `Bearer ${options.token}`
   throwIfCancelled(options.signal)

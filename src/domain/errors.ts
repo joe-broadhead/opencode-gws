@@ -153,7 +153,7 @@ export const ErrorCode = {
   },
   IMAGE_HOST_REFUSED: {
     meaning:
-      "The picture Jelly asked images.read for has an address the plugin does not take: not https, a user name, password, port or IP address in it, a host other than drive.google.com or a name under googleusercontent.com, or a Drive link that names no file. Nothing was fetched.",
+      "The picture Jelly asked images.read for has an address the plugin does not take: not https, a user name, password, port or IP address in it, a host other than drive.google.com or Google's image servers (lh3 to lh7 under googleusercontent.com; any other googleusercontent.com name can be anyone's), or a Drive link that names no file. Nothing was fetched.",
     next: "Show the picture from a Drive file link or an address Google returned, such as a file's thumbnailLink.",
   },
   IMAGE_TYPE_REFUSED: {

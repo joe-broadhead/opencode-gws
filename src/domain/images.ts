@@ -9,8 +9,25 @@ import type { PluginConfig } from "./types.js"
  * PNG, JPEG, GIF or WebP whose first bytes say so, at most 1 MB, never SVG.
  */
 
-/** The hosts the declaration names (`jelly.imageHosts`): a leading dot is a suffix. */
-export const IMAGE_HOSTS = [".googleusercontent.com", "drive.google.com"] as const
+const DRIVE = "drive.google.com"
+/**
+ * Google's own image servers, which answer Drive thumbnails, Docs and Slides pictures and profile photos. They are the
+ * only hosts besides Drive a picture is fetched from, and the only hosts the account's token is ever sent to. Every
+ * other `*.googleusercontent.com` name can be anyone's (Apps Script pages, a Compute Engine machine's reverse DNS),
+ * so it is never fetched, with credentials or without: an agent could otherwise put data in a picture address and
+ * have the person's machine send it there.
+ */
+export const PICTURE_SERVERS = [
+  "lh3.googleusercontent.com",
+  "lh4.googleusercontent.com",
+  "lh5.googleusercontent.com",
+  "lh6.googleusercontent.com",
+  "lh7.googleusercontent.com",
+  "lh7-rt.googleusercontent.com",
+  "lh7-us.googleusercontent.com",
+] as const
+/** The hosts the declaration names (`jelly.imageHosts`), exactly: every host `images.read` takes, and no other. */
+export const IMAGE_HOSTS = [DRIVE, ...PICTURE_SERVERS] as const
 /** Jelly's cap on one picture (`AGENT_UI_IMAGE_MAX_BYTES`). */
 export const IMAGE_MAX_BYTES = 1024 * 1024
 export const IMAGE_MIMES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const
@@ -18,14 +35,6 @@ export type ImageMime = (typeof IMAGE_MIMES)[number]
 /** The longest address taken. */
 export const IMAGE_URL_MAX = 2048
 
-const SUFFIX = ".googleusercontent.com"
-const DRIVE = "drive.google.com"
-/**
- * The only hosts the account's token is ever sent to: Google's own image servers, which answer Drive thumbnails and
- * Docs and Slides pictures. Other `*.googleusercontent.com` names can be anyone's (Apps Script pages, a Compute Engine
- * machine's reverse DNS), so they are fetched without credentials or not at all.
- */
-const TOKEN_HOST = /^lh[3-7](?:-[a-z0-9]+)*\.googleusercontent\.com$/
 /** A Drive file id. */
 const FILE_ID = /^[A-Za-z0-9_-]{10,200}$/
 
@@ -34,8 +43,8 @@ function refused(detail: string): GwsError {
 }
 
 /**
- * The address, when it is one `images.read` takes: https, on `drive.google.com` or a name under
- * `googleusercontent.com`, with no user name, password or port, and no IP address. Anything else is
+ * The address, when it is one `images.read` takes: https, on `drive.google.com` or one of Google's image servers
+ * (`PICTURE_SERVERS`), with no user name, password or port, and no IP address. Anything else is
  * `IMAGE_HOST_REFUSED`. The plugin checks this itself rather than trusting the caller's check.
  */
 export function imageUrl(raw: unknown): URL {
@@ -51,20 +60,18 @@ export function imageUrl(raw: unknown): URL {
   if (url.port !== "") throw refused("the picture's address names a port")
   const host = url.hostname
   if (host.startsWith("[") || /^[0-9.]+$/.test(host)) throw refused("the picture's address is an IP address")
-  if (!allowedHost(host)) throw refused("the picture's host is not drive.google.com or under googleusercontent.com")
+  if (!allowedHost(host)) throw refused("the picture's host is not drive.google.com or one of Google's image servers")
   return url
 }
 
-/** Exactly `drive.google.com`, or a name of non-empty labels ending in `.googleusercontent.com`. */
+/** Exactly one of `IMAGE_HOSTS`. */
 export function allowedHost(host: string): boolean {
-  if (host === DRIVE) return true
-  if (!host.endsWith(SUFFIX) || host.length === SUFFIX.length) return false
-  return host.split(".").every((label) => /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label))
+  return (IMAGE_HOSTS as readonly string[]).includes(host)
 }
 
-/** Whether the account's token may be sent to this host. */
+/** Whether the account's token may be sent to this host: exactly one of `PICTURE_SERVERS`. */
 export function tokenHost(host: string): boolean {
-  return TOKEN_HOST.test(host)
+  return (PICTURE_SERVERS as readonly string[]).includes(host)
 }
 
 /** Whether the address is a Drive link, whose file the plugin reads through gws rather than fetching the link. */

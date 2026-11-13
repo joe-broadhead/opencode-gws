@@ -57,7 +57,7 @@ describe("the address images.read takes", () => {
       "https://lh7-rt.googleusercontent.com/docsz/AD_fake",
       "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOp/view",
       "https://DRIVE.GOOGLE.COM/open?id=1AbCdEfGhIjKlMnOp",
-      "https://ci3.googleusercontent.com/proxy/fake",
+      "https://lh4.googleusercontent.com/a/photo=s96",
       "https://drive.google.com:443/file/d/1AbCdEfGhIjKlMnOp/view",
     ])
       expect(() => imageUrl(ok), ok).not.toThrow()
@@ -74,6 +74,14 @@ describe("the address images.read takes", () => {
       "https://user:pass@lh3.googleusercontent.com/a",
       "https://lh3.googleusercontent.com:8443/a",
       "https://googleusercontent.com/a",
+      "https://x.bc.googleusercontent.com/a.png",
+      "https://1.2.3.4.bc.googleusercontent.com/a.png",
+      "https://script.googleusercontent.com/macros/echo?user_content_key=x",
+      "https://docs.googleusercontent.com/a",
+      "https://ci3.googleusercontent.com/proxy/a",
+      "https://lh8.googleusercontent.com/a",
+      "https://lh3x.googleusercontent.com/a",
+      "https://a.lh3.googleusercontent.com/a",
       "https://xgoogleusercontent.com/a",
       "https://googleusercontent.com.evil.com/a",
       "https://lh3.googleusercontent.com.evil.com/a",
@@ -106,11 +114,26 @@ describe("the address images.read takes", () => {
       const host = url.hostname.toLowerCase()
       return hosts.some((name) => (name.startsWith(".") ? host.endsWith(name) || host === name.slice(1) : host === name))
     }
-    for (const src of [THUMB, "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOp/view", "https://a.b.googleusercontent.com/x"]) {
+    for (const src of [THUMB, "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOp/view", "https://lh7-us.googleusercontent.com/x"]) {
       expect(imageUrl(src)).toBeDefined()
       expect(jellyAllows(src, IMAGE_HOSTS)).toBe(true)
     }
     expect(pkg.jelly.imageHosts).toEqual([...IMAGE_HOSTS])
+    // Exactly what the method takes: each declared host is exact (no suffix), and each is taken.
+    for (const host of pkg.jelly.imageHosts as string[]) {
+      expect(host.startsWith("."), host).toBe(false)
+      expect(imageUrl(`https://${host}/x`).hostname).toBe(host)
+    }
+    expect(pkg.jelly.imageHosts).toEqual([
+      "drive.google.com",
+      "lh3.googleusercontent.com",
+      "lh4.googleusercontent.com",
+      "lh5.googleusercontent.com",
+      "lh6.googleusercontent.com",
+      "lh7.googleusercontent.com",
+      "lh7-rt.googleusercontent.com",
+      "lh7-us.googleusercontent.com",
+    ])
   })
 
   it("names a Drive file by its id in each link shape Drive returns, and nothing else", () => {
@@ -238,9 +261,12 @@ describe("fetching a picture", () => {
     const { impl, calls } = fakeFetch(() => new Response(PNG, { status: 200 }))
     await fetchImage(THUMB, { token: TOKEN, fetchImpl: impl })
     expect(calls[0]?.headers["authorization"]).toBe(`Bearer ${TOKEN}`)
-    await fetchImage("https://ci3.googleusercontent.com/proxy/x", { fetchImpl: impl })
+    await fetchImage("https://lh4.googleusercontent.com/a/photo", { fetchImpl: impl })
     expect(calls[1]?.headers["authorization"]).toBeUndefined()
     await expect(fetchImage("https://1.2.3.4.bc.googleusercontent.com/x", { token: TOKEN, fetchImpl: impl })).rejects.toThrow(/^IMAGE_HOST_REFUSED: /)
+    await expect(fetchImage("https://1.2.3.4.bc.googleusercontent.com/x", { fetchImpl: impl })).rejects.toThrow(/^IMAGE_HOST_REFUSED: /)
+    // A Drive link is read through gws, never fetched.
+    await expect(fetchImage("https://drive.google.com/uc?id=1AbCdEfGhIjKlMnOp", { fetchImpl: impl })).rejects.toThrow(/^IMAGE_HOST_REFUSED: /)
     await expect(fetchImage("https://evil.com/x", { fetchImpl: impl })).rejects.toThrow(/^IMAGE_HOST_REFUSED: /)
     expect(calls).toHaveLength(2)
     expect(calls[0]?.init).toMatchObject({ method: "GET", redirect: "manual", credentials: "omit", referrerPolicy: "no-referrer" })
@@ -371,12 +397,24 @@ describe("images.read", () => {
     }
   })
 
-  it("never sends the token to a thumbnail address off Google's image servers", async () => {
+  it("never fetches a thumbnail address off Google's image servers", async () => {
     const fake = fakeRuntime()
-    fake.meta[FILE] = { mimeType: "application/pdf", thumbnailLink: "https://x.bc.googleusercontent.com/t.png" }
     const { impl, calls } = fakeFetch(() => new Response(PNG))
-    await imagesRead(fake.runtime, { fetchImpl: impl })(LINK)
-    expect(calls[0]?.headers["authorization"]).toBeUndefined()
+    for (const thumbnailLink of ["https://x.bc.googleusercontent.com/t.png", "https://drive.google.com/thumbnail?id=1AbCdEfGhIjKlMnOp"]) {
+      fake.meta[FILE] = { mimeType: "application/pdf", thumbnailLink }
+      await expect(imagesRead(fake.runtime, { fetchImpl: impl })(LINK)).rejects.toThrow(/^IMAGE_HOST_REFUSED: /)
+    }
+    expect(calls).toEqual([])
+  })
+
+  it("refuses any other googleusercontent.com name before fetching anything, with or without credentials", async () => {
+    const fake = fakeRuntime()
+    const { impl, calls } = fakeFetch(() => new Response(PNG))
+    for (const address of ["https://x.bc.googleusercontent.com/a.png", "https://script.googleusercontent.com/macros/echo?x=1", "https://docs.googleusercontent.com/a"]) {
+      fake.imageSources.record("work", { thumbnailLink: address })
+      await expect(imagesRead(fake.runtime, { fetchImpl: impl })(address), address).rejects.toThrow(/^IMAGE_HOST_REFUSED: /)
+    }
+    expect(calls).toEqual([])
   })
 
   it("is unavailable for a file with no picture and no thumbnail, and too large for a big one with none", async () => {
@@ -404,7 +442,7 @@ describe("images.read", () => {
     expect((await read(THUMB)).mime).toBe("image/gif")
     fake.imageSources.record("work", { thumbnailLink: THUMB })
     expect((await read(THUMB)).mime).toBe("image/gif")
-    await read("https://ci3.googleusercontent.com/proxy/a")
+    await read("https://lh4.googleusercontent.com/a/photo")
     expect(calls.map((call) => call.headers["authorization"])).toEqual([undefined, `Bearer ${TOKEN}`, undefined])
   })
 
@@ -413,7 +451,7 @@ describe("images.read", () => {
     fake.meta[FILE] = new GwsError("AUTH_REQUIRED", "'work' is not signed in to Google Workspace")
     await expect(imagesRead(fake.runtime)(LINK)).rejects.toThrow(/^AUTH_REQUIRED: /)
     fake.tokens["work"] = new Error("AUTH_REQUIRED: 'work' is not signed in to Google Workspace. Next step: Sign in.")
-    fake.imageSources.record("work", THUMB)
+    fake.imageSources.record("work", { thumbnailLink: THUMB })
     const { impl, calls } = fakeFetch(() => new Response(PNG))
     await expect(imagesRead(fake.runtime, { fetchImpl: impl })(THUMB)).rejects.toThrow(/^AUTH_REQUIRED: /)
     expect(calls).toHaveLength(0)
@@ -429,7 +467,7 @@ describe("images.read", () => {
     const fake = fakeRuntime()
     const secret = "SECRETPATHabc123"
     const thumb = `https://lh3.googleusercontent.com/${secret}`
-    fake.imageSources.record("work", thumb)
+    fake.imageSources.record("work", { thumbnailLink: thumb })
     fake.meta[FILE] = { mimeType: "application/pdf", thumbnailLink: thumb }
     const failures: string[] = []
     for (const answer of [

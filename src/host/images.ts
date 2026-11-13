@@ -1,5 +1,5 @@
 import { GwsError, throwIfCancelled } from "../domain/errors.js"
-import { IMAGE_MAX_BYTES, IMAGE_MIMES, IMAGE_URL_MAX, type ImageMime, driveFileId, imageAccount, imageAnswer, imageUrl, isDriveLink, tokenHost, tooLarge } from "../domain/images.js"
+import { IMAGE_MAX_BYTES, IMAGE_MIMES, IMAGE_URL_MAX, type ImageMime, driveFileId, imageAccount, imageAnswer, imageUrl, isDriveLink, tooLarge } from "../domain/images.js"
 import { fetchImage } from "../process/image-fetch.js"
 import type { Runtime } from "../runtime/index.js"
 
@@ -12,9 +12,9 @@ import type { Runtime } from "../runtime/index.js"
  * - A Drive link (`drive.google.com`) is never fetched. Its file id is read through gws, as the account: the file's
  *   `mimeType`, `size` and `thumbnailLink`, then, for a PNG, JPEG, GIF or WebP of at most 1 MB, its bytes
  *   (`alt=media`, in a private staging directory removed before the answer). Any other file answers its thumbnail.
- * - Any other address is fetched over HTTPS by `fetchImage`. The account's token goes with it only when the host is
- *   one of Google's image servers (`tokenHost`) and Google returned that exact address to the account in this process
- *   (`ImageSources`), as a Drive file's `thumbnailLink` is. Otherwise it is fetched without credentials.
+ * - Any other address must be on one of Google's image servers (`PICTURE_SERVERS`), and is fetched over HTTPS by
+ *   `fetchImage`. The account's token goes with it only when Google returned that exact address to the account in
+ *   this process (`ImageSources`), as a Drive file's `thumbnailLink` is. Otherwise it is fetched without credentials.
  * - The answer's `mime` comes from the bytes, never from a header or Drive's `mimeType`; SVG and every other kind are
  *   refused. A picture over 1 MB is refused, never cut short.
  * - Nothing is kept: no bytes in memory after the call, and no address in an error, a log or the audit.
@@ -78,8 +78,8 @@ export function imagesRead(runtime: Reader, options: ImagesOptions = {}) {
     }
     if (typeof thumbnailLink === "string") {
       const thumbnail = imageUrl(thumbnailLink)
-      // Google just returned the thumbnail to this account; its token goes only to Google's image servers.
-      return { account, bytes: await fetchAs(thumbnail.href, tokenHost(thumbnail.hostname) ? account : undefined, signal) }
+      // Google just returned the thumbnail to this account; fetchImage takes only Google's image servers.
+      return { account, bytes: await fetchAs(thumbnail.href, account, signal) }
     }
     if (bytesOf !== undefined && bytesOf > IMAGE_MAX_BYTES) throw tooLarge()
     throw new GwsError("IMAGE_UNAVAILABLE", "the Drive file is not a picture and has no thumbnail")
@@ -87,7 +87,7 @@ export function imagesRead(runtime: Reader, options: ImagesOptions = {}) {
 
   const hosted = async (url: URL, signal: AbortSignal): Promise<{ account?: string; bytes: Uint8Array }> => {
     const returnedTo = runtime.imageSources.accounts(url)
-    if (!tokenHost(url.hostname) || returnedTo.length === 0) return { bytes: await fetchAs(url.href, undefined, signal) }
+    if (returnedTo.length === 0) return { bytes: await fetchAs(url.href, undefined, signal) }
     const account = imageAccount(runtime.config, returnedTo)
     return { account, bytes: await fetchAs(url.href, account, signal) }
   }
