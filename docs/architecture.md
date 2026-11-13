@@ -43,7 +43,7 @@ src/
     identity.ts     the owner a source's read found, for probe
     calendar-events.ts events_list for Calendar: a full sync, then a sync token, as events
     event-sources.ts the events_list sources, their reads and the one that follows
-    events-list.ts  the shared events_list contract (a copy every source plugin carries; check-copies pins it)
+    events-page.ts   this plugin's contract-2 events_list page on the vendored package's events and cursor
     permissions.ts  permission.assert inputs; no signal field
     skills.ts       the two skills
     integrations.ts sign-in

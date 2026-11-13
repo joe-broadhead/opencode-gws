@@ -1,4 +1,4 @@
-import type { EventsOwner } from "./events-list.js"
+import type { EventsOwner } from "../../vendor/source-contract-dist/events.js"
 
 /** The owner each source read found, per runtime and account, so `probe` can answer without reading content. */
 const owners = new WeakMap<object, Map<string, EventsOwner>>()

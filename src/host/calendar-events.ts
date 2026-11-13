@@ -3,28 +3,30 @@ import { GwsError, throwIfCancelled } from "../domain/errors.js"
 import type { CallContext } from "../runtime/accounts.js"
 import type { Runtime } from "../runtime/index.js"
 import {
-  type RefusedDrop,
-  type EventsGap,
+  type EventsScope,
   type EventsListRequest,
   type EventsListResult,
-  type EventsScope,
-  type SourceEvent,
   GAP_MAX_DAYS,
-  decodeCursor,
-  encodeBoundCursor,
-  decodeBoundCursor,
   eventsListResult,
+} from "./events-page.js"
+import { decodeBoundCursor, encodeBoundCursor } from "../../vendor/source-contract-dist/cursor.js"
+import { rememberOwner } from "./identity.js"
+import {
+  type EventsGap,
+  type RefusedEvent,
+  type SourceEvent,
+  decodeCursor,
   fitPage,
   makeEvent,
   oldestFirst,
+  screenEvents,
+  secretKinds,
   startTime,
-} from "./events-list.js"
-import { rememberOwner } from "./identity.js"
-import { screenEvents, secretKinds } from "../../vendor/source-contract-dist/events.js"
+} from "../../vendor/source-contract-dist/events.js"
 
 /**
  * events_list for Calendar: the events of the account's primary calendar
- * since a cursor, as the funnel's events (`events-list.ts`), for Memory's
+ * since a cursor, as the funnel's events (`events-page.ts`), for Memory's
  * collector. Every call is plain reads through the runtime, so each one
  * passes the plugin's policy and audit like a gws_read; the tool asserts
  * gws.events_list on `calendar.events.list`, then gws.read on it and on the
@@ -200,7 +202,7 @@ export async function calendarEvents(runtime: Pick<Runtime, "read">, account: st
       ? { k: "s", y: "", w: truncated ? floor : wanted, t: truncated ? floor : wanted, n: 0 }
       : stateOf(request.cursor, account, calendar)
   const identity = { source: CALENDAR_SOURCE, account, owner, scope }
-  const refused: RefusedDrop[] = []
+  const refused: RefusedEvent[] = []
   // The deprecated owner-only call: the identity and the scope, and no events read.
   if (request.limit === 0) return eventsListResult(identity, [], encodeBoundCursor(bindingOf(account, calendar), { a: account, o: digest(calendar), ...state }), false, { now, gap })
 

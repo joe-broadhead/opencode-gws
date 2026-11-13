@@ -187,7 +187,7 @@ Two skills load automatically: `opencode-gws` (how the tools work: accounts, pla
 
 ## Events list
 
-`gws_events_list` (tools RPC method `events_list`) is this plugin's side of Memory's sources funnel: the shared `events_list` contract in `src/host/events-list.ts`, which every source plugin carries, and contract 2. Memory's collector calls it on a schedule, with no model and no one there. It serves two sources: `gmail` and `calendar`.
+`gws_events_list` (tools RPC method `events_list`) is this plugin's side of Memory's sources funnel: the vendored package's `events_list` contract (`vendor/source-contract-dist`, from source-contract #17), with this plugin's contract 2 in `src/host/events-page.ts`. Memory's collector calls it on a schedule, with no model and no one there. It serves two sources: `gmail` and `calendar`.
 
 | Input | Default | Rule |
 | --- | --- | --- |

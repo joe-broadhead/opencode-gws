@@ -121,13 +121,14 @@ Also never: imported OAuth grants, credentials from `gws auth login`, or a
 
 ## Tools, errors, skills
 
-- `gws_events_list` is Gmail's side of Memory's sources funnel: a Code
-  Mode read that never asks, asserting `gws.events_list` and then
-  `gws.read` on each Gmail read it makes. `src/host/events-list.ts` is the
-  shared `events_list` contract every source plugin carries unchanged
-  (`scripts/check-copies.mjs` pins it); change it in every source plugin
-  at once. Its tests run the contract's conformance check against the fake
-  gws's synthetic mailbox (`FAKE_GWS_MAILBOX`).
+- `gws_events_list` is Gmail's and Calendar's side of Memory's sources
+  funnel: a Code Mode read that never asks, asserting `gws.events_list` and
+  then `gws.read` on each read it makes. The contract is the vendored
+  package's `events` and `cursor` (`vendor/source-contract-dist`, from
+  source-contract #17); `src/host/events-page.ts` is this plugin's
+  contract-2 page on it, holding only what differs: `limit: 0`, the echoed
+  scope and the page's own lines. Its tests run the contract's conformance
+  check against the fake gws's synthetic mailbox (`FAKE_GWS_MAILBOX`).
 
 - `src/host/tools-rpc.ts` is a copy of the module several plugins share,
   and `scripts/check-copies.mjs` pins its shared part. Change only the block

@@ -2,22 +2,24 @@ import { GwsError } from "../domain/errors.js"
 import { type GmailMessage, MESSAGE_FIELDS, type MessageFacts, NOISE_QUERY, isNoise, messageFacts } from "../domain/gmail.js"
 import type { CallContext } from "../runtime/accounts.js"
 import type { Runtime } from "../runtime/index.js"
-import { screenEvents, secretKinds } from "../../vendor/source-contract-dist/events.js"
 import {
-  type FailedDrop,
-  type RefusedDrop,
   type EventsListRequest,
   type EventsListResult,
+  eventsListResult,
+} from "./events-page.js"
+import {
+  type FailedEvent,
+  type RefusedEvent,
   type SourceEvent,
   decodeCursor,
-  encodeBoundCursor,
-  decodeBoundCursor,
-  eventsListResult,
   fitPage,
   makeEvent,
   oldestFirst,
+  screenEvents,
+  secretKinds,
   startTime,
-} from "./events-list.js"
+} from "../../vendor/source-contract-dist/events.js"
+import { decodeBoundCursor, encodeBoundCursor } from "../../vendor/source-contract-dist/cursor.js"
 import { rememberOwner } from "./identity.js"
 
 /**
@@ -270,7 +272,7 @@ export async function gmailEvents(runtime: Pick<Runtime, "read">, account: strin
     break
   }
 
-  const fetched = await each(candidates, FETCHES, async (candidate): Promise<{ event?: SourceEvent; failed?: FailedDrop }> => {
+  const fetched = await each(candidates, FETCHES, async (candidate): Promise<{ event?: SourceEvent; failed?: FailedEvent }> => {
     const get = (fields: string, format: string) => read("gmail.users.messages.get", { id: candidate.id, format }, fields) as Promise<GmailMessage>
     try {
       const facts = messageFacts(await get(MESSAGE_FIELDS, "full"))
@@ -287,8 +289,8 @@ export async function gmailEvents(runtime: Pick<Runtime, "read">, account: strin
   })
 
   const listed: Array<{ event: SourceEvent; after: State }> = []
-  const refused: RefusedDrop[] = []
-  const failed: FailedDrop[] = []
+  const refused: RefusedEvent[] = []
+  const failed: FailedEvent[] = []
   for (const [index, result] of fetched.entries()) {
     const candidate = candidates[index]!
     if (result.failed !== undefined) {

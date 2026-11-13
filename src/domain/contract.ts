@@ -270,9 +270,9 @@ export const CommitOutput = z.object({
 })
 
 // ── events_list ─────────────────────────────────────────────────────────
-// The shared events_list contract (src/host/events-list.ts), as Zod. The
-// domain imports nothing outside it, so the limits are written out here;
-// test/gmail-events.test.ts keeps them equal to the shared module's.
+// The events_list contract, as Zod: the package's contract 1 as this plugin
+// answers it (src/host/events-page.ts). The domain imports nothing outside
+// it, so the limits are written out here.
 
 export const EventsListInput = z
   .strictObject({

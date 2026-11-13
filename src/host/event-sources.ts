@@ -2,7 +2,7 @@ import { GwsError } from "../domain/errors.js"
 import type { CallContext } from "../runtime/accounts.js"
 import type { Runtime } from "../runtime/index.js"
 import { CALENDAR_FOLLOW, CALENDAR_READS, CALENDAR_SOURCE, calendarEvents } from "./calendar-events.js"
-import { type EventsListRequest, type EventsListResult, parseEventsListInput } from "./events-list.js"
+import { type EventsListRequest, type EventsListResult, parseEventsListInput } from "./events-page.js"
 import { GMAIL_FOLLOW, GMAIL_READS, GMAIL_SOURCE, gmailEvents } from "./gmail-events.js"
 
 /**
