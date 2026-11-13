@@ -1,4 +1,5 @@
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -19,6 +20,18 @@ import { account, testRuntime } from "./support/config.js"
  * the first listing's search, history after it, a history id Gmail no
  * longer keeps, accounts, and the asserts that run before any read.
  */
+
+const require = createRequire(import.meta.url)
+/** Memory's published conformance half, vendored byte for byte: the recording session and contract 2's fixtures. */
+const kitConformance = require("./support/conformance.mjs") as {
+  recordingSession(grants: ReadonlyArray<{ action: string; resource: string }>, tools: unknown[]): {
+    permission: { assert(request: PermissionRequest): Promise<void> }
+    assertions: Array<{ action: string; resources: string[] }>
+    unused(): Array<{ action: string; resource: string }>
+    undeclared: string[]
+  }
+  eventsListConformance(input: { list: (input: Input) => Promise<EventsListResult>; declared: { id: string; kinds: string[]; scope: unknown[] }; grants: unknown[]; assertions: unknown[] }, fixtures: Array<{ input: Input; expect: string | { refuses: RegExp } }>): Promise<string[]>
+}
 
 const FIXTURE = fileURLToPath(new URL("./fixtures/gmail-mailbox.json", import.meta.url))
 const SINCE = "2026-11-01T00:00:00Z"
@@ -192,6 +205,31 @@ describe("gws_events_list keeps the shared contract", () => {
     expect(event["title"]?.maxLength).toBe(EVENT_LIMITS.title)
     expect(event["actors"]?.maxItems).toBe(EVENT_LIMITS.actors)
     expect(event["labels"]?.maxItems).toBe(EVENT_LIMITS.labels)
+  })
+})
+
+describe("Memory's kit conformance", () => {
+  const grants = [
+    { action: "gws.events_list", resource: "*" },
+    ...GMAIL_READS.map((operation) => ({ action: "gws.read", resource: `personal:${operation}` })),
+  ]
+
+  it("passes the kit's recording session and contract-2 fixtures, with no declared grant unused", async () => {
+    const session = kitConformance.recordingSession(grants, [])
+    const { list } = await harness({}, (request) => session.permission.assert(request))
+    // One full listing first: that is the call whose asserts the declared source grants must equal.
+    await list({ since: SINCE, limit: 2 })
+    const problems = await kitConformance.eventsListConformance(
+      { list, declared: { id: GMAIL_SOURCE, kinds: ["message"], scope: [] }, grants, assertions: session.assertions },
+      [
+        { input: { since: SINCE, limit: 2 }, expect: "events" },
+        { input: { since: "2999-01-01T00:00:00Z" }, expect: "empty" },
+        { input: { source: "drive" }, expect: { refuses: /not available/ } },
+      ],
+    )
+    expect(problems).toEqual([])
+    expect(session.unused()).toEqual([])
+    expect(session.undeclared).toEqual([])
   })
 })
 

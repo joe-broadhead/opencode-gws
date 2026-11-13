@@ -42,6 +42,7 @@ interface Memory {
     operationScoped?: boolean
     reads: Block[]
     scope: Array<{ key: string }>
+    identity?: Block
     identityRead?: Block
   }
   sources: Array<{
@@ -126,14 +127,19 @@ describe("the memory declaration", () => {
     expect(JSON.stringify(memory)).not.toContain('"suggest":true')
   })
 
-  it("names no write verb anywhere in an action, operation, or method", () => {
-    const text = JSON.stringify(memory)
-    expect(text).not.toMatch(/"[a-z]*\.(send|write|delete|update|create|share|admin)"/)
-    for (const block of [memory.connector.identityRead, ...memory.connector.reads, ...memory.sources.flatMap((entry) => entry.identity)]) {
-      if (block === undefined) continue
-      expect(kit.memoryDeclarationProblems(memory)).toEqual([])
-      expect(block.method).toMatch(/^[a-z][a-z0-9_]*$/)
-    }
+  it("carries no connector-level identity: each source carries its own, and no identityRead shadows them", () => {
+    expect(memory.connector.identity).toBeUndefined()
+    expect(memory.connector.identityRead).toBeUndefined()
+    for (const entry of memory.sources) expect(entry.identity?.method).toBe("events_list")
+  })
+
+  it("keeps every operation-scoped grant on an exact operation, never on *", () => {
+    expect(memory.connector.operationScoped).toBe(true)
+    const dotted = [memory.connector, ...memory.connector.reads].flatMap((block) => ("grants" in block && block.grants !== undefined ? block.grants : [])).filter((entry) => entry.action.includes("."))
+    expect(dotted.length).toBeGreaterThan(0)
+    for (const grant of dotted) expect(grant.resource, grant.action).toMatch(/^\{account\}:/)
+    // Every identity grant is among its source's grants, because a job's session allows the source's list.
+    for (const entry of memory.sources) for (const grant of entry.identity?.grants ?? []) expect(entry.grants).toContainEqual(grant)
   })
 
   it("carries each template's connector on its steps, no template-level source, and outputs that cover its stages", () => {

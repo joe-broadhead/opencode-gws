@@ -14,7 +14,8 @@ const COPIES = [
   { path: "src/host/tools-rpc.ts", optional: true, sha256: "0ab088de9fadf2cf13c7b63861f1493ac10feaa202fe0c2ac0c1a294cd432dda", part: sharedPart },
   { path: "test/support/jelly-kit.ts", optional: false, sha256: "ab599abcf041044c77e7938c3d9a081e00072487a7ec20b654d86c8230951190", part: (text) => text },
   { path: "src/host/events-list.ts", optional: true, sha256: "9aa00fdabe67a59712979203f10e86c13bb8ab4fb0a72baadb602b77857f1d80", part: (text) => text },
-  { path: "test/support/memory-kit.mjs", optional: false, sha256: "0b0934675a86125cca3b020de2d13c5f40b33954bdaa0d429105ec9d053e423a", part: (text) => text },
+  { path: "test/support/memory-kit.mjs", optional: false, sha256: "50d570acf49df758ed0c0abaed1f277188a90652888cc88ed9049036cc9f0993", part: (text) => text },
+  { path: "test/support/conformance.mjs", optional: false, sha256: "76b1c3b3653a1a45c0f39e28e3b97bdb345036e3c8afb39fac0bbfa4b08fdd43", part: (text) => text },
   { path: "src/process/install.ts", optional: false, sha256: "8ce0d8505f7577dc793ad2b279117f1118de404bbfacf08a8bd70b976425159a", part: (text) => text },
 ]
 

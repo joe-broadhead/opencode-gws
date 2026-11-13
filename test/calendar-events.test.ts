@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -26,6 +27,18 @@ import { account, testRuntime } from "./support/config.js"
  * resync, a cancellation as a withdrawal, and the asserts that run before any
  * read.
  */
+
+const require = createRequire(import.meta.url)
+/** Memory's published conformance half, vendored byte for byte: the recording session and contract 2's fixtures. */
+const kitConformance = require("./support/conformance.mjs") as {
+  recordingSession(grants: ReadonlyArray<{ action: string; resource: string }>, tools: unknown[]): {
+    permission: { assert(request: PermissionRequest): Promise<void> }
+    assertions: Array<{ action: string; resources: string[] }>
+    unused(): Array<{ action: string; resource: string }>
+    undeclared: string[]
+  }
+  eventsListConformance(input: { list: (input: Input) => Promise<EventsListResult>; declared: { id: string; kinds: string[]; scope: unknown[] }; grants: unknown[]; assertions: unknown[] }, fixtures: Array<{ input: Input; expect: string | { refuses: RegExp } }>): Promise<string[]>
+}
 
 const FIXTURE = fileURLToPath(new URL("./fixtures/calendar-mailbox.json", import.meta.url))
 const SINCE = "2026-11-01T00:00:00Z"
@@ -172,6 +185,31 @@ describe("the calendar source keeps the shared contract", () => {
     await expect(list({ since: SINCE, scope: { calendars: ["someone.else@example.com"] } })).rejects.toThrow(/^GWS_VALIDATION_ERROR: The calendar 'someone.else@example.com' is not this account's primary calendar/)
     await expect(list({ since: SINCE, scope: { calendars: ["primary", CALENDAR] } })).rejects.toThrow(/^GWS_VALIDATION_ERROR: Events_list reads one calendar at a time/)
     await expect(list({ since: SINCE, scope: { channels: ["C1234567890"] } })).rejects.toThrow(/^GWS_VALIDATION_ERROR: Calendar has no scope key 'channels'/)
+  })
+})
+
+describe("Memory's kit conformance", () => {
+  const grants = [
+    { action: "gws.events_list", resource: "*" },
+    ...CALENDAR_READS.map((operation) => ({ action: "gws.read", resource: `personal:${operation}` })),
+  ]
+
+  it("passes the kit's recording session and contract-2 fixtures, with no declared grant unused", async () => {
+    const session = kitConformance.recordingSession(grants, [])
+    const { list } = await harness((request) => session.permission.assert(request))
+    // One full listing first: that is the call whose asserts the declared source grants must equal.
+    await list({ since: SINCE, limit: 2 })
+    const problems = await kitConformance.eventsListConformance(
+      { list, declared: { id: CALENDAR_SOURCE, kinds: ["meeting", "event"], scope: [{ key: "calendars" }] }, grants, assertions: session.assertions },
+      [
+        { input: { since: SINCE, limit: 2 }, expect: "events" },
+        { input: { since: "2999-01-01T00:00:00Z" }, expect: "empty" },
+        { input: { scope: { calendars: ["someone.else@example.com"] } }, expect: { refuses: /primary calendar/ } },
+      ],
+    )
+    expect(problems).toEqual([])
+    expect(session.unused()).toEqual([])
+    expect(session.undeclared).toEqual([])
   })
 })
 

@@ -408,22 +408,7 @@
         }
       ],
       "billing": null,
-      "operationScoped": true,
-      "identityRead": {
-        "method": "status",
-        "input": {},
-        "grants": [
-          {
-            "action": "gws.status",
-            "resource": "*"
-          }
-        ],
-        "account": "$.accounts[0].email",
-        "owner": {
-          "id": "$.accounts[0].email",
-          "label": "$.accounts[0].email"
-        }
-      }
+      "operationScoped": true
     },
     "sources": [
       {

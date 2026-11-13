@@ -19,7 +19,16 @@ export const WRITE_VERBS = [
   "draft", "complete", "run", "exec", "execute", "edit", "patch", "put", "push", "commit", "comment", "reply",
   "message", "broadcast", "follow", "block", "mute", "pin", "unpin", "star", "assign", "label", "lock", "trash",
   "forward", "dispatch", "clear", "flush", "reset", "truncate", "overwrite", "apply", "join", "leave", "ban", "toggle",
+  "kick", "unban", "export", "grant", "revoke", "transfer", "promote", "demote", "rename", "duplicate", "restore",
+  "purge", "wipe", "drop", "attach", "detach", "mention", "notify", "escalate", "resolve", "decline", "cancel",
+  "submit", "vote", "snooze", "dismiss", "acknowledge", "ack", "enable", "disable", "connect", "disconnect",
+  "login", "logout", "signin", "signout", "mint", "issue", "verify", "hide", "unhide", "publish", "unpublish",
+  "ingest", "index", "reindex", "sync", "import", "save", "like", "unlike", "generate", "mark", "bookmark", "copy",
+  "print", "convert", "upload_file", "download_file",
 ]
+
+/** Tokens that join two actions in one name ("get_and_save"): a name is one action, so these are refused. */
+export const JOINERS = ["and", "then", "or"]
 
 /** Namespaces a plugin may not declare: they are Memory's or the host's. */
 export const RESERVED_NAMESPACES = ["memory", "mem", "opencode", "records", "plugin", "system", "builtin", "core", "jobs", "execute", "codemode"]
@@ -44,6 +53,10 @@ export const EVENT_SHAPE = {
 }
 
 /** The most bytes the `memory` key may take, measured as compact JSON (`JSON.stringify`). */
+/** The event fields a `perUnit` input may take its value from. They exist in EVENT_SHAPE: `thread` is
+// `<scheme>-thread:<channel id>:<thread ts>`, so its channel and its ts are the two parts. */
+export const PER_UNIT_FIELDS = ["external_id", "thread_channel", "thread_ts"]
+
 export const SIZE_WARN_BYTES = 6144
 export const SIZE_MAX_BYTES = 8192
 
@@ -54,6 +67,8 @@ const words = (name) => String(name ?? "").toLowerCase().split(/[._-]+/).filter(
 export function readVerbProblem(name) {
   if (typeof name !== "string" || name.length === 0) return "a read must be named"
   const parts = words(name)
+  const joiner = parts.find((word) => JOINERS.includes(word))
+  if (joiner !== undefined) return `"${name}" joins two actions with "${joiner}": name the one action it is`
   const writes = parts.filter((word) => WRITE_VERBS.includes(word))
   if (writes.length > 0) return `"${name}" contains the write verb ${writes.join(", ")}`
   if (!parts.some((word) => READ_VERBS.includes(word))) return `"${name}" has no read verb (${READ_VERBS.join(", ")})`
@@ -81,13 +96,17 @@ export function memoryDeclarationProblems(memory) {
 
   const scopeKeys = connectorScopeKeys(connector)
   const declaredActions = new Set(connectorGrants(connector).map((g) => g.action))
+  const suggestGrants = connectorSuggestGrants(connector)
   const sourceIds = []
   if (memory.sources !== undefined) {
     if (!Array.isArray(memory.sources)) p.push(`"sources" must be a list`)
     else for (const [i, source] of memory.sources.entries()) {
-      p.push(...sourceProblems(source, `sources[${i}]`, scopeKeys, declaredActions, connector))
+      p.push(...sourceProblems(source, `sources[${i}]`, scopeKeys, declaredActions, ns, plain(connector) && (connector.identity !== undefined || connector.identityRead !== undefined)))
       if (plain(source) && typeof source.id === "string") sourceIds.push(source.id)
     }
+  }
+  if (plain(connector) && connector.identityRead !== undefined && Array.isArray(memory.sources) && memory.sources.length > 0) {
+    p.push(`"connector.identityRead" is for a connector with no sources (a direct-read-only connector); this one declares sources, so each source carries its identity (§9.2)`)
   }
   if (memory.templates !== undefined) {
     if (!Array.isArray(memory.templates)) p.push(`"templates" must be a list`)
@@ -124,6 +143,17 @@ function grantProblems(grants, where, ns) {
     if (verb !== undefined) p.push(`${at}: ${verb}`)
     if (ns && !grant.action.startsWith(`${ns}_`) && !grant.action.startsWith(`${ns}.`)) p.push(`${at}.action "${grant.action}" is not in the namespace "${ns}"`)
     if (grant.resource !== "*" && !ACCOUNT_RESOURCE.test(grant.resource)) p.push(`${at}.resource must be "*" or {account}:<operation>`)
+    if (grant.resource !== "*") {
+      // The operation's last dotted segment is the verb, and it must START with a read verb: an allowlist, so
+      // insert, batchModify, watch, quickAdd, emptyTrash and untrash are refused without being listed.
+      const segments = grant.resource.slice("{account}:".length).split(".")
+      const last = segments[segments.length - 1] ?? ""
+      const head = words(last)[0] ?? ""
+      const verb = READ_VERBS.find((read) => head.startsWith(read) || last.startsWith(read))
+      if (verb === undefined) {
+        p.push(`${at}.resource operates "${last}", which does not start with a read verb (${READ_VERBS.join(", ")}): a read never sends, changes or watches`)
+      }
+    }
   }
   return p
 }
@@ -144,6 +174,12 @@ function identityProblems(identity, where, ns, { sourceLevel }) {
     if (verb !== undefined) p.push(`${where}.method: ${verb}`)
   }
   if (identity.input !== undefined && !plain(identity.input)) p.push(`${where}.input must be an object`)
+  else if (sourceLevel && method === "events_list") {
+    const input = identity.input ?? {}
+    const allowed = ["source", "account", "limit"]
+    for (const key of Object.keys(input)) if (!allowed.includes(key)) p.push(`${where}.input has "${key}": an events_list identity sends only source, account and limit`)
+    if (input.limit !== 0) p.push(`${where}.input.limit must be 0: the identity is the owner-only call, and any other limit reads events`)
+  }
   p.push(...grantProblems(identity.grants, `${where}.grants`, ns))
   if (typeof identity.account !== "string" || !identity.account.startsWith("$.")) p.push(`${where}.account must be a JSONPath starting $.`)
   const owner = identity.owner
@@ -161,7 +197,9 @@ function connectorProblems(connector, ns) {
   if (connector.accounts !== "single" && connector.accounts !== "multi") p.push(`"connector.accounts" must be "single" or "multi"`)
   if (connector.operationScoped !== undefined && typeof connector.operationScoped !== "boolean") p.push(`"connector.operationScoped" must be true or false`)
   if (connector.identity !== undefined) p.push(...identityProblems(connector.identity, "connector.identity", ns, { sourceLevel: true }))
-  if (connector.identityRead !== undefined) p.push(...identityProblems(connector.identityRead, "connector.identityRead", ns, { sourceLevel: false }))
+  if (connector.identityRead !== undefined) {
+    p.push(...identityProblems(connector.identityRead, "connector.identityRead", ns, { sourceLevel: false }))
+  }
 
   const scope = connector.scope
   const keys = []
@@ -191,6 +229,25 @@ function connectorProblems(connector, ns) {
     if (entry.suggest === true && entry.suggestBy === undefined) p.push(`${at} claims suggest: true but declares no suggestBy, so Memory has nothing to call`)
   }
 
+  // §9.1 D: a suggestBy read runs at bind only, so its grants never sit among a job's.
+  const suggest = connectorSuggestGrants(connector).map((grant) => grant.action)
+  const jobBearing = [connector.identity, connector.identityRead, ...(connector.reads ?? [])]
+    .flatMap((block) => (plain(block) && Array.isArray(block.grants) ? block.grants : []))
+    .map((grant) => (plain(grant) ? grant.action : ""))
+  for (const action of new Set(suggest)) {
+    if (jobBearing.includes(action)) p.push(`${action} is a suggestBy grant and also a job-bearing grant: suggestBy runs only at bind, so its grants must not appear in an identity, identityRead or read`)
+  }
+
+  if (connector.operationScoped === true) {
+    const dotted = connectorGrants(connector).filter((grant) => grant.action.includes("."))
+    for (const grant of dotted) {
+      if (grant.resource === "*") p.push(`"connector.operationScoped" is true, so ${grant.action} must name {account}:<operation>, not "*"`)
+    }
+    const missing = dotted.filter((grant) => grant.resource === "*")
+    if (dotted.length === 0) p.push(`"connector.operationScoped" is true but no read declares a dotted action with an operation resource`)
+    if (missing.length > 0) p.push(`"connector.operationScoped" is true, so every dotted action's grant names its operation`)
+  }
+
   const reads = connector.reads ?? []
   if (!Array.isArray(reads)) p.push(`"connector.reads" must be a list`)
   else {
@@ -217,6 +274,7 @@ function scopeInputProblems(inputs, where, keys) {
   const p = []
   if (Object.keys(inputs).length === 0) p.push(`${where} is empty: a read with no scope input is unscoped and not grantable`)
   let bound = 0
+  const binds = new Set()
   for (const [field, value] of Object.entries(inputs)) {
     if (typeof value === "string") {
       if (!keys.includes(value)) p.push(`${where}.${field} names the scope key "${value}", which connector.scope does not declare`)
@@ -224,16 +282,21 @@ function scopeInputProblems(inputs, where, keys) {
     } else if (plain(value)) {
       const ok = Object.keys(value).every((k) => k === "perUnit" || k === "bind")
       if (!ok) p.push(`${where}.${field} may hold only perUnit and bind`)
-      if (!["ts", "id", "key", "external_id"].includes(value.perUnit)) p.push(`${where}.${field}.perUnit must be ts, id, key or external_id`)
+      if (!PER_UNIT_FIELDS.includes(value.perUnit)) p.push(`${where}.${field}.perUnit must be one of ${PER_UNIT_FIELDS.join(", ")} (fields of the event shape)`)
       if (typeof value.bind !== "string" || !keys.includes(value.bind)) p.push(`${where}.${field}: perUnit needs bind to name a declared scope key, so the per-unit id stays inside the confirmed scope`)
+      else binds.add(value.bind)
     } else p.push(`${where}.${field} must be a scope key or { perUnit, bind }`)
   }
-  // §9.1 C: a scoped connector must pin a binding-key input, never only per-unit ones.
-  if (keys.length > 0 && bound === 0) p.push(`${where} pins no binding-key input, so the read is not scoped to what the person confirmed`)
+  // §9.1 C: a read is pinned by a binding-key input, or by perUnit inputs that all agree on one bind.
+  if (binds.size > 1) p.push(`${where} binds per-unit inputs to ${[...binds].join(", ")}: they must all name one scope key`)
+  if (bound === 0 && binds.size === 0) p.push(`${where} pins no binding-key input, so the read is not scoped to what the person confirmed`)
+  if (bound > 0 && binds.size > 0 && ![...binds].every((key) => Object.values(inputs).includes(key))) {
+    p.push(`${where} pins a per-unit input through an unrelated key: its bind is not one of this read's binding-key inputs`)
+  }
   return p
 }
 
-function sourceProblems(source, where, scopeKeys, declared, connector) {
+function sourceProblems(source, where, scopeKeys, declared, ns, identityByDefault) {
   if (!plain(source)) return [`${where} is not an object`]
   const p = []
   const ok = ["id", "title", "summary", "contract", "kinds", "grants", "identity", "scope", "cadence", "billing", "setupHint"]
@@ -243,14 +306,24 @@ function sourceProblems(source, where, scopeKeys, declared, connector) {
   if (typeof source.id !== "string" || !/^[a-z][a-z0-9-]{0,39}$/.test(source.id)) p.push(`${where}.id must be a lowercase word of at most 40 characters`)
   if (source.contract !== 2) p.push(`${where}.contract must be 2: a declared source needs the owner-only call`)
   if (!Array.isArray(source.kinds) || source.kinds.length === 0) p.push(`${where}.kinds must be a non-empty list of event kinds`)
-  p.push(...grantProblems(source.grants, `${where}.grants`, ""))
+  p.push(...grantProblems(source.grants, `${where}.grants`, ns))
   const actions = Array.isArray(source.grants) ? source.grants.flatMap((g) => (plain(g) && typeof g.action === "string" ? [g.action] : [])) : []
+  const own = new Set(plain(source.identity) && Array.isArray(source.identity.grants)
+    ? source.identity.grants.flatMap((grant) => (plain(grant) && typeof grant.action === "string" ? [grant.action] : []))
+    : [])
   for (const action of actions) {
     const eventsAction = /_events_list$/.test(action) || /\.events_list$/.test(action)
-    if (!eventsAction && !declared.has(action)) p.push(`${where}.grants names ${action}, which no read, identity or identityRead of "connector" declares`)
+    if (!eventsAction && !own.has(action) && !declared.has(action)) {
+      p.push(`${where}.grants names ${action}, which no read of "connector" and no identity of this source declares`)
+    }
+  }
+  // §9.2: an identity's grants are only what `limit: 0` asserts, and they must be among the source's, because the
+  // source's list is what a job's session allows for it.
+  for (const action of own) {
+    if (!actions.includes(action)) p.push(`${where}.identity grants ${action}, which ${where}.grants does not list: an identity's grants must be among the source's`)
   }
   if (source.identity !== undefined) p.push(...identityProblems(source.identity, `${where}.identity`, "", { sourceLevel: true }))
-  else if (!plain(connector) || (connector.identity === undefined && connector.identityRead === undefined)) p.push(`${where} declares no identity and the connector has none`)
+  else if (!identityByDefault) p.push(`${where} declares no identity and the connector has none`)
   const scope = source.scope ?? []
   if (!Array.isArray(scope)) p.push(`${where}.scope must be a list`)
   else for (const [i, entry] of scope.entries()) {
@@ -344,6 +417,11 @@ function templateProblems(template, where, sourceIds, ns) {
     if (!Number.isInteger(t) || t < 1000 || t > 25000) p.push(`${where}.budget.tokensPerRun must be 1000 to 25000`)
   }
   return p
+}
+
+function connectorSuggestGrants(connector) {
+  if (!plain(connector) || !Array.isArray(connector.scope)) return []
+  return connector.scope.flatMap((key) => (plain(key) && plain(key.suggestBy) && Array.isArray(key.suggestBy.grants) ? key.suggestBy.grants : []))
 }
 
 function connectorGrants(connector) {
