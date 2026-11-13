@@ -51,6 +51,12 @@ skill ids collide with another plugin's or the agent's own.
   first, then by start, with each one's time and place. A stale answer, or one read more than 15 minutes ago, says
   "not up to date"; a missing or malformed answer says the calendar is not available, never that the day is empty.
 
+- **Changes from agent UIs** (`views/ui-changes.html`, a sealed page in the plugin's settings, no grants). It only
+  says what the `commit` action does and that it is off unless `uiActions` lists it; it never calls the action. It
+  exists because Jelly's schema makes every action name at least one of the plugin's pages, and naming the Gmail
+  thread or the Today tile would give that page a write it never needs. It goes once Jelly drops that rule for
+  actions bound from agent UIs, as it has offered.
+
 ## Today's calendar
 
 `jelly.nativeData` is `[{ "v": 1, "capability": "calendar", "view": "calendar-native", "read": "calendar.today" }]`:
@@ -154,6 +160,74 @@ regardless; the limit is Jelly's.
 `test/images.test.ts` checks the address gate, the token hosts, the cap while streaming, the type from the bytes, the
 account rule and the declaration against Jelly's rules, all against fake answers with no network.
 
+## Changes a person approves in an agent's UI
+
+Off by default. `jelly.actions` declares one action, `commit`, with `ui: true`, so an agent can bind it to a button in
+a UI it makes. It is plan-shaped: its input is a gws plan request, the same shape `gws_plan` takes, and this release
+allows only one operation, a Sheets value update:
+
+```json
+{
+  "account": "work",
+  "operation": "sheets.spreadsheets.values.update",
+  "params": { "spreadsheetId": "<id>", "range": "Invoices!D2:D3", "valueInputOption": "RAW" },
+  "body": { "values": [["Paid"], ["Paid"]] }
+}
+```
+
+To turn it on, list the operation in the plugin's options: `"uiActions": ["sheets.spreadsheets.values.update"]`. The
+list takes no other value yet; a later release that supports more operations never turns them on for someone who
+listed this one.
+
+What the declaration says. Label "update cells in your Google Sheets"; `class: "local"`, so only an owner device can
+take it; `confirm: "always"`, so Jelly asks every time; `summary: ["account", "params"]`; `preview: "plan.preview"`;
+`tool: "gws.write"`, because an agent makes the same change with `gws_plan` then `gws_write`. It declares no `done`,
+because Jelly's `{count}` is how many rows the person picked, not how many cells changed; the receipt says the label.
+
+**The preview.** `plan.preview` is declared in `jelly.rpc` with `readOnly: true` and the permission `gws.plan`, so a
+rule that denies `gws.plan` also stops the preview. Given the same input, it runs gws's own plan path (the account,
+the service, every policy rule, the admin gate and the recipient rules) and `gws --dry-run`, stores no plan, and
+answers in words: the category and operation, the account, the method and address, the spreadsheet and range, and
+every cell it writes, row by row. Those values are the input's own; they are shown to the person, never logged or
+audited. When the words would be over the 4,000 characters Jelly's confirmation shows, the preview refuses rather
+than cut them short, and Jelly then offers only Not now.
+
+**The action.** Jelly's core plugin calls `act.commit` on the RPC named after the package with `{ input, grant }`. In
+order, the plugin:
+
+1. checks Jelly's grant, as Jelly's own verifier does: Jelly's action key (published in the engine), this plugin,
+   the action `commit`, the digest of exactly this input, at most 60 seconds old, and never used before; and the
+   class must be `local`. In stock OpenCode there is no Jelly key, so nothing can take the action;
+2. refuses when `uiActions` does not list the operation (`UI_ACTION_OFF`), or `access` is `read-only`
+   (`UI_ACTION_REFUSED`); at `ask-changes` it runs, because the person's every-time confirmation is the ask;
+3. refuses any operation but `sheets.spreadsheets.values.update`, `USER_ENTERED` (a value would be read as a
+   formula, and a formula can send the sheet's contents elsewhere), any extra field, and more than 100 rows of 26
+   cells (`UI_ACTION_REFUSED`);
+4. plans the change as the person, in a plan bound to this grant alone, through the same path as `gws_plan`, and
+   commits it, single-use, as `gws_write` does;
+5. answers what Google says changed: `{ account, operation, spreadsheetId, updatedRange, updatedRows,
+   updatedColumns, updatedCells }`.
+
+Every call, refused ones included, writes a `ui.act` audit record with `caller: "person"`, the Jelly member whose
+device approved it (`member`, the grant's `mbr`) and the grant's id (`grant`, its `jti`); the plan and commit
+records carry the same three. No record holds the values, the spreadsheet or the range.
+
+What the plugin cannot check yet, and has asked Jelly for:
+
+- **The confirmation.** The grant does not say how Jelly asked. Jelly's host refuses an act whose confirmation is not
+  the action's own, so the plugin relies on Jelly for "every time"; a confirmation claim in the grant would let the
+  plugin refuse on its own.
+- **That the preview was shown.** The grant binds the input, and the preview is worked out from that same input, so
+  what is committed is what the preview describes; but nothing in the grant says the preview was drawn.
+- **The receipt.** Jelly words it from the rows picked; the plugin's answer says what changed.
+- **Whose Google account.** The grant names a Jelly member, not a Google account; owner devices only is the guard.
+
+Jelly also gives an act ten seconds in all. The action runs a dry run and then the commit; when Google is slow, Jelly
+can give up after the change was made. Check the sheet before asking again.
+
+`test/ui-action.test.ts` checks every refusal above, that the preview is the plan the commit runs, the audit records,
+and the declaration against Jelly's action rules.
+
 ## Signing in
 
 `jelly.signIns` declares one sign-in, `google`, for OpenCode's integration `gws-*`: every account (`gws-<alias>`) folds into it, so the card waits while any account waits. The sign-in declares what Jelly does for it, so Jelly has no code of its own for gws:
@@ -171,4 +245,4 @@ Jelly folds the declared sign-ins into this plugin's one card, which shows each 
 Jelly's curated catalogue pins an exact version. Publish each release under a new version so a
 review in Jelly can tell the two apart.
 
-The declaration test runs the shared kit, `test/support/jelly-kit.ts`, which checks the declaration and this page against Jelly's plugin authors' standard. `scripts/check-copies.mjs` holds the kit equal to the copy every plugin carries. The kit's list of keys does not yet name `nativeData`, `imageHosts` or `imageRead`, so `test/jelly.test.ts` accepts those findings, and `test/calendar.test.ts` and `test/images.test.ts` check the fields instead.
+The declaration test runs the shared kit, `test/support/jelly-kit.ts`, which checks the declaration and this page against Jelly's plugin authors' standard. `scripts/check-copies.mjs` holds the kit equal to the copy every plugin carries. The kit's list of keys does not yet name `nativeData`, `imageHosts`, `imageRead` or `actions`, so `test/jelly.test.ts` accepts those findings, and `test/calendar.test.ts`, `test/images.test.ts` and `test/ui-action.test.ts` check the fields instead.

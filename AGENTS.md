@@ -107,7 +107,13 @@ Also never: imported OAuth grants, credentials from `gws auth login`, or a
   commit tool with `{ planId }`. The RPC, TUI and commands never approve or
   commit, except the tools RPC's commit methods, which exist only when the
   `rpcCommits` option is on (off by default; for a host that confirms each
-  change itself).
+  change itself), and Jelly's `commit` action (`src/host/ui-action.ts`),
+  which exists only for the operations the `uiActions` option lists (none by
+  default): it runs only under a verified Jelly action grant for that exact
+  input from an owner device, re-runs `access` (read-only refuses), policy
+  and the admin gate through plan then commit, and audits as
+  `caller: "person"`. Never widen its operation list, accept a grant of
+  another class, or let `access` stop short of it.
 - Only `src/process/**` spawns `gws`, with an argv array and `shell: false`.
 - Never log or preview bodies, tokens, credentials or file contents.
   Workspace content is untrusted data.
