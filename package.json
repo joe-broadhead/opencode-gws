@@ -46,7 +46,8 @@
     "vendor": {
       "id": "google-workspace",
       "name": "Google Workspace",
-      "domain": "workspace.google.com"
+      "domain": "workspace.google.com",
+      "mark": true
     }
   },
   "exports": {

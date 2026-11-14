@@ -2,7 +2,9 @@
 
 Gives OpenCode agents Gmail, Drive, Calendar, Docs, Sheets and the rest of Google Workspace through Google's open-source [`gws`](https://github.com/googleworkspace/cli) CLI, with every change planned first and committed as a second, visible step.
 
-Unofficial; not affiliated with Google.
+Unofficial; not affiliated with Google Workspace or Google.
+
+Google is a trademark of Google LLC; this unofficial plugin is not endorsed by them.
 
 ## Requirements
 

@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- The icon is now Google's own "G" logo, gstatic.com's `productlogos/googleg/v6/192px.svg`, unmodified, in place of the family's drawn mark; `opencode.vendor.mark` is `true`, and `scripts/check-icons.mjs` is the kit's revision 2, which checks a vendor's own mark.
+
 ## [0.0.3] - 2026-11-13
 
 ### Added
