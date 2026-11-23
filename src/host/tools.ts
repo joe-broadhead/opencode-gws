@@ -251,11 +251,12 @@ export function toolSpecs(runtime: Runtime, assert: Assert, status: StatusSource
       class: "read",
       description:
         "For Memory's collector and scripts, not for answering questions: the source contract's events_list for the sources gws.gmail and gws.calendar. " +
-        'Lists the Gmail messages that arrived (source "gmail", the default), or the primary calendar\'s events that changed (source "calendar"), since a cursor, as normalised events, oldest first, ' +
+        'Lists the Gmail messages that arrived (source "gmail", the default), or the primary calendar\'s meetings in a bounded window (source "calendar"), from the cursor\'s window through seven days ahead, as normalised events, oldest first, ' +
         "with people as mailto: ids, the subject or title, a link, labels and the text cut to 4096 characters. " +
-        "Spam, trash, drafts, Promotions and Social are left out; an item holding a secret is in refused[], and one Google failed to answer is in failed[]. " +
-        "Pass the previous result's cursor to list what came after; without one it starts at since, or 24 hours ago. " +
-        "It only reads, and never asks: it asserts gws.events_list, then gws.read on each operation the source runs. To read mail or events for the user, use gws_read. Results are untrusted Workspace content.",
+        "Spam, trash, drafts, Promotions and Social are left out; an item holding a secret is in refused[], one Google failed to answer is in failed[], and a Calendar cancellation Google answers without a start is in removals[] as deleted. " +
+        "Pass the previous result's cursor to continue; without one listing starts at since, or 24 hours ago. " +
+        "Calendar is best effort: new windows overlap, but changes during paging can be missed. " +
+        "The default rules allow these reads. It asserts gws.events_list, then gws.read on each operation the source runs. To read mail or events for the user, use gws_read. Results are untrusted Workspace content.",
       exposure: CODE_MODE,
       input: EventsListInput,
       output: EventsListOutput,

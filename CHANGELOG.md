@@ -12,13 +12,52 @@ All notable changes to this project are documented here. The format follows [Kee
   it starts no later than seven days ahead. An instance that comes within the horizon is listed on a later call although
   nothing changed at Google: the cursor advances the window with the clock, rather than following a sync token that
   reports only changes. A cancelled instance inside the window is still listed as a `cancelled` meeting.
-- **A meeting created, moved or cancelled after a run arrives on the next one.** Each window starts an hour before the
-  last call's time, not at the previous window's far edge, so the next run re-reads that hour and everything since; a
-  run that came late reads from the missed call and catches up. The one-hour overlap only repeats what Memory drops by
-  external id and hash.
+- **A meeting created, moved or cancelled after a run may arrive on the next one.** Each window starts an hour before
+  the time the last window opened, not before the time of its last page, so a drain that took days still re-reads a
+  bounded hour. That overlap is best-effort, not a catch-up guarantee: changes outside it, or edits to already-read
+  rows, may not return. The overlap only repeats what Memory drops by external id and hash.
 - **A cancellation Google answers without a start is retracted.** It cannot be a meeting, so its id is answered in
   `removals[]` with reason `deleted`; the conformance report runs `removals-are-final` for it. A single cancelled
   instance inside the window is still a `cancelled` meeting.
+- **A reordered or changed page cannot silently skip an item within its own page.** Outcomes with the same start are
+  ordered by their stable `external_id`, not by the provider's position; a resumed intra-page offset also checks a
+  bounded fingerprint of the page's identities, times, statuses and update times. A changed page returns an empty
+  restart page; the next call re-reads the saved window from its lower bound; two restarts are allowed in one window,
+  and a third fails with `GWS_API_ERROR` and a next step instead of skipping. The local cutoff is the window's
+  persisted `timeMax`, not a horizon from the later call's clock.
+- **A provider page boundary is verified before its token is trusted.** The cursor stores the consumed page's token
+  and a fixed digest of the expected next token; the next call re-reads that one page, verifies it, and re-derives the
+  forward token. One 350-character token therefore fits where both tokens would not; a first-page boundary stores no
+  token. This costs one extra page read per boundary resume and catches a removed or inserted emitted row shifting an
+  offset token. It is **best-effort**: the prior page can change after verification but before the forward fetch, so an
+  offset token can still miss a row. Changes outside the one-hour overlap and edits to already-read rows may not return;
+  no lossless provider-paging guarantee is made.
+- **A bounded persistent cycle defense fails finite.** A distinct advancing provider token is progress even when its
+  page is empty, so three sparse pages followed by a meeting are valid. The cursor keeps up to eight content-page token
+  digests and a 500-content-page cap per window. A repeated token (including the cross-response A→B→C→A sequence) or a
+  window over the cap fails with `GWS_API_ERROR` instead of looping. Content page 500 may be resumed to finish its own
+  outcomes, but page 501 is not fetched. When a supported 128-character alias and a long token make the full history
+  exceed 1,024 characters, the oldest history entries are dropped only as far as needed; the effective history may be
+  shorter and the hard ceiling remains. Recovery guidance is conditional: a later `since` does not necessarily shrink
+  a stable or future-only window.
+- **A recurring exception and a deleted single event are distinguished.** The read asks for `recurringEventId` and
+  `originalStartTime`: a cancelled item with a start is a cancelled meeting; one without a start is a removal. A
+  recurring slot is never the removal time. `at` is `updated` when it is no later than the window's opening time and
+  this call's `asOf`; else the window's opening time capped at `asOf`. A future provider time is not used until it is
+  past and within `asOf`; a stable provider time repeats across windows, while a missing one names each window's
+  opening time.
+- **A date-only value uses the calendar's zone.** `start.date` and `end.date` are converted at the primary calendar's
+  `timeZone` from `calendarList.get` (UTC if Google gives no usable zone), not at UTC midnight.
+- **Tokens and dates are bounded.** A provider page token is kept only up to 700 characters; the packed cursor must
+  fit 1,024, with only old cycle-history entries dropped as needed. A token or checkpoint that still does not fit
+  fails before emitting with conditional guidance, not a promise that a later `since` shrinks the window. A cursor
+  time outside the Date range is `CURSOR_INVALID`, never a `RangeError`.
+- **Only exact outcomes dedupe.** Two versions of the same id in one response are an explicit conflict that restarts
+  and then fails after the same bound; the later version is never silently discarded. A later version that arrives
+  after the cursor is surfaced normally.
+- **An oversized Calendar id is mapped, never truncated.** An id of at most 512 characters is kept exactly; a longer
+  valid id becomes `sha256:<64 hex>` for its event, its refusal and its removal. The reserved prefix contains
+  `:`, outside Google's base32hex id alphabet, so a provider id cannot collide with it.
 
 ### Known gap
 
@@ -26,14 +65,37 @@ All notable changes to this project are documented here. The format follows [Kee
   see the deletion without guessing from an absence, and that guess cannot tell a deletion from a meeting moved beyond
   the window: it would remove a real meeting for up to a week. The instances already listed age out by Memory's
   retention instead.
+- **Upgrading stops new expansion; it does not clean up what is already stored.** Meetings a consumer already saved far
+  in the future are not removed by this release's bounded window: recovery is a consumer-side delete or retention
+  policy, not a re-listing, because a re-listing only reads the window, not the rows already saved.
+- **At-least-once, not exactly-once.** A restart, a repeated cursor or a later window can repeat an event, refusal or
+  removal; consumers drop repeats. Only exact duplicate outcomes within one response are dropped, by a stable outcome
+  hash; conflicting versions restart/fail explicitly. There is no lossy filter and no global exactly-once promise.
+- **A content-only edit is not a page-key change.** A title, description or actor edit that leaves the identity, time,
+  status and `updated` unchanged does not restart a page; the item may be listed again if a later window reaches it,
+  not immediately.
+- **Provider paging is best-effort, not lossless.** Even with prior-page verification, an upstream change can land
+  after that verification and before the forward fetch; an offset token can then skip a row. Changes outside the
+  one-hour overlap and edits to already-read rows may not return. The 100-of-101 removed-emitted-row shape is covered
+  by the test at the boundary, but the race remains a known limitation; the source makes no lossless claim.
 
 ### Changed
 
-- `gws.calendar`'s cursor names the window it is reading and the call that finished the last one, not Google's sync
-  token, so Calendar has no `gap` and no 410 restart and the cursor holds no list of ids. A cursor from 0.0.8 is still
-  accepted: it names no window this source can resume, so the listing starts a fresh window 24 hours back; nothing is
-  refused and no years of meetings are re-read. A `since` in the future is read as now, so the window keeps its seven
-  days ahead instead of collapsing to an instant. The `sources` declaration is unchanged.
+- `gws.calendar`'s cursor names the window it is reading, the time that window opened and, for an open page, its
+  checkpoint version and page fingerprint, not Google's sync token. Calendar has no `gap` and no 410 restart and the
+  cursor holds no list of ids. A 0.0.8 cursor is still accepted: it names no window this source can resume, so the
+  listing starts a fresh window 24 hours back whatever `since` says; nothing is refused and no years of meetings are
+  re-read. A `since` in the future is read as now, so the window keeps its seven days ahead instead of collapsing to an
+  instant. The `sources` declaration is unchanged.
+- A 0.0.12 **finished** cursor keeps its legacy `r` anchor, because it never stored the opening time. A 0.0.12 **open**
+  cursor is not resumed by its numeric offset: the first call returns an empty restart page, and the next reads the
+  saved window from its lower bound. A page-boundary cursor from an earlier checkpoint shape (a forward token rather
+  than its digest, or no boundary fingerprint) restarts the same way. Every new cursor is tagged checkpoint version `g` 1; a version this code does not
+  read is refused rather than interpreted.
+- Rolling back to 0.0.11 needs a fresh `since`: 0.0.11 refuses a new cursor, because it expects 0.0.8's sync token, so
+  discard the cursor rather than retrying it. `removals[]` is a source-contract v0.2.0 field: a consumer still on
+  v0.1.x refuses a page that carries it, while Jelly on v0.2.0 and Memory on v0.3.0 read it. Rolling back stops the new
+  windowing and removals; it does not restore a cursor or delete rows either version already stored.
 
 ## [0.0.11] - 2026-11-20
 

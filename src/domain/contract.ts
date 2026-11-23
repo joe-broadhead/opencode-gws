@@ -291,7 +291,7 @@ export const EventsListInput = z
       .optional()
       .describe('Calendar only: the one calendar to read, { "calendars": ["primary"] } by default. Gmail takes no scope'),
   })
-  .describe("List Gmail messages, or Calendar meetings up to seven days ahead, since a cursor, as the source contract's events")
+  .describe("List Gmail messages, or Calendar meetings from a cursor's window through seven days ahead, as the source contract's events")
 
 const EventActor = z.object({ role: z.string(), id: z.string().describe("mailto: and the address"), name: z.string().optional() })
 
@@ -327,6 +327,16 @@ export const EventsListOutput = z.object({
     .array(z.object({ external_id: z.string(), code: z.string(), retryAfterSec: z.number().optional() }))
     .optional()
     .describe("Not read this time; the page answers the cursor it was called with, so the next call reads them again"),
+  removals: z
+    .array(
+      z.object({
+        external_id: z.string(),
+        at: z.string().describe("When the source stopped standing behind it, UTC ISO"),
+        reason: z.enum(["deleted", "withheld", "expired"]),
+      }),
+    )
+    .optional()
+    .describe("Listed for good as removed; Calendar reports a cancellation Google answers without a start as deleted"),
   gap: z
     .object({ reason: z.enum(["expired", "window-truncated"]), since: z.string() })
     .optional()
