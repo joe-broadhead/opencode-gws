@@ -204,9 +204,9 @@ and the other source reads.
 A malformed input, including a scope a source does not declare or another calendar, is `INPUT_INVALID`, and nothing runs.
 
 The result is `{ source, account, owner, events, cursor, more, trust: "untrusted", plugin, asOf }`, with `scope` for
-Calendar, and `refused`, `failed` and `gap` when they apply. `source` and `account` are on every result, an empty one
-included. `owner` is `{ "id": "mailto:<address>", "label": … }`: Gmail's address from `gmail.users.getProfile`, or the
-primary calendar's id and name from `calendar.calendarList.get`.
+Calendar, and `refused`, `failed`, `removals` and `gap` when they apply. `source` and `account` are on every result, an
+empty one included. `owner` is `{ "id": "mailto:<address>", "label": … }`: Gmail's address from `gmail.users.getProfile`,
+or the primary calendar's id and name from `calendar.calendarList.get`.
 
 - `refused[]` lists, for good, what the page leaves out: an item whose title or text holds a secret, by the contract's
   screening (`{ external_id, reason: "secret", detail }`; the detail never holds the content). The cursor moves past it.
@@ -215,17 +215,29 @@ primary calendar's id and name from `calendar.calendarList.get`.
   answers `failed[]`: a page is one `calendar.events.list` answer.
 - `removals[]` lists, for good, what the source listed before and no longer stands behind, as
   `{ external_id, at, reason }`: Calendar answers a cancellation Google reports without a start as a removal by id,
-  with reason `deleted` (it cannot be a meeting). A recurring series deleted whole is not retracted: a window read
-  sends no instance for it, and its instances age out by Memory's retention. A removal is an answer, not a drop: it
-  never holds the cursor back, and it is never in `failed[]`.
+  with reason `deleted` (it cannot be a meeting). Its `at` is the event's `updated` time when it is no later than the
+  window's opening time and this call's `asOf`; else the window's opening time capped at `asOf`. A recurring slot
+  (`originalStartTime`) is never used as the removal time. A future provider time is not used until it is past and
+  within `asOf`; a stable provider time repeats across windows, while a missing one names each window's opening time.
+  `at` is never later than the page's `asOf`, even if the local clock moved backwards. A recurring series deleted whole
+  is not retracted: a window read sends no instance for it, and its instances age out by Memory's retention. A removal
+  is an answer, not a drop: it never holds the cursor back, and it is never in `failed[]`.
 - `gap: { reason: "expired", since }` says the history behind the cursor is gone (Gmail no longer keeps the history id),
   and the source read on from `since`, the last event it had listed. Calendar never answers `gap`: its cursor names a
   bounded window, not Google's sync token, so there is no history to expire.
 
 The cursor is the contract's version 2, bound to the plugin (`gws`), the source, the account and Calendar's calendar. A
 Gmail cursor from before this release (contract 1) is read for one release. A Calendar cursor from 0.0.8 is accepted:
-it names a Google sync token and no window this source can resume, so the listing starts a fresh window 24 hours back;
-nothing is refused and no years of meetings are re-read.
+it names a Google sync token and no window this source can resume, so the listing starts a fresh window 24 hours back,
+whatever `since` says (the cursor wins over `since`); nothing is refused and no years of meetings are re-read. A new
+Calendar cursor is tagged with checkpoint version `g` 1. A 0.0.12 **finished** cursor keeps its legacy `r` anchor,
+because it never stored the opening time; a 0.0.12 **open** cursor is not resumed by its numeric offset: the first call
+returns an empty restart page, and the next reads the saved window from its lower bound. A page-boundary cursor from an
+earlier checkpoint shape (a forward token rather than its digest, or no boundary fingerprint) restarts the same way. Rolling back to 0.0.11 refuses
+a new cursor (it expects 0.0.8's sync token), so discard it and pass a fresh `since`. A Calendar window drained over
+several calls keeps the bounds it opened with, and the call after it starts an hour before the time that window opened,
+not before the time of its last page; a meeting created, moved or cancelled while the drain was running is re-read when
+the overlap reaches it, on the same best-effort basis.
 
 Each Gmail event is one message:
 
@@ -243,9 +255,23 @@ Each Gmail event is one message:
 
 Spam, trash, drafts, Promotions and Social are never events. The first listing (no cursor) notes the mailbox's history id, then searches `messages.list` for the messages after `since`, at most 10,000, and lists them oldest first. After that it follows `history.list` from the noted id, so a message that arrives meanwhile is listed too, at worst twice; Memory drops the repeat. When Gmail no longer keeps a cursor's history id, it searches again from the last event it listed, with `gap`. A message deleted after it was listed is skipped. The cursor holds where the listing stands, so calling again with an older cursor lists the same events again. A result stops early, with `more`, before its JSON passes 262,144 bytes, the declared `maxBytes`.
 
-Each Calendar event is one event of the primary calendar, `kind` `meeting`: `occurred_at` when it starts (a cancellation: when it was cancelled), the organizer and attendees as `mailto:` actors, the title, the description and location as text, the event's `htmlLink` on `www.google.com`, and its status (`confirmed`, `tentative` or `cancelled`) as its label; a cancelled meeting carries no text or actors. Each listing reads a bounded window with `showDeleted` and `singleEvents` on: from the last call's time less an hour (the first listing: `since`) to seven days ahead; a `since` in the future is read as now. An instance is listed only when it starts no later than `now + 7 days`, so a recurring series is never expanded far into the future; an instance that comes within the horizon is listed on the next call although nothing changed at Google, and a meeting created, moved or cancelled after the last call is listed too. A late run reads from the last call and catches up. There is no sync token: a token reports changes, not the passing of time. A cancellation Google reports without a start is answered as a removal by id. A recurring series deleted whole is not retracted: a window read sends no instance for it, and the instances already listed age out by Memory's retention.
+Each Calendar event is one event of the primary calendar, `kind` `meeting`: `occurred_at` when it starts (a cancellation: when it was cancelled), the organizer and attendees as `mailto:` actors, the title, the description and location as text, the event's `htmlLink` on `www.google.com`, and its status (`confirmed`, `tentative` or `cancelled`) as its label; a cancelled meeting carries no text or actors. A date-only `start.date` or `end.date` is converted at the primary calendar's `timeZone` from `calendarList.get` (UTC when Google gives no usable zone), not at UTC midnight; a timed value keeps its own offset. Each listing reads a bounded window with `showDeleted` and `singleEvents` on, and asks for the recurrence markers `recurringEventId` and `originalStartTime`: from the opening time of the last window less an hour (the first listing: `since`) to seven days ahead; a `since` in the future is read as now. A window drained over several calls keeps those bounds, and the local cutoff is that window's own `timeMax`, never a horizon from a later call's clock: an instance at `timeMax - 1` is in and one at `timeMax` is out. An instance is listed only when it starts before that bound, so a recurring series is never expanded far into the future; an instance that comes within the window is listed on the next call although nothing changed at Google; a meeting created, moved or cancelled after the last call is re-read when the overlap reaches it. That is best-effort, not a guarantee that every late change returns. A late run re-reads from the last window's opening time on the same best-effort basis. There is no sync token: a token reports changes, not the passing of time. A cancelled instance with a start is a cancelled meeting; a cancelled item without a start cannot be a meeting, so a recurring exception (`recurringEventId`/`originalStartTime`) and a deleted single event both become removals by id. The markers identify an exception but never supply the removal time. A recurring series deleted whole is not retracted: a window read sends no instance for it, and the instances already listed age out by Memory's retention.
 
-It only reads and never asks: it asserts `gws.events_list` on `<account>:<operation>` for the operation the source follows (`gmail.users.history.list`, `calendar.events.list`), then `gws.read` on `<account>:<operation>` for every operation the source runs (Gmail: `gmail.users.getProfile`, `gmail.users.history.list`, `gmail.users.messages.list` and `gmail.users.messages.get`; Calendar: `calendar.calendarList.get` and `calendar.events.list`), before any read runs. Each read passes the plugin's read policy and audit like a `gws_read`. A deny rule on `gws.events_list` turns it off without touching `gws_read`.
+A Calendar page is at-least-once, never globally exactly-once. Within one response, only exact duplicate outcomes are dropped, by a stable outcome hash; the same id with a different version is an explicit conflict that returns an empty restart page and then fails after the same bound, never silently discarded. A restart, a repeated cursor or a later window may repeat an outcome, and a consumer drops the repeat. There is no lossy dedupe. Within a page, outcomes are ordered by the window's time and then by the stable `external_id`, so a provider that reorders two same-time items does not move the cursor's place.
+
+Reusing an intra-page offset checks a bounded fingerprint of the page's identities, times, statuses and update times, stored in the cursor; a changed page returns an empty restart page, and the next call re-reads the window from its saved lower bound.
+
+At a provider page boundary the cursor stores the consumed page's token and a fixed digest of the expected next token; the forward token itself is re-derived by re-reading and verifying that one prior page. One 350-character token therefore fits where both tokens would not; a first-page boundary has no token to store. This costs one extra page read per boundary resume and catches a removed or inserted emitted row shifting an offset token. It is **best-effort**: the prior page can change after verification but before the forward fetch, so an offset token can still miss a row. Changes outside the one-hour overlap and edits to already-read rows may not return. No lossless provider-paging guarantee is made.
+
+The cursor keeps a bounded cycle defense: up to eight recent content-page token digests and a 500-content-page cap per window. A distinct advancing provider token is progress even when its page is empty, so three sparse pages followed by a meeting are valid. A repeated token (including the cross-response A→B→C→A shape) or a window over the cap fails with `GWS_API_ERROR` instead of looping. Content page 500 can be resumed to finish its own outcomes, but page 501 is not fetched. When a supported 128-character account alias and a long page token make the full history exceed the 1,024-character cursor, the oldest history entries are dropped only as far as needed; the effective history may be shorter, and the hard ceiling remains. A restart resets the attempt's history, while its restart counter is itself bounded. Two restarts are allowed in one window; a third fails rather than skipping. Recovery guidance is conditional: a later `since` does not necessarily shrink a stable or future-only window.
+
+A provider page token is kept only up to 700 characters and the packed cursor must fit the contract's 1,024; a longer token fails with a clear next step instead of emitting a cursor this code would reject. Cursor times outside the Date range are `CURSOR_INVALID`, never a `RangeError`.
+
+A Google Calendar event id of at most 512 characters is kept exactly as `external_id`. A longer valid id is named deterministically by `sha256:<64 hex>`: SHA-256, collision-resistant, and disjoint from Google's base32hex id alphabet because the reserved prefix contains `:`. The event, its refusal and its removal share that one id; nothing is truncated.
+
+Every `calendar.events.list` page asks for the same provider page size, whatever `limit` the call passes, so a resumed page's saved index still names the same entry; a later call may pass another `limit`. One page carries one prefix of the window's outcomes in order: a meeting, a refusal and a removal all take their bytes from the same `maxBytes` budget, and the cursor resumes after the last outcome the prefix consumed.
+
+The default rules allow these reads; later agent or session rules still apply. It asserts `gws.events_list` on `<account>:<operation>` for the operation the source follows (`gmail.users.history.list`, `calendar.events.list`), then `gws.read` on `<account>:<operation>` for every operation the source runs (Gmail: `gmail.users.getProfile`, `gmail.users.history.list`, `gmail.users.messages.list` and `gmail.users.messages.get`; Calendar: `calendar.calendarList.get` and `calendar.events.list`), before any read runs. Each read passes the plugin's read policy and audit like a `gws_read`. A deny rule on `gws.events_list` turns it off without touching `gws_read`.
 
 ## Sources
 

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+import { stableEventId } from "./calendar-id.js"
 import type { PluginConfig } from "./types.js"
 
 /**
@@ -166,10 +166,10 @@ export function httpsLink(value: unknown): string | undefined {
   }
 }
 
-/** Google's event id, or a stable digest of it when it is longer than Jelly reads. */
+/** Google's event id, or the shared stable digest of it when it is longer than Jelly reads. */
 function eventId(value: unknown): string | undefined {
   if (typeof value !== "string" || value === "") return undefined
-  return value.length <= ID_MAX ? value : `sha256:${createHash("sha256").update(value).digest("hex")}`
+  return stableEventId(value, ID_MAX)
 }
 
 /** The video link Google gives the event: its Meet link, else a video entry point of its conference. */
@@ -197,6 +197,11 @@ function timeOf(value: unknown, zone: string): { instant: number; allDay: boolea
   }
   const day = typeof value["date"] === "string" ? parseDate(value["date"]) : undefined
   return day ? { instant: startOf(day, zone), allDay: true } : undefined
+}
+
+/** An event time as an instant; a date-only value is the start of that day in `zone`, not UTC midnight. */
+export function eventInstant(value: unknown, zone: string): number | undefined {
+  return timeOf(value, zone)?.instant
 }
 
 /** Whether the signed-in person declined the event. */

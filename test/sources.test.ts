@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { PluginMethod, ToolCall } from "@we-the-rebel-alliance/source-contract/tools-rpc"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { EventsListOutput } from "../src/domain/contract.js"
 import { deprecatedNote, markCalendarTodayCalled, resetDeprecated } from "../src/host/deprecated.js"
 import type { PermissionRequest } from "../src/host/permissions.js"
 import { scriptMethods } from "../src/host/script-methods.js"
@@ -51,7 +52,7 @@ async function harness(services: string[], signedIn: Signed[] = [{ alias: "perso
   }) as PluginMethod[]
   const call = (): ToolCall => ({ sessionID: "ses_sources", agent: "build", messageID: "msg_sources", id: "call_sources", signal: new AbortController().signal, progress: async () => {} })
   const run = (name: string, input: unknown) => methods.find((method) => method.name === name)!.run(input, call()) as Promise<Record<string, unknown>>
-  return { run, asserted, runtime }
+  return { run, asserted, runtime, methods }
 }
 
 describe("probe", () => {
@@ -92,7 +93,7 @@ describe("events_list for Calendar", () => {
     const calendar = join(dir, "calendar.json")
     copyFileSync(CALENDAR, calendar)
     process.env["FAKE_GWS_CALENDAR"] = calendar
-    const { run, asserted } = await harness(["calendar"])
+    const { run, asserted, methods } = await harness(["calendar"])
     const first = await run("events_list", { source: "calendar", since: "2026-11-01T00:00:00Z" })
     expect(first).toMatchObject({ source: "calendar", account: "personal", owner: { id: "mailto:sam.rivera@example.com", label: "Sam Rivera" }, scope: { calendars: ["primary"] }, more: false })
     const events = first["events"] as Array<{ external_id: string; labels: string[]; actors: unknown[] }>
@@ -100,6 +101,20 @@ describe("events_list for Calendar", () => {
     expect(events.map((event) => event.external_id)).toEqual(["evt-b", "evt-a", "evt-c"])
     expect(events[0]).toMatchObject({ labels: ["cancelled"], actors: [] })
     expect(first["refused"]).toEqual([{ external_id: "evt-secret", reason: "secret", detail: "holds a secret (password)" }])
+    // The tombstone is a removal, and the registered output model keeps it for the consumer rather than stripping it.
+    const removals = first["removals"]
+    expect(removals).toEqual([{ external_id: "evt-gone", at: expect.any(String), reason: "deleted" }])
+    expect(EventsListOutput.parse(first).removals).toEqual(removals)
+    const method = methods.find((candidate) => candidate.name === "events_list")!
+    const declared = (
+      method.output as {
+        properties?: { removals?: { type?: string; items?: { required?: string[]; properties?: { reason?: { enum?: string[] } } } } }
+      }
+    ).properties?.removals
+    expect(declared?.type).toBe("array")
+    expect(declared?.items?.required).toEqual(expect.arrayContaining(["external_id", "at", "reason"]))
+    expect(Object.keys(declared?.items?.properties ?? {})).toEqual(expect.arrayContaining(["external_id", "at", "reason"]))
+    expect(declared?.items?.properties?.reason?.enum).toEqual(expect.arrayContaining(["deleted", "withheld", "expired"]))
     expect(asserted.slice(0, 3).map((request) => [request.action, request.resources])).toEqual([
       ["gws.events_list", ["personal:calendar.events.list"]],
       ["gws.read", ["personal:calendar.calendarList.get"]],
