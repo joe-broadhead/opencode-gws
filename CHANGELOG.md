@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A slow Google renewal now reports the plugin's own error.** The token request gives up after 20 seconds so it can
+  report that the endpoint could not be reached before OpenCode's 30-second renewal deadline (#60).
+
 ## [0.0.12] - 2026-11-20
 
 ### Fixed
