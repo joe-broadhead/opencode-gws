@@ -1,6 +1,6 @@
 NOTICE
 
-@joe-broadhead/opencode-gws bundles third-party code in dist/index.js:
+@we-the-rebel-alliance/gws-plugin bundles third-party code in dist/index.js:
 
 @we-the-rebel-alliance/source-contract
 zod
