@@ -1,7 +1,8 @@
 import { Rpc } from "@opencode/plugin/rpc"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { account } from "../support/config.js"
 import { request } from "../support/requests.js"
-import { ACCOUNT, startHost, type Harness } from "./harness.js"
+import { ACCOUNT, SERVICES, startHost, type Harness } from "./harness.js"
 
 /**
  * The tools RPC through the real host: a script calls the plugin as a
@@ -16,7 +17,7 @@ const Tools = Rpc.define({
   methods: {
     describe: { input: open, output: open },
     ...Object.fromEntries(
-      ["status", "catalog", "schema", "read", "plan", "events_list"].map((name) => [
+      ["status", "catalog", "schema", "read", "plan", "events_list", "sheets_read"].map((name) => [
         name,
         { input: open, output: open, errors: { failed: open } },
       ]),
@@ -30,6 +31,7 @@ const sessions: Record<string, string> = {}
 
 beforeAll(async () => {
   host = await startHost({
+    options: { accounts: { [ACCOUNT]: account({ services: [...SERVICES, "sheets"] }) } },
     agents: {
       locked: { permissions: [{ action: "gws.*", resource: "*", effect: "deny" }] },
       careful: { permissions: [{ action: "gws.read", resource: "*", effect: "ask" }] },
@@ -42,6 +44,7 @@ beforeAll(async () => {
   sessions.agentless = await create({})
   // Session rules come after the agent's: this script may list mail but not open a message.
   sessions.narrow = await create({ agent: "build", permissions: [{ action: "gws.read", resource: `${ACCOUNT}:gmail.users.messages.get`, effect: "deny" }] })
+  sessions.noSheets = await create({ agent: "build", permissions: [{ action: "gws.read", resource: `${ACCOUNT}:sheets.spreadsheets.values.get`, effect: "deny" }] })
 })
 
 afterAll(async () => {
@@ -68,7 +71,7 @@ const asked = (session: string) => host.events.filter((event) => event.type === 
 describe("tools RPC on a real host", () => {
   it("describes exactly the read tools and the source contract's reads as methods, each with its input and output schema", async () => {
     const description = (await tools().describe!({}, at())) as { methods: Array<{ name: string; input: unknown; output: unknown }> }
-    expect(description.methods.map((method) => method.name).sort()).toEqual(["calendar_today", "catalog", "events_list", "images_read", "plan", "probe", "read", "schema", "status"])
+    expect(description.methods.map((method) => method.name).sort()).toEqual(["calendar_today", "catalog", "events_list", "images_read", "plan", "probe", "read", "schema", "sheets_read", "status"])
     for (const method of description.methods) expect({ name: method.name, input: method.input, output: method.output }).toMatchObject({ input: { type: "object" }, output: { type: "object" } })
   })
 
@@ -102,6 +105,16 @@ describe("tools RPC on a real host", () => {
   it("applies the session's own rules after the agent's", async () => {
     expect((await run("read", sessions.narrow!, list)).value).toMatchObject({ ok: true })
     expect(await run("read", sessions.narrow!, get)).toMatchObject({ type: "failed", code: "PERMISSION_DENIED" })
+  })
+
+  it("refuses a Sheets read across the RPC when the session denies the source or its account-scoped read", async () => {
+    const before = host.invocations().length
+    const input = { source: "sheets", spreadsheetId: "synthetic_spreadsheet_fixture", range: "Sheet1!A1", account: ACCOUNT }
+    for (const session of [sessions.locked!, sessions.noSheets!]) {
+      expect(await run("sheets_read", session, input)).toMatchObject({ type: "failed", code: "PERMISSION_DENIED" })
+      expect(asked(session)).toEqual([])
+    }
+    expect(host.invocations().length).toBe(before)
   })
 
   it("plans as a session, and the model commits it with no prompt at the default access", async () => {

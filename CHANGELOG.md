@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `gws.sheets` is a tools RPC snapshot (`sheets_read`) of one explicit spreadsheet ID and bounded, sheet-qualified A1 range. It reads formatted rows with `sheets.spreadsheets.values.get` only, and refuses a malformed or oversized result without returning partial rows. Its `private: false` descriptor does not grant access or make the spreadsheet public.
+
 ## [0.0.12] - 2026-11-20
 
 ### Fixed
