@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - `gws.sheets` is a tools RPC snapshot (`sheets_read`) of one explicit spreadsheet ID and bounded, sheet-qualified A1 range. It reads formatted rows with `sheets.spreadsheets.values.get` only, and refuses a malformed or oversized result without returning partial rows. Its `private: false` descriptor does not grant access or make the spreadsheet public.
 
+### Fixed
+
+- **A slow Google renewal now reports the plugin's own error.** The token request gives up after 20 seconds so it can
+  report that the endpoint could not be reached before OpenCode's 30-second renewal deadline (#60).
+
 ## [0.0.12] - 2026-11-20
 
 ### Fixed
