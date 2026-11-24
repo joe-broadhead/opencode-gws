@@ -39,7 +39,7 @@ An account whose config sets `access` to read, with no write service, does not o
 | `redirectUri` | none: a loopback redirect | The absolute URL Google redirects to after consent, when the browser is not on the machine OpenCode runs on, such as `https://host.example/oauth/return`. `https`, unless it is loopback. Needs `callbackPort` and a Web application client that lists it exactly. See [auth.md](auth.md#sign-in-when-opencode-runs-on-another-machine). |
 | `callbackPort` | none: a random port | The port on `127.0.0.1` where the sign-in listens and the redirect is forwarded. Alone, a loopback redirect on that port. |
 | `binary.path` | the release binary | Absolute path to a `gws` 0.22.5 executable. See [backend.md](backend.md). |
-| `allowUntestedHost` | `false` | Load a host outside `>=2.2.3 <2.4.0`, such as 2.2.2, 2.4.0, 3.0.0, a prerelease or a dev build, and show it as host untested in status. A release inside the range loads without it; only 2.2.3, 2.2.4, 2.2.5, 2.2.6, 2.2.7, 2.3.0, 2.3.1 and 2.3.2 are tested. |
+| `allowUntestedHost` | `false` | Load a host outside `>=2.4.1 <2.5.0`, such as 2.4.0, 2.5.0, 3.0.0, a prerelease or a dev build, and show it as host untested in status. A release inside the range loads without it; only 2.4.1 is tested. |
 | `rpcCommits` | `false` | Make the six commit tools methods of the tools RPC, so a script can commit a plan with `{ planId }`. Turn it on only in a host that confirms each change on its own screen before it calls the RPC: the plugin asks no one first. A script still needs a `planId` from `plan` in the same session, the plan stays single-use, and `access` and the agent's and session's rules still decide each commit: at `"ask-changes"` and `"read-only"` a script's commit is refused unless a rule explicitly allows its action (the last matching rule wins, and the session's rules come after the agent's, which come after the plugin's block). It trusts every caller of the OpenCode server, because any caller can choose a session's agent and give the session rules that allow commits: turn it on only where the server's callers are trusted (a local server, or one behind authentication). Status shows it as `rpcCommits` and the **Script commits** row, which names the agents without the default rules.  See [scripting.md](scripting.md#committing-from-a-script-rpccommits). |
 | `access` | `"all"` | What the default permission rules allow: `"all"` allows every tool, the six commit tools included; `"ask-changes"` allows the reads and asks for each commit; `"read-only"` allows the reads and denies the commits. It is not the account's sign-in level, which is `accounts.<alias>.access`. See [Approvals](#approvals). |
 | `policy` | see below | Deny-only content constraints, plus the plan lifetime. |
@@ -168,7 +168,7 @@ Requested pagination is clamped to these caps and to any matching policy rule. A
 | `enabled` | `true` | Write audit records. |
 | `path` | `<stateDir>/audit.jsonl` | Absolute path of the JSONL file. |
 
-The state directory is `$XDG_STATE_HOME/opencode-gws` when that variable is an absolute path, otherwise `~/Library/Application Support/opencode-gws` on macOS and `~/.local/state/opencode-gws` elsewhere. The file is capped at 5 MiB: a write that would pass the cap first moves it to `audit.jsonl.1`, replacing the previous one, so the log takes at most about 10 MiB. Every start writes one `plugin.loaded` record. Records contain the operation, account, category, duration, and outcome, and `caller: "rpc"` for a read or plan a script made through the [tools RPC](scripting.md). A `calendar.today` record, with `omitted`, counts the events left out of a calendar answer for Jelly to keep it within 60 KB ([In Jelly](jelly.md#todays-calendar)). An `images.read` record notes each picture Jelly asked for, with its outcome and the account that read it, never its address ([In Jelly](jelly.md#pictures-in-an-agents-ui)). They do not contain bodies, tokens, credentials, or file contents.
+The state directory is `$XDG_STATE_HOME/opencode-gws` when that variable is an absolute path, otherwise `~/Library/Application Support/opencode-gws` on macOS and `~/.local/state/opencode-gws` elsewhere. The file is capped at 5 MiB: a write that would pass the cap first moves it to `audit.jsonl.1`, replacing the previous one, so the log takes at most about 10 MiB. Every start writes one `plugin.loaded` record. Records contain the operation, account, category, duration, and outcome, and `caller: "rpc"` for a read or plan a script made through the [tools RPC](scripting.md). A `calendar_today` record, with `omitted`, counts the events left out of an agenda answer so it stays within its 60 KB cap. An `images_read` record notes each picture read, with its outcome and the account that read it, never its address. They do not contain bodies, tokens, credentials, or file contents.
 
 A sink failure does not turn a completed operation into an error. Status keeps `auditDegraded: true` for that process. Do not retry a successful operation to obtain a record.
 
@@ -226,18 +226,13 @@ or the primary calendar's id and name from `calendar.calendarList.get`.
   and the source read on from `since`, the last event it had listed. Calendar never answers `gap`: its cursor names a
   bounded window, not Google's sync token, so there is no history to expire.
 
-The cursor is the contract's version 2, bound to the plugin (`gws`), the source, the account and Calendar's calendar. A
-Gmail cursor from before this release (contract 1) is read for one release. A Calendar cursor from 0.0.8 is accepted:
-it names a Google sync token and no window this source can resume, so the listing starts a fresh window 24 hours back,
-whatever `since` says (the cursor wins over `since`); nothing is refused and no years of meetings are re-read. A new
-Calendar cursor is tagged with checkpoint version `g` 1. A 0.0.12 **finished** cursor keeps its legacy `r` anchor,
-because it never stored the opening time; a 0.0.12 **open** cursor is not resumed by its numeric offset: the first call
-returns an empty restart page, and the next reads the saved window from its lower bound. A page-boundary cursor from an
-earlier checkpoint shape (a forward token rather than its digest, or no boundary fingerprint) restarts the same way. Rolling back to 0.0.11 refuses
-a new cursor (it expects 0.0.8's sync token), so discard it and pass a fresh `since`. A Calendar window drained over
-several calls keeps the bounds it opened with, and the call after it starts an hour before the time that window opened,
-not before the time of its last page; a meeting created, moved or cancelled while the drain was running is re-read when
-the overlap reaches it, on the same best-effort basis.
+The cursor is the contract's version 2, bound to the plugin (`gws`), the source, the account and Calendar's calendar.
+That is the only shape read: a contract 1 Gmail cursor, a Calendar cursor that names a Google sync token or has no
+checkpoint, a cursor without the checkpoint version `g` 1 or without the page fingerprint its offset counts, and one
+with no window this source can resume are all `CURSOR_INVALID`, and the consumer starts again with `since`. A Calendar
+window drained over several calls keeps the bounds it opened with, and the call after it starts an hour before the time
+that window opened, not before the time of its last page; a meeting created, moved or cancelled while the drain was
+running is re-read when the overlap reaches it, on the same best-effort basis.
 
 Each Gmail event is one message:
 
@@ -293,12 +288,12 @@ feed. This flag does not change Google sharing or grant any access.
   verified email Google returned at sign-in (the one `gws_status` shows) and the scopes Google granted for that source's
   service. For Sheets it returns only granted scopes accepted by `sheets.spreadsheets.values.get`. It calls no Google
   API and reads no content. An account with no verified email is `AUTH_REQUIRED`.
-- **`calendar_today`** answers Jelly's `calendar.today` read as the contract's snapshot, `{ data: { items }, asOf,
-  account, trust }`: the same reader (the calendar's own time zone, a 60-second reuse, a stale answer when Google fails
-  later the same day, with the `asOf` of the last good read), titles and locations cut to 120 characters. It asserts
-  `gws.calendar_today`, then `gws.read` on its two operations.
-- **`images_read`** answers Jelly's `images.read` read as the contract's snapshot, `{ data: { dataUri, alt }, asOf,
-  account?, trust }`, for `{ url, account? }`: a Drive file read as the account, or an address on Google's image servers,
+- **`calendar_today`** answers the contract's agenda snapshot, `{ data: { items }, asOf, account, trust }`: the
+  calendar's own time zone, a 60-second reuse, a stale answer when Google fails later the same day (with the `asOf` of
+  the last good read), titles and locations cut to 120 characters. It asserts `gws.calendar_today`, then `gws.read` on
+  its two operations.
+- **`images_read`** answers the contract's image snapshot, `{ data: { dataUri, alt }, asOf, account?, trust }`, for
+  `{ url, account? }`: a Drive file read as the account, or an address on Google's image servers,
   fetched with no account's token, even one Google returned to an account (that fetch is no gws operation, so no
   declared grant could cover it), and answered with no `account`. A GIF is `IMAGE_TYPE_REFUSED`, and a
   picture whose data URI is over the contract's limit (1 MB less 4 KB, about 760 KB of picture) is `TOO_LARGE`, never
@@ -316,15 +311,18 @@ feed. This flag does not change Google sharing or grant any access.
   their own codes. An oversized answer is `TOO_LARGE`; a lower process output cap may yield `OUTPUT_LIMIT` first.
   Neither returns partial rows.
 
+The `jelly` key's `rpc` list still declares the agenda and picture schemas on an RPC named after the package; the
+plugin itself registers no such RPC, and the same reads are the tools RPC methods above. The declaration stays until
+the contract's `capabilities` manifest replaces it.
+
 These four reads are tools RPC methods only, never model tools. The default `access` rules allow them; later agent
 or session rules still apply. A consumer serving viewers must bind the owner's configured spreadsheet ID, exact range
 and verified account principal server-side, enforce a restricted audience before reading or serving rows, and not
 accept viewer overrides or fall back to another account or resource. The operation permission does not enforce those
-bindings. Discover `gws.sheets` from the installed descriptor; older tags such as `v0.0.12` do not declare it.
+bindings. Discover `gws.sheets` from the installed descriptor rather than assuming the source list.
 
-Jelly's `calendar.today` on the RPC named after the package answers as before until 0.1.0; once it is called, status says
-`Deprecated: …` with the method to use instead. `npm run check` runs the source contract's conformance kit over every
-source and writes its report to `reports/conformance-report.json`.
+`npm run check` runs the source contract's conformance kit over every source and writes its report to
+`reports/conformance-report.json`.
 
 ## Errors
 
@@ -367,10 +365,10 @@ Every plugin error reads `CODE: What happened. Next step: What to do.` A tool er
 | `AUTH_WRITE_UNCONFIRMED` | Read and write access was chosen in the sign-in form without confirming the write scopes. | Sign in again and confirm the write scopes, or choose Read-only. |
 | `API_DISABLED` | The Google API is not enabled in the Google Cloud project of the OAuth client. | Ask the user to enable the API in the Google Cloud console, wait about a minute, and retry. |
 | `GWS_API_ERROR` | Google returned an error or an unexpected response. The message may include Google's text. | Fix the ids or parameters once from the message; if it fails again, tell the user Google's message. |
-| `CALENDAR_UNAVAILABLE` | The read Jelly's calendar makes, calendar.today, has no answer: no configured account enables calendar, or Google's answer for the primary calendar named no time zone. | Add calendar to an account's enabledServices; if it is enabled, retry later. |
-| `IMAGE_HOST_REFUSED` | The picture Jelly asked images.read for has an address the plugin does not take: not https, a user name, password, port or IP address in it, a host other than drive.google.com or Google's image servers (lh3 to lh7 under googleusercontent.com; any other googleusercontent.com name can be anyone's), or a Drive link that names no file. Nothing was fetched. | Show the picture from a Drive file link or an address Google returned, such as a file's thumbnailLink. |
+| `CALENDAR_UNAVAILABLE` | The agenda snapshot (calendar_today) has no answer: no configured account enables calendar, or Google's answer for the primary calendar named no time zone. | Add calendar to an account's enabledServices; if it is enabled, retry later. |
+| `IMAGE_HOST_REFUSED` | The picture images_read was asked for has an address the plugin does not take: not https, a user name, password, port or IP address in it, a host other than drive.google.com or Google's image servers (lh3 to lh7 under googleusercontent.com; any other googleusercontent.com name can be anyone's), or a Drive link that names no file. Nothing was fetched. | Show the picture from a Drive file link or an address Google returned, such as a file's thumbnailLink. |
 | `IMAGE_TYPE_REFUSED` | The picture's first bytes are not a PNG, JPEG, GIF or WebP; SVG and every other kind are refused. The image source (images_read) also refuses a GIF, which the contract's image output does not take. | Show a PNG, JPEG, GIF or WebP picture instead; for images_read, a PNG, JPEG or WebP. |
-| `IMAGE_TOO_LARGE` | The picture is over 1 MB, the most Jelly draws; the plugin stops reading at that size and answers nothing. | Show the file's thumbnail (its thumbnailLink) instead. |
+| `IMAGE_TOO_LARGE` | The picture is over 1 MB, the most one read takes; the plugin stops reading at that size and answers nothing. | Show the file's thumbnail (its thumbnailLink) instead. |
 | `IMAGE_UNAVAILABLE` | The picture could not be read: Google answered with an error or a redirect (never followed), a Drive file is not a picture and has no thumbnail, or too many pictures are being read at once. | Check that the account can open the file; retry later. |
 | `IMAGE_ACCOUNT_AMBIGUOUS` | No single account can read the picture: no account enables drive, or several could and none is the default account. The plugin never tries each account in turn. | Add drive to one account's enabledServices, or name an account default. |
 | `GWS_DISCOVERY_ERROR` | gws could not load the API description (the Discovery document) it builds requests from. | Check that this machine can reach www.googleapis.com, then retry. |
@@ -387,7 +385,7 @@ Every plugin error reads `CODE: What happened. Next step: What to do.` A tool er
 | `DOWNLOAD_INVALID` | The destination is not absolute, its directory does not exist, it is a directory, or gws wrote no file. | Fix the destination path; if gws wrote no file, tell the user. |
 | `DOWNLOAD_NOT_PERMITTED` | The destination is outside the project, so OpenCode asks for its own external_directory permission as well, and the rules denied it or the person rejected the prompt. Nothing was written, and the plan is still ready. | Allow the folder with {"action": "external_directory", "resource": "<folder>/*", "effect": "allow"} in OpenCode's permissions, or download to a path inside the project. |
 | `DOWNLOAD_LIMIT` | The download is larger than execution.maxDownloadBytes; nothing was written to the destination. | Tell the user; they can raise execution.maxDownloadBytes. The plan is used up. |
-| `HOST_UNTESTED` | The OpenCode version is outside the supported range in package.json opencode.host (>=2.2.3 <2.4.0). | Use OpenCode 2.2.3 or a later 2.2 or 2.3 release, or set "allowUntestedHost": true. |
+| `HOST_UNTESTED` | The OpenCode version is outside the supported range in package.json opencode.host (>=2.4.1 <2.5.0). | Use OpenCode 2.4.1 or a later 2.4 release, or set "allowUntestedHost": true. |
 | `OPTIONS_INVALID` | The plugin options are not valid: an unknown key, a wrong type, an unknown service, an access value that is not all, ask-changes or read-only, or scopes that name something the account does not enable. | Fix the plugin options in opencode.json; the message names the option. |
 | `STATUS_UNAVAILABLE` | The status could not be read from the plugin. | Run /gws-status in a session for the details. |
 | `SKILLS_INVALID` | A skill file that ships with the plugin is missing or unreadable. | Reinstall the plugin. |

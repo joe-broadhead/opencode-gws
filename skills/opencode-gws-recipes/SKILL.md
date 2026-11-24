@@ -1,9 +1,9 @@
 ---
 name: opencode-gws-recipes
-description: Load before the first gws_read or gws_plan for an everyday Google Workspace task; it has the ready request: unread or recent mail and who sent it, mail in a time window, replies and drafts, the next meetings or a week's schedule, finding, summarising, sharing or trashing Drive files and Google Docs, reading or appending Sheets rows, and the standup, meeting-prep and weekly-digest reports. Prefer it to any gws-* CLI skill.
+description: Ready gws requests for everyday tasks: recent or unread mail, replies and drafts, the week's meetings, finding, sharing or trashing Drive files and Docs, Sheets rows, and standup, meeting-prep and weekly-digest reports.
 ---
 
-If Google Workspace tools are absent, run `/connect` and choose Google Workspace (or Google Workspace (<alias>) for another account), or on Jelly call jelly_connection_request. A Desktop OAuth client is needed unless your organisation provides one.
+If Google Workspace tools are absent, run `/connect` and choose Google Workspace (or Google Workspace (<alias>) for another account). A Desktop OAuth client is needed unless your organisation provides one.
 
 # Recipes
 

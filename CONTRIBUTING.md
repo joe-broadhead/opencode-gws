@@ -22,9 +22,9 @@ npm run build
 
 `npm run check` is the local gate: lint, typecheck, build, unit tests, the release kit's tests, the host suite, the pack-install check, the generated-file check, and the TUI render. Run it before a change is reviewed.
 
-The host suite embeds `@opencode/sdk` 2.2.3. It needs Node 24. `HOST_SDK_DIR`, when set, is an extra embedded SDK directory for that pack check (for example a 2.2.4 SDK kept outside the lockfile).
+The host suite embeds `@opencode/sdk` 2.4.1, the tested release. It needs Node 24.
 
-The pack check loads the installed tarball in each tested stock OpenCode: 2.2.3, 2.2.4, 2.2.5, 2.2.6, 2.2.7, 2.3.0, 2.3.1 and 2.3.2, the one list `TESTED_HOSTS` in `src/domain/host.ts`. Set `OPENCODE_BIN_2_2_3`, `OPENCODE_BIN_2_2_4`, `OPENCODE_BIN_2_2_5`, `OPENCODE_BIN_2_2_6`, `OPENCODE_BIN_2_2_7`, `OPENCODE_BIN_2_3_0`, `OPENCODE_BIN_2_3_1` and `OPENCODE_BIN_2_3_2` to those binaries to skip the download. When one is unset, the script installs `@opencode/cli` and the current platform package into its temp folder with scripts disabled, once per version. It checks the version each binary reports, which must be inside `opencode.host`, so a slot may hold a newer binary. Do not set `OPENCODE_BIN`. The script ignores it. Each stock load uses its own temp root for `HOME`, the XDG folders, `OPENCODE_TEST_HOME` and `TMPDIR`, starts in that project directory, and refuses to continue unless every `opencode debug paths` entry is inside the root.
+The pack check loads the installed tarball in each tested stock OpenCode: 2.4.1, the one list `TESTED_HOSTS` in `src/domain/host.ts`. Set `OPENCODE_BIN_2_4_1` to that binary to skip the download. When one is unset, the script installs `@opencode/cli` and the current platform package into its temp folder with scripts disabled, once per version. It checks the version each binary reports, which must be inside `opencode.host`, so a slot may hold a newer binary. Do not set `OPENCODE_BIN`. The script ignores it. Each stock load uses its own temp root for `HOME`, the XDG folders, `OPENCODE_TEST_HOME` and `TMPDIR`, starts in that project directory, and refuses to continue unless every `opencode debug paths` entry is inside the root.
 
 ## Generated files
 
@@ -129,7 +129,7 @@ Before the approval, the workflow:
 - **verifies** on a fresh runner: the commit's identity, one parent on `master`, `package.json` exactly the parent's
   without the lifecycle scripts, only regular files in the allowed paths, no `package.json` under `dist/`, and a second,
   independent build of the parent (its own job) equal to the committed `dist/` byte for byte;
-- **installs** the release commit with `plugin add` on each stock OpenCode host (2.2.3 to 2.3.2);
+- **installs** the release commit with `plugin add` on each stock OpenCode host (2.4.1);
 - **packs** the commit before installing anything, keeps that tarball and records its sha256, then runs the pack stage
   against a copy;
 - **runs the conformance kit** on the parent, for a plugin that declares sources (above), and uploads only its report;
@@ -159,7 +159,7 @@ exact `package.json`, the allowed paths and the byte-for-byte rebuild. Never rel
 **A rejected, expired or failed run** leaves nothing behind: the `cleanup` job deletes `release/v<version>` when it points
 at the parent or at that run's commit, and never touches another branch. No tag exists before the approval, so the
 version is not burned: fix `master` and start again. If `cleanup` itself failed, the next run refuses until the branch
-is deleted: `gh api -X DELETE repos/joe-broadhead/opencode-gws/git/refs/heads/release/v<version>`.
+is deleted: `gh api -X DELETE repos/we-the-rebel-alliance/gws-plugin/git/refs/heads/release/v<version>`.
 
 **Resume.** If the run fails after creating the tag and before the Release is complete, start it again with the same `sha`
 and `native_run`. The plan finds the kit's tag on a release commit on that sha with no published Release, and resumes:
@@ -173,9 +173,9 @@ released, so release the next one. To remove the tag anyway, an admin disables t
 tag, and restores the ruleset exactly as it was.
 
 **Known limit: a `v*` tag pushed by hand.** No ruleset limits who creates a `v*` tag, so anyone with write access can
-push one by hand, pointing at any commit. Such a tag has no published Release, the forward-only check ignores it, and
-Jelly installs only a published Release whose `SHA256SUMS` it verifies. But a user who installs
-`github:joe-broadhead/opencode-gws#v<x>` directly gets whatever that tag points at. Only the release workflow makes
+push one by hand, pointing at any commit. Such a tag has no published Release, and the forward-only check ignores it.
+A published Release carries `SHA256SUMS` for its files, but a user who installs
+`github:we-the-rebel-alliance/gws-plugin#v<x>` directly gets whatever that tag points at. Only the release workflow makes
 release tags; never push one by hand.
 
 The release kit is these files, the same in every plugin: `scripts/release-rules.mjs`, `scripts/release-commit.mjs`,
@@ -187,12 +187,12 @@ pins each of the scripts whole by its sha256, so a plugin whose copy differs fro
 change the kit in every plugin at once, with the new hashes. Do not re-run the older `apply-release-kit.mjs`: it writes
 back the kit that could release only `v0.0.0`.
 
-Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:joe-broadhead/opencode-gws#v<old version>`, then add the new tag with `opencode plugin add github:joe-broadhead/opencode-gws#v<version>`.
+Each release has its own tag, and a Git install does not update by itself. To move to a newer release, remove the old entry with `opencode plugin remove github:we-the-rebel-alliance/gws-plugin#v<old version>`, then add the new tag with `opencode plugin add github:we-the-rebel-alliance/gws-plugin#v<version>`.
 
 Or add the plugin to `opencode.json` instead, with the same spec:
 
 ```json
-{ "plugins": [{ "package": "github:joe-broadhead/opencode-gws#v0.0.13" }] }
+{ "plugins": [{ "package": "github:we-the-rebel-alliance/gws-plugin#v0.0.0" }] }
 ```
 ## Live checks
 
