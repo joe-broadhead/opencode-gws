@@ -10,7 +10,7 @@
  *    Nothing else is installed or resolvable from it: no @opencode/plugin,
  *    effect, OpenTUI, Solid or zod. The package declares no install
  *    lifecycle script and no optional dependency.
- * 3. SDK install: the same tarball plus @opencode/plugin 2.2.3, as a Node
+ * 3. SDK install: the same tarball plus @opencode/plugin 2.4.1, as a Node
  *    program that embeds OpenCode has it. Plain Node imports "." and
  *    nothing else. dist/ holds only index.js and tui.js, neither has a
  *    relative import, and dist/tui.js imports only host-provided modules.
@@ -19,10 +19,9 @@
  *    the not-installed error or the manifest error, each with its next step.
  *    The checks:
  *    - the SDK install in the embedded @opencode/sdk from devDependencies
- *      (2.2.3), and in the one under HOST_SDK_DIR when set (for example a
- *      2.2.4 SDK installed outside the lockfile);
+ *      (2.4.1);
  *    - the bare install in each stock OpenCode of TESTED_HOSTS
- *      (src/domain/host.ts: 2.2.3, 2.2.4, 2.2.5, 2.2.6, 2.2.7, 2.3.0, 2.3.1 and 2.3.2), through
+ *      (src/domain/host.ts: 2.4.1), through
  *      `opencode serve`. Only a stock CLI supplies @opencode/plugin to a
  *      plugin that does not install it; an embedded SDK host under Node
  *      does not.
@@ -50,7 +49,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
 const NOT_INSTALLED = { path: "", version: "unknown" }
 
-const MAIN = "@joe-broadhead/opencode-gws"
+const MAIN = "@we-the-rebel-alliance/gws-plugin"
 const PLUGIN_ID = "google-workspace.gws"
 const MAX_PACKED_BYTES = 1024 * 1024
 const TUI_MAX_BYTES = 30 * 1024
@@ -162,8 +161,8 @@ function checkMainTarball(main) {
 
 function checkBareInstall(project, version) {
   const modules = join(project, "node_modules")
-  equal(readdirSync(modules).filter((name) => !name.startsWith(".")), ["@joe-broadhead"], "installed top-level packages")
-  equal(readdirSync(join(modules, "@joe-broadhead")).sort(), ["opencode-gws"], "installed @joe-broadhead packages")
+  equal(readdirSync(modules).filter((name) => !name.startsWith(".")), ["@we-the-rebel-alliance"], "installed top-level packages")
+  equal(readdirSync(join(modules, "@we-the-rebel-alliance")).sort(), ["gws-plugin"], "installed @we-the-rebel-alliance packages")
   // Not installed, and not reachable from any ancestor node_modules either.
   const require = createRequire(join(project, "package.json"))
   const resolvable = HOST_MODULES.filter((name) => {
@@ -185,10 +184,10 @@ function checkBareInstall(project, version) {
   console.log("ok bare install with scripts disabled: the plugin only; no gws binary, no host module resolvable, no lifecycle scripts")
 }
 
-/** Add the exact 2.2.3 SDK from devDependencies, without another registry download. */
+/** Add the exact 2.4.1 SDK from devDependencies, without another registry download. */
 function addPluginSdk(project) {
   const sdk = join(ROOT, "node_modules", "@opencode", "plugin")
-  equal(packageJson(sdk).version, "2.2.3", "@opencode/plugin dev dependency")
+  equal(packageJson(sdk).version, "2.4.1", "@opencode/plugin dev dependency")
   mkdirSync(join(project, "node_modules", "@opencode"), { recursive: true })
   symlinkSync(sdk, join(project, "node_modules", "@opencode", "plugin"), "dir")
 }
@@ -207,7 +206,7 @@ console.log(JSON.stringify({ id: server.default.id, setup: typeof server.default
   )
   const imported = JSON.parse(run(process.execPath, [join(project, "imports.mjs")], { cwd: project, env: isolatedEnv(mkdtempSync(join(root, "imports-"))) }))
   equal(imported, { id: PLUGIN_ID, setup: "function", rpc: "not exported" }, "imports of . and ./rpc")
-  console.log(`ok Node with @opencode/plugin 2.2.3 imports "." (${imported.id}); "./rpc" is not exported`)
+  console.log(`ok Node with @opencode/plugin 2.4.1 imports "." (${imported.id}); "./rpc" is not exported`)
 }
 
 /**
@@ -573,7 +572,6 @@ async function checkStockHost(slot, binary, pluginDir, expected, root) {
 
 async function main() {
   check(Number(process.versions.node.split(".")[0]) >= 24, `the embedded host needs Node >= 24 (running ${process.version})`)
-  const sdkDirs = [ROOT, ...(process.env.HOST_SDK_DIR ? [realpathSync(process.env.HOST_SDK_DIR)] : [])]
   const version = packageJson(ROOT).version
   for (const file of ["index.js", "tui.js"]) check(readdirSync(join(ROOT, "dist")).includes(file), `dist/${file} is missing; run npm run build first`)
 
@@ -592,7 +590,7 @@ async function main() {
     checkImports(join(root, "sdk"), root)
     await checkEntryImports(withSdk)
 
-    for (const sdkDir of sdkDirs) checkEmbeddedHost(sdkDir, withSdk, { version, gws: NOT_INSTALLED }, root)
+    checkEmbeddedHost(ROOT, withSdk, { version, gws: NOT_INSTALLED }, root)
     for (const hostVersion of STOCK_HOSTS) {
       await checkStockHost(hostVersion, stockBinary(hostVersion, root), bare, { version, gws: NOT_INSTALLED }, root)
     }
