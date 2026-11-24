@@ -106,7 +106,7 @@ export async function readSheet(runtime: Pick<Runtime, "read">, account: string,
     params: { spreadsheetId, range, majorDimension: "ROWS", valueRenderOption: "FORMATTED_VALUE" },
     fields: "range,majorDimension,values",
     response: { mode: "full", maxInlineBytes: SHEETS_MAX_BYTES },
-  }, ctx).catch((error: unknown) => {
+  }, ctx, "structured").catch((error: unknown) => {
     const known = GwsError.from(error)
     if (known?.code === "OUTPUT_LIMIT") {
       throw new GwsError("OUTPUT_LIMIT", "the Sheets read exceeded the configured process output limit", { next: "Read a smaller range." })

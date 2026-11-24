@@ -197,6 +197,14 @@ function apiErrorOf(result: ProcessResult, parsed?: ParsedResult): ApiErrorPaylo
   return (found as { error: ApiErrorPayload }).error
 }
 
+function apiReasons(error: ApiErrorPayload | undefined): Array<string | undefined> {
+  return [
+    error?.reason,
+    ...(Array.isArray(error?.errors) ? error.errors.map((item) => item?.reason) : []),
+    ...(Array.isArray(error?.details) ? error.details.map((item) => item?.reason) : []),
+  ]
+}
+
 function stderrText(result: ProcessResult): string {
   return result.stderr
     .toString("utf8")
@@ -206,10 +214,47 @@ function stderrText(result: ProcessResult): string {
     .trim()
 }
 
-/** gws exit codes other than 1, Google's API errors (`gws --help`, EXIT CODES). */
-const EXIT = { auth: 2, validation: 3, discovery: 4, internal: 5 } as const
+/** gws exit codes (`gws --help`, EXIT CODES). */
+const EXIT = { api: 1, auth: 2, validation: 3, discovery: 4, internal: 5 } as const
 
 const SCOPE_REASONS = new Set(["ACCESS_TOKEN_SCOPE_INSUFFICIENT", "insufficientPermissions"])
+const DISABLED_REASONS = new Set(["accessNotConfigured", "SERVICE_DISABLED"])
+
+/** Internal only: source reads prefer typed evidence and never present provider prose. */
+export type NativeErrorMode = "detailed" | "structured"
+
+const API_HTTP_STATUS: Readonly<Partial<Record<string, number>>> = {
+  INVALID_ARGUMENT: 400,
+  UNAUTHENTICATED: 401,
+  PERMISSION_DENIED: 403,
+  NOT_FOUND: 404,
+}
+
+function httpStatus(error: ApiErrorPayload | undefined): number | undefined {
+  const code = error?.code
+  if (typeof code === "number" && Number.isInteger(code) && code >= 400 && code <= 599) return code
+  const status = error?.status
+  return typeof status === "string" && Object.hasOwn(API_HTTP_STATUS, status) ? API_HTTP_STATUS[status] : undefined
+}
+
+/** Both sign-in state and the error use this classification. */
+function structuredFailure(result: ProcessResult, error: ApiErrorPayload | undefined): { status?: number; code?: AuthProblemCode | "API_DISABLED" } {
+  // Local failures use the same JSON envelope and numeric codes as API errors.
+  if (result.exitCode === EXIT.validation || result.exitCode === EXIT.discovery || result.exitCode === EXIT.internal) return {}
+  const status = httpStatus(error)
+  if (status === 401) return { status, code: "AUTH_REQUIRED" }
+  if (status === 403 || status === undefined) {
+    const reasons = apiReasons(error)
+    if (reasons.some((reason) => reason !== undefined && SCOPE_REASONS.has(reason))) return { status, code: "AUTH_SCOPE_MISSING" }
+    if (reasons.some((reason) => reason !== undefined && DISABLED_REASONS.has(reason))) return { status, code: "API_DISABLED" }
+    // gws 0.22.5 drops Google's error.details. When it has no reason for an
+    // API 403, recognize only the exact scope sentence, not arbitrary prose.
+    if (result.exitCode === EXIT.api && status === 403 && reasons.every((reason) => reason === undefined || reason === "unknown") &&
+        error?.message === "Request had insufficient authentication scopes.") return { status, code: "AUTH_SCOPE_MISSING" }
+    if (status === undefined && (reasons.includes("authError") || result.exitCode === EXIT.auth)) return { code: "AUTH_REQUIRED" }
+  }
+  return { status }
+}
 
 /**
  * The Admin SDK's answers to a valid sign-in whose account lacks an admin
@@ -285,12 +330,16 @@ export function adminAccountStep(account: string, service: string): string {
  * scope (403 insufficientPermissions / ACCESS_TOKEN_SCOPE_INSUFFICIENT).
  * An admin privilege refusal (`privilegeRefused`) is neither.
  */
-export function authProblem(result: ProcessResult, service: string, parsed?: ParsedResult): AuthProblemCode | undefined {
+export function authProblem(result: ProcessResult, service: string, parsed?: ParsedResult, mode: NativeErrorMode = "detailed"): AuthProblemCode | undefined {
   if (result.timedOut || result.outputCapped) return undefined
-  if (privilegeRefused(result, service, parsed)) return undefined
   const error = apiErrorOf(result, parsed)
   if (result.exitCode === 0 && !error) return undefined
-  const reasons = [error?.reason, ...(error?.errors ?? []).map((item) => item?.reason), ...(error?.details ?? []).map((item) => item?.reason)]
+  if (mode === "structured") {
+    const { code } = structuredFailure(result, error)
+    return code === "API_DISABLED" ? undefined : code
+  }
+  if (privilegeRefused(result, service, parsed)) return undefined
+  const reasons = apiReasons(error)
   const text = [error?.message, error?.status, stderrText(result)].filter(Boolean).join("\n")
   if (reasons.some((reason) => reason !== undefined && SCOPE_REASONS.has(reason)) || /insufficient authentication scopes|ACCESS_TOKEN_SCOPE_INSUFFICIENT/i.test(text)) {
     return "AUTH_SCOPE_MISSING"
@@ -320,7 +369,6 @@ const GENERIC_REMEDIATION: AuthRemediation = {
   privilege: "add a separate account alias for a Workspace admin who has the admin privilege this operation needs, and sign in to it, or remove the service from enabledServices",
 }
 
-const DISABLED_REASONS = new Set(["accessNotConfigured", "SERVICE_DISABLED"])
 const CONSOLE_URL = /https:\/\/console\.(?:developers|cloud)\.google\.com\/[^\s"'<>)]+/
 
 interface DisabledApi {
@@ -333,7 +381,7 @@ interface DisabledApi {
 /** A failed call because the API is not enabled in the client's project, with what gws says about where to enable it. */
 export function disabledApi(result: ProcessResult, parsed?: ParsedResult): DisabledApi | undefined {
   const error = apiErrorOf(result, parsed)
-  const reasons = [error?.reason, ...(error?.errors ?? []).map((item) => item?.reason), ...(error?.details ?? []).map((item) => item?.reason)]
+  const reasons = apiReasons(error)
   const text = [error?.message, stderrText(result)].filter(Boolean).join("\n")
   if (!reasons.some((reason) => reason !== undefined && DISABLED_REASONS.has(reason)) && !/accessnotconfigured|has not been used|is disabled/i.test(text)) {
     return undefined
@@ -343,33 +391,39 @@ export function disabledApi(result: ProcessResult, parsed?: ParsedResult): Disab
   return { ...(enableUrl ? { enableUrl } : {}), ...(project ? { project } : {}) }
 }
 
+export function outputLimitError(): GwsError {
+  return new GwsError("OUTPUT_LIMIT", "gws output exceeded execution.maxStdoutBytes/maxStderrBytes; narrow fields or pagination")
+}
+
 /**
  * Classify a failed gws process. Timeouts and output caps come first, then
  * an admin privilege refusal, then sign-in problems named by Google's error payload (which gws reports as
  * exit 1 or 2), a disabled API, and then gws's own exit code: 2 auth,
  * 3 validation, 4 Discovery, 5 internal. Anything else is Google's error.
  */
-export function processError(result: ProcessResult, parsed: ParsedResult, service: string, remediation: AuthRemediation = GENERIC_REMEDIATION): GwsError {
+export function processError(result: ProcessResult, parsed: ParsedResult, service: string, remediation: AuthRemediation = GENERIC_REMEDIATION, mode: NativeErrorMode = "detailed"): GwsError {
   if (result.timedOut) return new GwsError("TIMEOUT", `gws did not finish within the configured execution.timeoutMs (${result.durationMs}ms elapsed)`)
-  if (result.outputCapped) return new GwsError("OUTPUT_LIMIT", "gws output exceeded execution.maxStdoutBytes/maxStderrBytes; narrow fields or pagination")
-  const stderr = stderrText(result)
+  if (result.outputCapped) return outputLimitError()
   const payload = apiErrorOf(result, parsed)
-  const message = payload?.message || stderr || "gws command failed"
-  if (privilegeRefused(result, service, parsed)) {
+  const structured = mode === "structured" ? structuredFailure(result, payload) : undefined
+  const message = structured ? "" : payload?.message || stderrText(result) || "gws command failed"
+  if (!structured && privilegeRefused(result, service, parsed)) {
     return new GwsError(
       "ADMIN_PRIVILEGE_REQUIRED",
       `Google accepted the sign-in but refused the call, because the account lacks a Workspace admin privilege; signing in again as the same account cannot help (gws: ${message.slice(0, 300)})`,
       { next: `${remediation.privilege.charAt(0).toUpperCase()}${remediation.privilege.slice(1)}.` },
     )
   }
-  const problem = authProblem(result, service, parsed) ?? (result.exitCode === EXIT.auth ? "AUTH_REQUIRED" : undefined)
+  const problem = structured ? structured.code : authProblem(result, service, parsed) ?? (result.exitCode === EXIT.auth ? "AUTH_REQUIRED" : undefined)
+  const authDetail = message ? ` (gws: ${message.slice(0, 300)})` : ""
   if (problem === "AUTH_SCOPE_MISSING") {
-    return new GwsError("AUTH_SCOPE_MISSING", `the credential lacks a scope for this operation; ${remediation.consent} (gws: ${message.slice(0, 300)})`)
+    return new GwsError("AUTH_SCOPE_MISSING", `the credential lacks a scope for this operation; ${remediation.consent}${authDetail}`)
   }
   if (problem === "AUTH_REQUIRED") {
-    return new GwsError("AUTH_REQUIRED", `the Google Workspace sign-in is missing or no longer valid; ${remediation.signIn} (gws: ${message.slice(0, 300)})`)
+    return new GwsError("AUTH_REQUIRED", `the Google Workspace sign-in is missing or no longer valid; ${remediation.signIn}${authDetail}`)
   }
-  const disabled = disabledApi(result, parsed)
+  if (problem === "API_DISABLED") return new GwsError("API_DISABLED", "the Google API is not enabled in the OAuth client's Google Cloud project")
+  const disabled = structured ? undefined : disabledApi(result, parsed)
   if (disabled) {
     const where = disabled.project ? ` for project ${disabled.project}` : ""
     const next = disabled.enableUrl
@@ -377,10 +431,14 @@ export function processError(result: ProcessResult, parsed: ParsedResult, servic
       : `Ask the user to enable the API${where} in the Google Cloud console, then wait about a minute and retry.`
     return new GwsError("API_DISABLED", message.slice(0, 500), { next, ...(disabled.enableUrl ? { enableUrl: disabled.enableUrl } : {}) })
   }
-  if (result.exitCode === EXIT.validation) return new GwsError("GWS_VALIDATION_ERROR", `gws rejected the request: ${message.slice(0, 500)}`)
-  if (result.exitCode === EXIT.discovery) return new GwsError("GWS_DISCOVERY_ERROR", `gws could not load the API description: ${message.slice(0, 500)}`)
-  if (result.exitCode === EXIT.internal) return new GwsError("GWS_INTERNAL_ERROR", `gws failed: ${message.slice(0, 500)}`)
-  return new GwsError("GWS_API_ERROR", message.slice(0, 500), typeof payload?.code === "number" ? { status: payload.code } : {})
+  if (structured?.status === undefined) {
+    const detail = message ? `: ${message.slice(0, 500)}` : ""
+    if (result.exitCode === EXIT.validation) return new GwsError("GWS_VALIDATION_ERROR", `gws rejected the request${detail}`)
+    if (result.exitCode === EXIT.discovery) return new GwsError("GWS_DISCOVERY_ERROR", `gws could not load the API description${detail}`)
+    if (result.exitCode === EXIT.internal) return new GwsError("GWS_INTERNAL_ERROR", `gws failed${detail}`)
+  }
+  const status = structured ? structured.status : payload?.code
+  return new GwsError("GWS_API_ERROR", message.slice(0, 500) || "gws command failed", typeof status === "number" ? { status } : {})
 }
 
 /** The message of `processError`. */

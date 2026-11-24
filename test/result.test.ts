@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { disabledApi, errorFromProcess, parseResult, processError } from "../src/domain/result.js"
+import { authProblem, disabledApi, errorFromProcess, parseResult, processError } from "../src/domain/result.js"
 import type { ProcessResult } from "../src/domain/types.js"
 
 function processResult(stdout: unknown, exitCode: number | null = 1, stderr = ""): ProcessResult {
@@ -87,5 +87,31 @@ describe("disabled APIs", () => {
 
   it("are not reported for other errors", () => {
     expect(disabledApi(processResult({ error: { code: 404, message: "Requested entity was not found." } }, 1))).toBeUndefined()
+  })
+})
+
+describe("structured native failures", () => {
+  it("uses the structured HTTP result before the process exit code", () => {
+    const result = processResult({ error: { code: 403, status: "PERMISSION_DENIED" } }, 2)
+    const parsed = parseResult(result, { maxInlineBytes: 1024 })
+    expect(authProblem(result, "sheets", parsed, "structured")).toBeUndefined()
+    expect(processError(result, parsed, "sheets", undefined, "structured")).toMatchObject({ code: "GWS_API_ERROR", status: 403 })
+    expect(failure(result).code).toBe("AUTH_REQUIRED")
+  })
+
+  it.each([
+    [2, undefined, "AUTH_REQUIRED", "No credentials provided."],
+    [3, 400, "GWS_VALIDATION_ERROR", "--params is not valid JSON"],
+    [4, 500, "GWS_DISCOVERY_ERROR", "Failed to load the Discovery document"],
+    [5, 500, "GWS_INTERNAL_ERROR", "Unexpected local error"],
+  ])("keeps native exit %s typed without returning its diagnostic", (exit, nativeCode, code, message) => {
+    const result = processResult(nativeCode === undefined ? "" : { error: { code: nativeCode, message } }, exit, message)
+    const parsed = parseResult(result, { maxInlineBytes: 1024 })
+    const error = processError(result, parsed, "sheets", undefined, "structured")
+    expect(error.code).toBe(code)
+    expect(error.status).toBeUndefined()
+    expect(error.message).not.toContain(message)
+    expect(authProblem(result, "sheets", parsed, "structured")).toBe(exit === 2 ? "AUTH_REQUIRED" : undefined)
+    expect(failure(result)).toMatchObject({ code, message: expect.stringContaining(message) })
   })
 })

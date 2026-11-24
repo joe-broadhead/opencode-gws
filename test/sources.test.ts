@@ -11,6 +11,7 @@ import type { PermissionRequest } from "../src/host/permissions.js"
 import { scriptMethods } from "../src/host/script-methods.js"
 import { SHEETS_MAX_BYTES, SHEETS_OPERATION } from "../src/host/sheets.js"
 import { IMAGE_DATA_URI_MAX } from "../src/host/sources.js"
+import { Accounts, type RuntimeOptions } from "../src/runtime/accounts.js"
 import type { Runtime } from "../src/runtime/index.js"
 import { account, fakeTokens, testRuntime } from "./support/config.js"
 
@@ -44,9 +45,12 @@ type Signed = { alias: string; connected: boolean; email?: string; grantedScopes
 async function harness(
   services: string[],
   signedIn: Signed[] = [{ alias: "personal", connected: true, email: "sam.rivera@example.com", grantedScopes: [] }],
-  options: { config?: Record<string, unknown>; refuse?: string; scopes?: string[] } = {},
+  options: { config?: Record<string, unknown>; refuse?: string; scopes?: string[]; onAuthState?: RuntimeOptions["onAuthState"] } = {},
 ) {
-  const runtime = await testRuntime({ accounts: { personal: account({ services }) }, ...options.config }, options.scopes ? { tokenProvider: fakeTokens(undefined, options.scopes) } : {})
+  const runtime = await testRuntime({ accounts: { personal: account({ services }) }, ...options.config }, {
+    ...(options.scopes ? { tokenProvider: fakeTokens(undefined, options.scopes) } : {}),
+    onAuthState: options.onAuthState,
+  })
   runtimes.push(runtime)
   const asserted: PermissionRequest[] = []
   const methods = scriptMethods({
@@ -307,11 +311,49 @@ describe("sheets_read", () => {
     [429, "RESOURCE_EXHAUSTED", "GWS_API_ERROR"],
     [500, "INTERNAL", "GWS_API_ERROR"],
   ])("maps HTTP %s (%s) to %s without echoing provider text", async (code, status, expected) => {
-    const { run } = await harness(["sheets"])
+    const onAuthState = vi.fn()
+    const { run } = await harness(["sheets"], undefined, { onAuthState })
     answers({ $error: { code, status, message: "fixture-do-not-echo" } })
     const outcome = await run("sheets_read", input).catch((error: unknown) => GwsError.from(error))
     expect(outcome).toMatchObject({ code: expected })
     expect(outcome).not.toHaveProperty("message", expect.stringContaining("fixture-do-not-echo"))
+    expect(onAuthState).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["AUTH_REQUIRED", { code: 401, status: "UNAUTHENTICATED", message: "The access token has expired." }],
+    ["AUTH_SCOPE_MISSING", { code: 403, details: [{ reason: "ACCESS_TOKEN_SCOPE_INSUFFICIENT" }], message: "The token lacks the required scope." }],
+    ["AUTH_SCOPE_MISSING", { code: 403, reason: "unknown", message: "Request had insufficient authentication scopes." }],
+    ["API_DISABLED", {
+      code: 403,
+      errors: [{ reason: "accessNotConfigured" }],
+      message: "The API is disabled in project fixture-project.",
+      enable_url: "https://console.cloud.google.com/apis/library/sheets.googleapis.com?project=fixture-project",
+    }],
+  ] as const)("keeps typed %s remediation without provider details", async (code, payload) => {
+    const onAuthState = vi.fn()
+    const { run } = await harness(["sheets"], undefined, { onAuthState })
+    answers({ $error: payload })
+    const outcome = await run("sheets_read", input).catch((error: unknown) => GwsError.from(error))
+    expect(outcome).toBeInstanceOf(GwsError)
+    expect(outcome).toMatchObject({ code })
+    expect(outcome).not.toHaveProperty("message", expect.stringContaining(payload.message))
+    expect(outcome?.enableUrl).toBeUndefined()
+    if (code === "API_DISABLED") {
+      expect(outcome).toHaveProperty("next", expect.stringContaining("Google Cloud console"))
+      expect(JSON.stringify(outcome)).not.toContain("fixture-project")
+      expect(onAuthState).not.toHaveBeenCalled()
+    } else {
+      expect(onAuthState).toHaveBeenCalledExactlyOnceWith("personal", expect.objectContaining({ status: "needs_auth", code }), expect.any(AbortSignal))
+    }
+  })
+
+  it("does not mark sign-in as healthy when a native error arrives with exit zero", async () => {
+    const onAuthState = vi.fn()
+    const { run } = await harness(["sheets"], undefined, { onAuthState })
+    answers({ error: { code: 403, status: "PERMISSION_DENIED", message: "This account cannot read the spreadsheet." } })
+    await expect(run("sheets_read", input)).rejects.toThrow(/^PERMISSION_DENIED: /)
+    expect(onAuthState).not.toHaveBeenCalled()
   })
 
   it.each([
@@ -355,6 +397,21 @@ describe("sheets_read", () => {
     const { run } = await harness(["sheets"], undefined, { config: { execution: { maxStdoutBytes: 256 } } })
     answers({ range: input.range, majorDimension: "ROWS", values: [["x".repeat(512)]] })
     await expect(run("sheets_read", input)).rejects.toThrow(/^OUTPUT_LIMIT: .*Next step: Read a smaller range\./)
+  })
+
+  it("refuses capped process output even when the process reports success and the retained body is valid", async () => {
+    const { run, runtime } = await harness(["sheets"])
+    const mock = vi.spyOn(Accounts.prototype, "run").mockResolvedValue({
+      stdout: Buffer.from(JSON.stringify({ range: input.range, majorDimension: "ROWS", values: [["sample"]] })),
+      stderr: Buffer.alloc(0),
+      exitCode: 0, signal: null, durationMs: 1, timedOut: false, outputCapped: true,
+    })
+    try {
+      await expect(run("sheets_read", input)).rejects.toThrow(/^OUTPUT_LIMIT: /)
+      await expect(runtime.read({ operation: SHEETS_OPERATION, params: input, fields: "range,majorDimension,values" }, { sessionId: "ses_sources", agentId: "build" })).rejects.toThrow(/^OUTPUT_LIMIT: /)
+    } finally {
+      mock.mockRestore()
+    }
   })
 })
 

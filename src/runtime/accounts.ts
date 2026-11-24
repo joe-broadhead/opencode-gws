@@ -7,7 +7,7 @@ import { accountSignInStatus, connectStep, type ConnectionView } from "../auth/s
 import type { Audit } from "../domain/audit.js"
 import type { AuthProblemCode, AuthState } from "../domain/auth-state.js"
 import { throwIfCancelled } from "../domain/errors.js"
-import { adminAccountStep, authProblem, privilegeName, type AuthRemediation } from "../domain/result.js"
+import { adminAccountStep, authProblem, parseResult, privilegeName, type AuthRemediation, type NativeErrorMode } from "../domain/result.js"
 import { delegationRequired, restriction } from "../domain/restricted.js"
 import { acceptedScopes, grants, shortScope } from "../domain/scopes.js"
 import type { RuntimeStatus } from "../domain/status.js"
@@ -83,6 +83,8 @@ interface RunOptions {
   scopes?: readonly string[]
   /** A --dry-run never contacts Google, so its success says nothing about the credential. */
   dryRun?: boolean
+  /** Use the same native error classification as the read's caller. */
+  nativeErrors?: NativeErrorMode
   /** Run gws in this staging directory (calls with local files); otherwise in a private directory removed after the call. */
   cwd?: string
 }
@@ -189,9 +191,13 @@ export class Accounts {
     // Only a call that used the integration credential says anything about
     // that connection; headless credentials have no connection to mark.
     if (credential) {
-      const problem = authProblem(result, serviceOf(operation))
+      const structured = options.nativeErrors === "structured"
+      const parsed = structured && result.exitCode === 0 && !result.outputCapped && !result.timedOut
+        ? parseResult(result, { maxInlineBytes: this.runtime.config.execution.maxInlineBytes })
+        : undefined
+      const problem = authProblem(result, serviceOf(operation), parsed, options.nativeErrors)
       if (problem) this.observeAuth(account, { status: "needs_auth", code: problem, message: this.authMessage(account, problem, options.scopes) })
-      else if (result.exitCode === 0 && options.dryRun !== true) this.observeAuth(account, { status: "ok" })
+      else if (result.exitCode === 0 && options.dryRun !== true && (!structured || parsed?.ok === true)) this.observeAuth(account, { status: "ok" })
     }
     return result
   }
