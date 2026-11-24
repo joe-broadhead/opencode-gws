@@ -233,6 +233,75 @@
           "class": "free"
         },
         "maxBytes": 1048576
+      },
+      {
+        "id": "gws.sheets",
+        "kind": "snapshot",
+        "tool": "sheets_read",
+        "input": {
+          "source": "sheets"
+        },
+        "output": "x-gws/sheet",
+        "outputSchema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "range",
+            "sheet",
+            "rows"
+          ],
+          "properties": {
+            "range": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "sheet": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "params": {
+          "spreadsheetId": {
+            "type": "string",
+            "required": true,
+            "describe": "The spreadsheet id: the part of its link after /spreadsheets/d/"
+          },
+          "range": {
+            "type": "string",
+            "required": true,
+            "describe": "A sheet-qualified A1 cell or closed rectangle of at most 100,000 cells, such as Sheet1!A1:D50"
+          }
+        },
+        "accounts": {
+          "named": true
+        },
+        "permission": {
+          "tool": "gws.sheets_read",
+          "operations": [
+            "sheets.spreadsheets.values.get"
+          ]
+        },
+        "private": false,
+        "cost": {
+          "class": "free"
+        },
+        "maxBytes": 1048576
       }
     ]
   },

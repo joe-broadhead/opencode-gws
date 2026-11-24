@@ -91,8 +91,8 @@ describe("the README's generated blocks", () => {
       "EEXIST", "EXDEV", "EPERM", "ENOTSUP", "ENOENT",
       // "CODE" is the placeholder a doc comment writes the message shape with, not a code.
       "CODE",
-      // Sheets' own valueInputOption and majorDimension values, and a JWK's key type, in the UI action's schemas.
-      "RAW", "ROWS", "COLUMNS", "OKP",
+      // Sheets' valueInputOption, valueRenderOption and majorDimension values, and a JWK's key type.
+      "RAW", "FORMATTED_VALUE", "ROWS", "COLUMNS", "OKP",
       // The source contract's codes on a failed[] entry of an events_list page: an item not read this time, not a refusal.
       "RATE_LIMITED", "UNAVAILABLE",
     ])
@@ -288,4 +288,3 @@ function specDescriptions(): string {
     .map((spec) => spec.description)
     .join(" ")
 }
-

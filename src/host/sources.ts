@@ -3,6 +3,7 @@ import type { PluginMethod, ToolCall } from "@we-the-rebel-alliance/source-contr
 import { calendarAccount } from "../domain/calendar.js"
 import { GwsError } from "../domain/errors.js"
 import { isDriveLink, imageUrl } from "../domain/images.js"
+import { commandIndex } from "../domain/manifest.js"
 import type { Runtime } from "../runtime/index.js"
 import { calendarToday } from "./calendar.js"
 import { CALENDAR_SOURCE } from "./calendar-events.js"
@@ -10,12 +11,13 @@ import { GMAIL_SOURCE } from "./gmail-events.js"
 import { imagesRead } from "./images.js"
 import { type Caller, type PermissionRequest, localRequest, operationRequest } from "./permissions.js"
 import type { StatusSource } from "./rpc.js"
+import { SHEET_OUTPUT_SCHEMA, SHEETS_MAX_BYTES, SHEETS_OPERATION, SHEETS_READ, readSheet, sheetsParams, sheetsTooLarge } from "./sheets.js"
 
 /**
  * The source contract's methods that are not tools (`package.json` `sources`, read through the tools RPC
- * `google-workspace.gws.tools`): `probe`, and the two snapshot sources' reads, `calendar_today` (`gws.calendar.today`,
- * an `agenda`) and `images_read` (`gws.image`, an `image`). Each is a read-only method of the tools RPC with its own
- * action, never a model tool: a consumer such as Memory, Artifacts or Jelly calls it in a session its grant fences.
+ * `google-workspace.gws.tools`): `probe`, and the three snapshot sources' reads, `calendar_today` (`gws.calendar.today`,
+ * an `agenda`), `images_read` (`gws.image`, an `image`) and `sheets_read` (`gws.sheets`, an `x-gws/sheet`). Each is a
+ * read-only method of the tools RPC with its own action, never a model tool: a consumer such as Memory, Artifacts or Jelly calls it in a session its grant fences.
  *
  * - `probe` answers whose a source is, `{ source, account, owner, scopes, trust }`, from the account's verified sign-in
  *   (the email in the id_token Google returned at sign-in, which `gws_status` also reports) and the scopes Google
@@ -32,6 +34,9 @@ import type { StatusSource } from "./rpc.js"
  *   address on Google's image servers is fetched without any account's token: that fetch is no gws operation, so no
  *   declared grant could cover it, and it carries no `account`. A GIF is refused (the image output takes PNG, JPEG and
  *   WebP), and a picture whose data URI is over the output's limit is TOO_LARGE, never cut.
+ * - `sheets_read` is one range of one spreadsheet (`./sheets.ts`): `{ data: { range, sheet, rows }, asOf, account,
+ *   trust }`. It asserts `gws.sheets_read`, then `gws.read` on `<account>:sheets.spreadsheets.values.get`, before the
+ *   read. An answer over the declared `maxBytes` is TOO_LARGE, never cut.
  */
 
 /** The probe's permission action, `sources.probe.action`. */
@@ -49,11 +54,12 @@ const AGENDA_TEXT_MAX = 120
 const IMAGE_ALT = "A picture from Google Workspace"
 
 /** The sources probe knows, the name each is asked by, and the read that resolves its account. */
-const PROBED: Readonly<Record<string, { readonly operation: string; readonly scopes: RegExp }>> = {
+const PROBED: Readonly<Record<string, { readonly operation: string; readonly scopes?: RegExp }>> = {
   [GMAIL_SOURCE]: { operation: "gmail.users.getProfile", scopes: /^https:\/\/(?:mail\.google\.com\/|www\.googleapis\.com\/auth\/gmail\.)/ },
   [CALENDAR_SOURCE]: { operation: "calendar.events.list", scopes: /^https:\/\/www\.googleapis\.com\/auth\/calendar(?:\.|$)/ },
   [CALENDAR_TODAY.source]: { operation: "calendar.events.list", scopes: /^https:\/\/www\.googleapis\.com\/auth\/calendar(?:\.|$)/ },
   [IMAGES_READ.source]: { operation: "drive.files.get", scopes: /^https:\/\/www\.googleapis\.com\/auth\/drive(?:\.|$)/ },
+  [SHEETS_READ.source]: { operation: SHEETS_OPERATION },
 }
 
 export interface SourceMethodsInput {
@@ -102,7 +108,7 @@ export function sourceMethods({ runtime, assert, status }: SourceMethodsInput): 
     action: PROBE_ACTION,
     class: "read",
     description:
-      "The source contract's probe: whose a source (gmail, calendar, calendar-today or image) is, from the account's verified sign-in, and the scopes Google granted for it. Calls no Google API and reads no content.",
+      "The source contract's probe: whose a source (gmail, calendar, calendar-today, image or sheets) is, from the account's verified sign-in, and the scopes Google granted for it. Calls no Google API and reads no content.",
     input: {
       type: "object",
       additionalProperties: false,
@@ -124,8 +130,8 @@ export function sourceMethods({ runtime, assert, status }: SourceMethodsInput): 
       const parsed = parseProbeInput(input)
       if (!parsed.ok) throw new GwsError("INPUT_INVALID", parsed.problems.join("; "))
       const name = parsed.value.source ?? GMAIL_SOURCE
-      const probed = PROBED[name]
-      if (probed === undefined) {
+      const probed = Object.hasOwn(PROBED, name) ? PROBED[name] : undefined
+      if (!probed) {
         throw new GwsError("SOURCE_UNKNOWN", `the source '${name}' is not one this plugin declares`, { next: `Probe one of ${Object.keys(PROBED).join(", ")}.` })
       }
       const named = parsed.value.account ?? (name === CALENDAR_TODAY.source ? calendarAccount(runtime.config) : undefined)
@@ -138,7 +144,8 @@ export function sourceMethods({ runtime, assert, status }: SourceMethodsInput): 
           next: "Sign the account in again through /connect, and approve every scope Google lists.",
         })
       }
-      const scopes = (signedIn.grantedScopes ?? []).filter((scope) => probed.scopes.test(scope)).slice(0, 64)
+      const operationScopes = probed.scopes === undefined ? commandIndex().methods.get(probed.operation)?.scopes ?? [] : []
+      const scopes = (signedIn.grantedScopes ?? []).filter((scope) => probed.scopes?.test(scope) ?? operationScopes.includes(scope)).slice(0, 64)
       return probeResult({ source: name, account, owner: { id: `mailto:${signedIn.email}`, label: signedIn.email } }, { scopes })
     },
   }
@@ -235,5 +242,41 @@ export function sourceMethods({ runtime, assert, status }: SourceMethodsInput): 
     },
   }
 
-  return [probe, calendar, images]
+  const sheets: PluginMethod = {
+    kind: "plugin",
+    name: SHEETS_READ.method,
+    action: SHEETS_READ.action,
+    class: "read",
+    description:
+      "The source contract's snapshot gws.sheets: one explicitly named spreadsheet and one sheet-qualified A1 cell or rectangle, as formatted rows with verified range metadata. Untrusted Workspace content.",
+    input: {
+      type: "object",
+      additionalProperties: false,
+      required: ["spreadsheetId", "range"],
+      properties: { source: { const: SHEETS_READ.source }, account: text(128), spreadsheetId: { ...text(128), minLength: 10, pattern: "^[A-Za-z0-9_-]{10,128}$" }, range: text(256) },
+    },
+    output: {
+      type: "object",
+      additionalProperties: false,
+      required: ["data", "asOf", "account", "trust"],
+      properties: { data: SHEET_OUTPUT_SCHEMA, asOf: { type: "string", format: "date-time" }, account: text(128), trust: { const: "untrusted" } },
+    },
+    async run(input, call) {
+      const value = snapshotInput(input, SHEETS_READ.source, ["spreadsheetId", "range"])
+      const params = sheetsParams(value)
+      const named = value["account"] as string | undefined
+      const target = runtime.inspect({ ...(named === undefined ? {} : { account: named }), operation: SHEETS_OPERATION }, "read")
+      await authorize(call, localRequest(host(call), SHEETS_READ.action))
+      await authorize(call, operationRequest(host(call), "gws.read", target))
+      const data = await runtime.wait(
+        (settled) => readSheet(runtime, target.account, params, { sessionId: call.sessionID, agentId: call.agent, caller: "rpc", signal: settled }),
+        call.signal,
+      )
+      const answer = { data, asOf: new Date().toISOString(), account: target.account, trust: "untrusted" as const }
+      if (Buffer.byteLength(JSON.stringify(answer)) > SHEETS_MAX_BYTES) throw sheetsTooLarge()
+      return answer
+    },
+  }
+
+  return [probe, calendar, images, sheets]
 }

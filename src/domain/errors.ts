@@ -45,16 +45,16 @@ export const ErrorCode = {
   },
   INPUT_INVALID: {
     meaning:
-      "A source read refused its input: events_list, probe, calendar_today or images_read was given a field it does not take, a limit out of range, a since that is not a time, a scope key the source does not declare, or a calendar other than the primary one. Nothing ran.",
+      "A source read refused its input, or Google could not find the spreadsheet or read the named range for sheets_read.",
     next: "Compare the input with the source's declaration (package.json sources) and the installed plugin, then retry.",
   },
   SOURCE_UNKNOWN: {
     meaning: "A source read was asked for a source this plugin does not declare: events_list for one it does not list, or probe for one it does not know. Nothing ran.",
-    next: "Pass a source the plugin declares: gmail or calendar for events_list, and also calendar-today or image for probe.",
+    next: "Pass a source the plugin declares: gmail or calendar for events_list, and also calendar-today, image or sheets for probe.",
   },
   TOO_LARGE: {
-    meaning: "A source read's answer is over the source's maxBytes: a picture whose data URI is over the image output's limit (1 MB less 4 KB, about 760 KB of picture). Nothing is cut short.",
-    next: "Read a smaller picture, such as the file's thumbnail.",
+    meaning: "A source read's answer exceeds its size limit: 1 MiB for the Sheets snapshot, or 1 MiB less 4 KiB for a picture's data URI. Nothing is cut short.",
+    next: "Read a smaller range or picture, such as the file's thumbnail.",
   },
   FIELDS_INVALID: {
     meaning: "The fields mask's parentheses do not balance, so gws was not called.",
@@ -109,7 +109,7 @@ export const ErrorCode = {
   },
   PERMISSION_DENIED: {
     meaning:
-      "The permission rules of the session's agent deny the call, or ask for an approval that a script cannot give, so the call did not run.",
+      "The session's permission rules denied the call or require an approval a script cannot give. For sheets_read, Google may instead have refused the selected account's access.",
     next: "Add an allow rule for the tool to the session's agent or to the session, or use a session whose agent allows it.",
   },
 
@@ -156,7 +156,7 @@ export const ErrorCode = {
     next: "Ask the user to enable the API in the Google Cloud console, wait about a minute, and retry.",
   },
   GWS_API_ERROR: {
-    meaning: "Google returned an error; the message carries Google's text.",
+    meaning: "Google returned an error or an unexpected response. The message may include Google's text.",
     next: "Fix the ids or parameters once from the message; if it fails again, tell the user Google's message.",
   },
   CALENDAR_UNAVAILABLE: {

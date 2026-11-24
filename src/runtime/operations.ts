@@ -11,7 +11,7 @@ import { commandIndex, HELPER_ALTERNATIVES, helperInput, resolveOperation } from
 import type { PlanStore } from "../domain/plans.js"
 import { evaluatePolicy, needsAccountDomains, type PolicyDecision, type PolicyFacts } from "../domain/policy.js"
 import { ACCOUNT_ADDRESS_READS, domainOf, recipientLabels, recipientPlan, withLookup, type RecipientLookup, type RecipientPlan, type Recipients } from "../domain/recipients.js"
-import { adminServiceStep, capPageItems, inlineCap, isAdminService, isApiError, parseResult, processError, redactDryRun, withoutSavedBody } from "../domain/result.js"
+import { adminServiceStep, capPageItems, inlineCap, isAdminService, isApiError, outputLimitError, parseResult, processError, redactDryRun, withoutSavedBody, type NativeErrorMode } from "../domain/result.js"
 import type { BuiltCommand, Category, CommitCategory, HelperEntry, MethodEntry, Plan, PluginConfig, Request } from "../domain/types.js"
 import type { SchemaClient } from "../process/schema.js"
 import { Stage, checkDestination } from "../process/staging.js"
@@ -266,7 +266,7 @@ export class Operations {
     return this.runtime.plans.check(input.planId, { sessionId: ctx.sessionId, agentId: ctx.agentId, category })
   }
 
-  async read(input: RequestInput, ctx: CallContext): Promise<ReadOutput> {
+  async read(input: RequestInput, ctx: CallContext, nativeErrors?: NativeErrorMode): Promise<ReadOutput> {
     const resolved = this.resolve(input)
     const { entry, helper, request } = resolved
     const started = Date.now()
@@ -277,9 +277,10 @@ export class Operations {
       const argv = helper
         ? helper.build(request.input ?? {}, request).argv
         : buildCommand(entry, request, this.runtime.config, { dryRun: false, category: "read", limits }).argv
-      const result = await this.accounts.run(argv, request.account, entry.id, ctx, { paged, scopes: entry.scopes })
+      const result = await this.accounts.run(argv, request.account, entry.id, ctx, { paged, scopes: entry.scopes, nativeErrors })
       report(ctx, { status: "parsing", operation: entry.id })
       this.runtime.assertActive(ctx.signal)
+      if (result.outputCapped) throw outputLimitError()
       const parsed = parseResult(result, {
         maxInlineBytes: this.runtime.config.execution.maxInlineBytes,
         mode: helper ? undefined : request.response?.mode,
@@ -288,7 +289,7 @@ export class Operations {
       // Text helpers (+triage, +read in text mode) are valid output, not
       // JSON parse failures; a helper fails only on exit code or API error.
       const failed = helper ? result.exitCode !== 0 || isApiError(parsed.data) : !parsed.ok
-      if (failed) throw processError(result, parsed, entry.service, this.accounts.remediation(request.account, entry.scopes, entry.service))
+      if (failed) throw processError(result, parsed, entry.service, this.accounts.remediation(request.account, entry.scopes, entry.service), nativeErrors)
       const pages = paged ? capPageItems(parsed.data, itemCap(request, limits)) : undefined
       const cap = inlineCap(this.runtime.config.execution.maxInlineBytes, request.response?.mode, request.response?.maxInlineBytes)
       const truncated = pages ? Buffer.byteLength(JSON.stringify(pages.data)) > cap : parsed.truncated

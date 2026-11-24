@@ -8,6 +8,7 @@ import { ImageSources } from "../domain/images.js"
 import { Lifecycle } from "../domain/lifecycle.js"
 import { canonicalService, loadManifest } from "../domain/manifest.js"
 import { PlanStore } from "../domain/plans.js"
+import type { NativeErrorMode } from "../domain/result.js"
 import type { RuntimeStatus } from "../domain/status.js"
 import type { CommitCategory, Plan, PluginConfig } from "../domain/types.js"
 import type { DoctorOutcome, DoctorTarget } from "../auth/doctor.js"
@@ -191,8 +192,8 @@ export class Runtime {
     return this.invocation(ctx, control => this.operations.describe(target, control))
   }
 
-  async read(request: RequestInput, ctx: CallContext): Promise<ReadOutput> {
-    return this.invocation(ctx, control => this.operations.read(request, { ...ctx, ...control }))
+  async read(request: RequestInput, ctx: CallContext, nativeErrors?: NativeErrorMode): Promise<ReadOutput> {
+    return this.invocation(ctx, control => this.operations.read(request, { ...ctx, ...control }, nativeErrors))
   }
 
   /** A Drive file's bytes for `images.read`, or undefined when it is over `maxBytes` (`Operations.readDriveFile`). */
