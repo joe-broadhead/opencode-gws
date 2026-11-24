@@ -26,7 +26,7 @@ const SERVICES = ["gmail", "drive", "calendar", "docs", "sheets"]
 const base = { alias: "default", mode: "interactive", services: SERVICES, integrationID: "gws-default" }
 const status = (account, extra = {}) => ({
   version: "1.2.3",
-  host: { version: "2.2.3", range: ">=2.2.3 <2.4.0", tested: true },
+  host: { version: "2.4.1", range: ">=2.4.1 <2.5.0", tested: true },
   state: "connected",
   access: "all",
   rpcCommits: false,
@@ -161,7 +161,7 @@ try {
   assert.match(text, /Access\s+read-only/)
   assert.match(text, /Client\s+none yet/)
   assert.match(text, /Tools\s+gws tools for gmail/)
-  assert.match(text, /OpenCode\s+2\.2\.3 \(tested\)/)
+  assert.match(text, /OpenCode\s+2\.4\.1 \(tested\)/)
   assert.match(text, /Next step\s+Sign in: run \/connect and choose Google Workspace\./)
   assert.match(text, /r refresh · esc close/)
   assert.equal(handlers.size, 5)
@@ -189,10 +189,10 @@ try {
   handlers.get("agent.updated")({ type: "agent.updated", data: {} })
   assert.equal(requests[3].signal.aborted, true)
   const block = '{ "agents": { "notes": { "permissions": [] } } }'
-  requests[4].resolve(status(SIGNED_IN.accounts[0], { host: { version: "2.4.0", range: ">=2.2.3 <2.4.0", tested: false }, state: "connected", unguardedAgents: ["notes"], permissionsBlock: block }))
+  requests[4].resolve(status(SIGNED_IN.accounts[0], { host: { version: "2.5.0", range: ">=2.4.1 <2.5.0", tested: false }, state: "connected", unguardedAgents: ["notes"], permissionsBlock: block }))
   requests[3].resolve(SIGNED_OUT)
   text = await frame()
-  assert.match(text, /OpenCode\s+2\.4\.0 \(host untested; supported range\s+>=2\.2\.3\s+<2\.4\.0\)/)
+  assert.match(text, /OpenCode\s+2\.5\.0 \(host untested; supported range\s+>=2\.4\.1\s+<2\.5\.0\)/)
   assert.match(text, /Agents without default rules\s+notes/)
   assert.ok(text.includes(block))
   assert.doesNotMatch(text, /sign-in required/)

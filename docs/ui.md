@@ -19,7 +19,7 @@ The palette command **Google Workspace: Status**, or `/gws` in the prompt, opens
 | Permissions | the posture from `access`: every tool runs without asking, each commit asks, or the commits are denied |
 | Script commits | from `rpcCommits`: `off`, a script can plan but not commit; or `on`, a script can commit a plan when its rules allow the commit, with no prompt from the plugin; when on, it also names the agents without the default rules, whose scripts commit without asking |
 | Agents without default rules | their names, then the rules to put first in each agent's own `permissions` |
-| OpenCode | the version, then `(tested)`, or `(host untested; supported range >=2.2.3 <2.4.0)` |
+| OpenCode | the version, then `(tested)`, or `(host untested; supported range >=2.4.1 <2.5.0)` |
 | Next step | exactly one; `Nothing to do.` when nothing is needed |
 
 The key hint reads `r refresh · esc close`. The dialog listens for server reconnects and integration, credential and agent changes only while it is open. It loads nothing while closed, and it reads only the `status` RPC.
@@ -44,7 +44,7 @@ Contract: `src/rpc.ts`, id `google-workspace.gws`, method `status` only. It is i
 | Field | Meaning |
 | --- | --- |
 | `version` | This package's version. |
-| `host` | `{ version, range, tested }`: the OpenCode version (`null` when unknown), the supported range `>=2.2.3 <2.4.0`, and `true` only for a tested release (2.2.3, 2.2.4, 2.2.5, 2.2.6, 2.2.7, 2.3.0, 2.3.1, 2.3.2). |
+| `host` | `{ version, range, tested }`: the OpenCode version (`null` when unknown), the supported range `>=2.4.1 <2.5.0`, and `true` only for a tested release (2.4.1). |
 | `state` | `sign_in_required` when an interactive account needs signing in, `not_configured` when a headless account's variable is unset, else `connected`. An untested OpenCode release inside the range keeps this state; only `host.tested` and the OpenCode row mark it. |
 | `access` | What the default rules allow, from the plugin option: `all`, `ask-changes` or `read-only`. The dialog and `/gws-status` show it as **Permissions**. |
 | `rpcCommits` | Whether the six commit tools are also tools RPC methods, from the plugin option. The dialog and `/gws-status` show it as **Script commits**, which, when it is on, also names the `unguardedAgents`. `gws_status` carries those names as `rpcCommitsUnguardedAgents` when it is on. |
@@ -70,4 +70,6 @@ The status RPC cannot approve or commit. A commit happens when the agent calls a
 
 Scripts call the tools through a separate RPC, `google-workspace.gws.tools`: see [Scripting](scripting.md).
 
-A third RPC, named after the package (`@joe-broadhead/opencode-gws`), has two read-only methods for Jelly: `calendar.today`, for Jelly's calendar ([In Jelly](jelly.md#todays-calendar)), and `images.read`, which draws a Google Drive or Workspace picture in an agent's UI ([In Jelly](jelly.md#pictures-in-an-agents-ui)).
+Two RPCs are registered: this status one, and the tools RPC (`google-workspace.gws.tools`) that scripts and source
+consumers call. The agenda (`calendar_today`), picture (`images_read`) and spreadsheet (`sheets_read`) reads are
+methods of the tools RPC; there is no RPC named after the package.

@@ -20,7 +20,7 @@ async function listener(reply: (response: ServerResponse) => void) {
 it("scrubs inherited environment before host modules load", () => {
   expect(Object.keys(process.env).filter((key) => ![
     "PATH", "HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME",
-    "TMPDIR", "TMP", "TEMP", "LANG", "TZ", "NODE_ENV", "HOST_SDK_DIR",
+    "TMPDIR", "TMP", "TEMP", "LANG", "TZ", "NODE_ENV",
   ].includes(key))).toEqual([])
   expect(process.env.HOME).toContain("plugin-host-worker-")
   // Outside the real home, where OpenCode's upward search would find .opencode/ folders.

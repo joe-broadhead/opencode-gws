@@ -41,9 +41,9 @@ import { CURSOR_PLUGIN, PAGE_MAX_BYTES, PLUGIN_PACKAGE } from "./source-page.js"
  *   answer this time (a 5xx or a rate limit) is `failed[]`, and the page
  *   answers the cursor it was called with, so the next call reads it again.
  * - The cursor is the contract's version 2, bound to (gws, gmail, account),
- *   and still names a digest of the mailbox's address, so a cursor from
- *   another account or a changed sign-in is refused. A contract 1 cursor is
- *   read for one release (`acceptV1`).
+ *   and names a digest of the mailbox's address, so a cursor from another
+ *   account or a changed sign-in is refused; any other cursor is
+ *   `CURSOR_INVALID`.
  */
 
 /** The `source` of Gmail events. */
@@ -108,9 +108,9 @@ const before = (a: string, b: string) => BigInt(a) < BigInt(b)
 /** The cursor's binding: the plugin, the source and the account; Gmail declares no scope. */
 const binding = (account: string) => ({ plugin: CURSOR_PLUGIN, source: GMAIL_SOURCE, account, scope: {} })
 
-/** The state a cursor holds, when this account's mailbox issued it; a contract 1 cursor of the same mailbox too. */
+/** The state a cursor holds, when this account's mailbox issued it. */
 function stateOf(cursor: string, account: string, mailbox: string): State {
-  const decoded = decodeBoundCursor(binding(account), cursor, { acceptV1: true })
+  const decoded = decodeBoundCursor(binding(account), cursor)
   const state = decoded.ok ? decoded.state : undefined
   const refuse = () => new GwsError("CURSOR_INVALID", `the cursor was not issued by events_list for account '${account}' and its mailbox`)
   if (!state || state["a"] !== account || state["o"] !== mailbox) throw refuse()

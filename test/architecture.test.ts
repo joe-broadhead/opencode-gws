@@ -159,7 +159,7 @@ describe("architecture boundaries", () => {
 
 /**
  * Forbidden APIs: fork-only, deprecated, or private host surface that a
- * plugin for public OpenCode 2.2.3 must not use. Detection walks the
+ * plugin for public OpenCode 2.4.1 must not use. Detection walks the
  * syntax tree, so comments and string literals never match.
  */
 

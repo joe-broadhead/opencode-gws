@@ -1974,11 +1974,15 @@ describe("CI: macOS on pushes to master and for releases, never on pull requests
     assert.deepEqual(ciJobsProblems(undefined, ["macos-26"]), ["no successful job on macos-26"])
   })
 
-  test("this repository's ci.yml: a pull request's matrix has no macOS entry, and a master push's does (npm run check)", () => {
-    const matrix = ciMatrix(readFileSync(join(SCRIPTS, "..", ".github", "workflows", "ci.yml"), "utf8"))
-    assert.deepEqual(matrix.problems, [])
-    assert.equal(matrix.pullRequest.some((runner) => /^macos-/.test(runner)), false)
-    assert.ok(matrix.push.includes("macos-26"), `a push to master runs ${matrix.push.join(", ")}`)
+  // The repository's own ci.yml follows the plugin standard's one-job shape, not the release kit's old matrix: one job,
+  // id and name `ci`, on GitHub's runner, with no matrix and no macOS. The kit's matrix rules still hold for a ci.yml
+  // that has one (the tests above); the release workflow that read them is replaced by plugin-kit's release.
+  test("this repository's ci.yml: one job, id and name ci, on GitHub's runner, with no matrix and no macOS", () => {
+    const text = readFileSync(join(SCRIPTS, "..", ".github", "workflows", "ci.yml"), "utf8")
+    assert.match(text, /^  ci:\n    name: ci$/m)
+    assert.equal(/^    strategy:/m.test(text), false, "ci.yml has no matrix")
+    assert.equal(/macos-/.test(text), false, "ci.yml names no macOS runner")
+    assert.match(text, /^    runs-on: \$\{\{ \(github\.event_name != 'pull_request' \|\| github\.event\.pull_request\.head\.repo\.full_name == github\.repository\) && \(vars\.CI_RUNNER_PUBLIC \|\| 'ubuntu-24\.04'\) \|\| 'ubuntu-24\.04' \}\}$/m)
   })
 })
 

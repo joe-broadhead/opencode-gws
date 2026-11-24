@@ -4,16 +4,14 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { CALENDAR_MAX_BYTES, CALENDAR_MAX_EVENTS, EVENT_FIELDS, UNTITLED, calendarAccount, dayKey, httpsLink, todayBounds, todayEvents } from "../src/domain/calendar.js"
 import { loadConfig } from "../src/domain/config.js"
 import { GwsError } from "../src/domain/errors.js"
-import { PACKAGE_NAME } from "../src/domain/version.js"
 import { FRESH_MS, READ_DEADLINE_MS, TODAY_INPUT, TODAY_OUTPUT, calendarToday } from "../src/host/calendar.js"
-import { registerJellyRpc } from "../src/host/jelly-rpc.js"
 import type { Runtime } from "../src/runtime/index.js"
 import { account, accountDir, testRuntime } from "./support/config.js"
 
 /**
- * calendar.today, the read Jelly's native calendar makes (hey-jelly docs/architecture/plugin-native-data.md): today
- * in the calendar's own time zone, Google's events cut to Jelly's shape, one account, and a kept answer that comes
- * back stale when a later read fails. Every Google answer here is fake; nothing reaches the network.
+ * The agenda snapshot behind calendar_today: today in the calendar's own time zone, Google's events cut to the
+ * agenda's shape, one account, and a kept answer that comes back stale when a later read fails. Every Google answer
+ * here is fake; nothing reaches the network.
  */
 
 const root = new URL("../", import.meta.url)
@@ -55,8 +53,8 @@ const NOW = ms("2026-11-12T15:00:00Z")
 const ZONE = "Europe/London"
 const timed = (id: string, start: string, end: string, extra: Record<string, unknown> = {}) => ({ id, summary: id, start: { dateTime: start }, end: { dateTime: end }, ...extra })
 
-describe("Google's events as Jelly reads them", () => {
-  it("keeps today's entries not yet ended, in UTC, earliest first, with only the fields Jelly reads", () => {
+describe("Google's events as the agenda carries them", () => {
+  it("keeps today's entries not yet ended, in UTC, earliest first, with only the fields the agenda carries", () => {
     const events = todayEvents(
       [
         timed("later", "2026-11-12T17:00:00+01:00", "2026-11-12T18:00:00+01:00", {
@@ -135,7 +133,7 @@ describe("Google's events as Jelly reads them", () => {
     expect(long?.location).toHaveLength(200)
   })
 
-  it("gives an id longer than Jelly reads as a stable digest", () => {
+  it("gives an id longer than the agenda carries as a stable digest", () => {
     const id = "a".repeat(300)
     const [first] = todayEvents([timed(id, "2026-11-12T16:00:00Z", "2026-11-12T17:00:00Z")], ZONE, NOW)
     const [again] = todayEvents([timed(id, "2026-11-12T16:00:00Z", "2026-11-12T17:00:00Z")], ZONE, NOW)
@@ -190,7 +188,7 @@ function fakeReader(accounts: Record<string, unknown> = { work: account({ servic
   return { reader, answers, calls, audited }
 }
 
-describe("calendar.today's answer", () => {
+describe("the agenda's answer", () => {
   it("reads the primary calendar's time zone, then today's events in its bounds", async () => {
     const { reader, answers, calls } = fakeReader()
     answers["calendar.calendars.get"] = { timeZone: "Asia/Kolkata" }
@@ -364,20 +362,12 @@ describe("calendar.today's answer", () => {
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
       const { reader, answers } = fakeReader()
       answers["calendar.calendars.get"] = NEVER
-      let handler: ((input: unknown, context: unknown) => Promise<unknown>) | undefined
-      const ctx = {
-        rpc: {
-          register: async (_contract: unknown, handlers: Record<string, typeof handler>) => {
-            handler = handlers["calendar.today"]
-            return { dispose: async () => {} }
-          },
-        },
-      }
-      await registerJellyRpc(ctx as never, reader as unknown as Runtime)
-      const context = { signal: new AbortController().signal, error: (type: string, message: string, data: unknown) => ({ type, message, data }) }
-      const answer = handler!({}, context)
+      const answer = calendarToday(reader, () => NOW)().then(
+        () => undefined,
+        (error: Error) => error,
+      )
       await vi.advanceTimersByTimeAsync(READ_DEADLINE_MS)
-      expect(await answer).toEqual({ type: "failed", message: expect.stringMatching(/^TIMEOUT: The calendar read did not finish within 8 seconds\. Next step: /), data: { code: "TIMEOUT", next: expect.any(String) } })
+      expect((await answer)?.message).toMatch(/^TIMEOUT: The calendar read did not finish within 8 seconds\. Next step: /)
     })
   })
 
@@ -408,7 +398,7 @@ describe("calendar.today's answer", () => {
       expect(answer.events[0]?.title).toHaveLength(200)
     }
     const kept = (await today()).events.length
-    expect(audited).toEqual(Array(3).fill({ event: "calendar.today", outcome: "success", account: "work", category: "read", omitted: 50 - kept }))
+    expect(audited).toEqual(Array(3).fill({ event: "calendar_today", outcome: "success", account: "work", category: "read", omitted: 50 - kept }))
   })
 
   it("fails with CALENDAR_UNAVAILABLE when no account enables calendar, or Google names no time zone", async () => {
@@ -421,7 +411,7 @@ describe("calendar.today's answer", () => {
   })
 })
 
-describe("calendar.today through the plugin's own read path, with a fake gws", () => {
+describe("the agenda through the plugin's own read path, with a fake gws", () => {
   const runtimes: Runtime[] = []
   afterEach(async () => {
     delete process.env["FAKE_GWS_RESPONSES"]
@@ -469,15 +459,11 @@ describe("the jelly declaration of calendar.today", () => {
   }
   const sources = (pkg as unknown as { sources: { items: { id: string; kind: string; tool: string; output?: string }[] } }).sources
 
-  it("is registered under the package's own name, which Jelly calls a view's methods on", () => {
-    expect(PACKAGE_NAME).toBe(pkg.name)
-  })
-
   it("declares the schemas the method registers", () => {
     const method = jelly.rpc.find((entry) => entry.name === "calendar.today")
     expect(method?.input).toEqual(TODAY_INPUT)
     expect(method?.output).toEqual(TODAY_OUTPUT)
-    // OpenCode 2.2.7 fails every call to a method whose schema uses `pattern` (Jelly's plugin authors' guide).
+    // A Jelly-style RPC refuses a method whose schema uses `pattern`, so the declared agenda keeps none.
     expect(JSON.stringify(TODAY_OUTPUT)).not.toContain("pattern")
   })
 

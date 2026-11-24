@@ -85,7 +85,7 @@ const ACCOUNTS = {
 } satisfies Record<string, GwsAccount>
 
 function status(accounts: readonly GwsAccount[], extra: Partial<GwsStatus> = {}): GwsStatus {
-  return { version: "1.2.3", host: { version: "2.2.3", range: ">=2.2.3 <2.4.0", tested: true }, state: "connected", access: "all", rpcCommits: false, nextStep: "Nothing to do.", gws: { path: "/fixture/gws", version: "gws 0.22.5" }, services: SERVICES, accounts: [...accounts], auditDegraded: false, unguardedAgents: [], ...extra }
+  return { version: "1.2.3", host: { version: "2.4.1", range: ">=2.4.1 <2.5.0", tested: true }, state: "connected", access: "all", rpcCommits: false, nextStep: "Nothing to do.", gws: { path: "/fixture/gws", version: "gws 0.22.5" }, services: SERVICES, accounts: [...accounts], auditDegraded: false, unguardedAgents: [], ...extra }
 }
 
 function fake({ location }: { readonly location: Location | undefined } = { location: LOCATION }) {
@@ -257,7 +257,7 @@ describe("status dialog", () => {
         "Permissions\nevery tool runs without asking, the six commit tools included (all)",
         "Script commits\noff: a script can plan a change but not commit it (rpcCommits)",
         "Agents without default rules\nnone",
-        "OpenCode\n2.2.3 (tested)",
+        "OpenCode\n2.4.1 (tested)",
         `Next step\nSign in: ${CONNECT}`,
       ].join("\n"),
     )
@@ -326,8 +326,8 @@ describe("status dialog", () => {
   })
 
   it("shows an untested host in the OpenCode row, and degraded audit", async () => {
-    const view = (await open(status([ACCOUNTS.signedIn], { host: { version: "2.4.0", range: ">=2.2.3 <2.4.0", tested: false }, auditDegraded: true }))).view()
-    expect(view).toContain("OpenCode\n2.4.0 (host untested; supported range >=2.2.3 <2.4.0)")
+    const view = (await open(status([ACCOUNTS.signedIn], { host: { version: "2.5.0", range: ">=2.4.1 <2.5.0", tested: false }, auditDegraded: true }))).view()
+    expect(view).toContain("OpenCode\n2.5.0 (host untested; supported range >=2.4.1 <2.5.0)")
     expect(view).toContain("Audit\nsome records could not be saved, so the audit log may be incomplete")
   })
 

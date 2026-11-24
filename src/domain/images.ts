@@ -2,11 +2,10 @@ import { GwsError } from "./errors.js"
 import type { PluginConfig } from "./types.js"
 
 /**
- * `images.read`, the read Jelly makes to draw a Google picture in an agent's UI, as pure logic: which addresses it
- * takes, which hosts may ever see the account's token, what the bytes are, and which account reads them.
+ * `images_read`, the image snapshot, as pure logic: which addresses it takes, which hosts may ever see the account's
+ * token, what the bytes are, and which account reads them.
  *
- * Jelly's contract (hey-jelly `protocol/contracts/src/agent-ui/routes.ts` `AgentUiImageReadSchema`): the answer is a
- * PNG, JPEG, GIF or WebP whose first bytes say so, at most 1 MB, never SVG.
+ * The answer is a PNG, JPEG, GIF or WebP whose first bytes say so, at most 1 MB, never SVG.
  */
 
 const DRIVE = "drive.google.com"
@@ -26,9 +25,9 @@ export const PICTURE_SERVERS = [
   "lh7-rt.googleusercontent.com",
   "lh7-us.googleusercontent.com",
 ] as const
-/** The hosts the declaration names (`jelly.imageHosts`), exactly: every host `images.read` takes, and no other. */
+/** The hosts the declaration names (`jelly.imageHosts`), exactly: every host `images_read` takes, and no other. */
 export const IMAGE_HOSTS = [DRIVE, ...PICTURE_SERVERS] as const
-/** Jelly's cap on one picture (`AGENT_UI_IMAGE_MAX_BYTES`). */
+/** The most one picture may take, in bytes. */
 export const IMAGE_MAX_BYTES = 1024 * 1024
 export const IMAGE_MIMES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const
 export type ImageMime = (typeof IMAGE_MIMES)[number]
@@ -109,7 +108,7 @@ export function sniffImage(bytes: Uint8Array): ImageMime | undefined {
   return undefined
 }
 
-/** The picture as Jelly takes it, or `IMAGE_TYPE_REFUSED` / `IMAGE_TOO_LARGE`. */
+/** The picture as the image output takes it, or `IMAGE_TYPE_REFUSED` / `IMAGE_TOO_LARGE`. */
 export function imageAnswer(bytes: Uint8Array): { mime: ImageMime; base64: string } {
   if (bytes.byteLength > IMAGE_MAX_BYTES) throw tooLarge()
   const mime = sniffImage(bytes)

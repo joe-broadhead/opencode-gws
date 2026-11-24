@@ -1,6 +1,6 @@
 # Architecture
 
-Unofficial plugin. Not affiliated with Google. Requires OpenCode 2.2.3 or a later 2.2 or 2.3 release (`>=2.2.3 <2.4.0`).
+Unofficial plugin. Not affiliated with Google. Requires OpenCode 2.4.1 or a later 2.4 release (`>=2.4.1 <2.5.0`).
 
 ```
 OpenCode
@@ -51,10 +51,8 @@ src/
     commands.ts     /gws-status, /gws-doctor
     rpc.ts          status implementation
     script-methods.ts tools RPC: every tool spec and source read as a method, for a script running as a session, on the source contract's transport
-    jelly-rpc.ts    the RPC named after the package, holding every method Jelly reads: calendar.today and images.read
-    deprecated.ts   calendar.today's deprecation note in status, until 0.1.0
-    calendar.ts     calendar.today, the read Jelly's native calendar makes
-    images.ts       images.read, the read Jelly makes to draw a Google picture in an agent's UI
+    calendar.ts     the agenda reader behind calendar_today
+    images.ts       the image reader behind images_read
   domain/           pure logic; imports only domain/
     contract.ts     tool schemas
     config.ts       options
@@ -63,8 +61,8 @@ src/
     errors.ts       the error table; the Errors section of docs/configuration.md is generated from it
     manifest.ts     catalog and coverage
     gmail.ts        what events_list takes from a message: noise, people, text
-    calendar.ts     today's calendar: the answering account, today's bounds, events in Jelly's shape
-    images.ts       pictures for Jelly: the address gate, the token hosts, the type from the bytes, the account
+    calendar.ts     today's calendar: the answering account, today's bounds, the agenda's shape
+    images.ts       pictures: the address gate, the token hosts, the type from the bytes, the account
   process/          the only spawn site; image-fetch.ts, the one HTTPS fetch of a picture
   auth/             OAuth client, form, setup, doctor; no host import
 ```
@@ -85,7 +83,7 @@ Only `index.ts`, `host/`, `rpc.ts`, and `tui.tsx` import `@opencode/plugin`. Onl
 
 ## Platform facts
 
-Facts about OpenCode 2.2 and 2.3 that this plugin relies on, and how each was checked. These hold on 2.2.3, 2.2.4, 2.2.5, 2.2.6, 2.2.7, 2.3.0, 2.3.1 and 2.3.2.
+Facts about OpenCode 2.4 that this plugin relies on, and how each was checked. These hold on 2.4.1.
 
 | Fact | How it was checked |
 | --- | --- |

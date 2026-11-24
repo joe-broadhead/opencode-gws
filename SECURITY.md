@@ -20,7 +20,7 @@ In scope: binary trust bypass; credential or environment isolation failure; a po
 
 | Boundary | Control |
 | --- | --- |
-| Packaged binary | Downloaded from the plugin's GitHub Release on first use and checked against the release manifest and [native/provenance.json](https://github.com/joe-broadhead/opencode-gws/blob/HEAD/native/provenance.json), not taken from `PATH`. Regular file, owner read and execute, no permission bits outside `0755`, SHA-256 from [native/provenance.json](https://github.com/joe-broadhead/opencode-gws/blob/HEAD/native/provenance.json), exact `gws 0.22.5`. |
+| Packaged binary | Downloaded from the plugin's GitHub Release on first use and checked against the release manifest and [native/provenance.json](https://github.com/we-the-rebel-alliance/gws-plugin/blob/master/native/provenance.json), not taken from `PATH`. Regular file, owner read and execute, no permission bits outside `0755`, SHA-256 from [native/provenance.json](https://github.com/we-the-rebel-alliance/gws-plugin/blob/master/native/provenance.json), exact `gws 0.22.5`. |
 | `binary.path` | Absolute path, `realpath`, regular executable, not group- or world-writable, outside the project, no world-writable ancestor, no ancestor writable by a foreign group. Exact version. No hash option. |
 | Child environment | Google credential variables are cleared, then the plugin sets only the token or credentials file for this call. `HOME` and XDG paths are a private directory. Ambient gcloud application-default credentials are not a fallback. |
 | Sign-in | Loopback redirect to `127.0.0.1`, PKCE S256, random state, single use. A host-supplied `redirectUri` changes only where Google sends the browser: the listener still binds `127.0.0.1:<callbackPort>`, accepts only the redirect's path, and checks state and PKCE. A Desktop client with a non-loopback redirect, and a Web client that does not list the redirect, are refused before the browser opens. Tokens and the client used at sign-in stay in OpenCode's credential store. The plugin writes no credential file. |
@@ -67,7 +67,7 @@ Deploy and watch are never committable. Admin needs `admin.enabled`, an allowed 
 
 ## Scripts
 
-The tools RPC (`google-workspace.gws.tools`, see [docs/scripting.md](https://github.com/joe-broadhead/opencode-gws/blob/HEAD/docs/scripting.md)) runs the plugin's tools for a script, with no model. It adds no authority:
+The tools RPC (`google-workspace.gws.tools`, see [docs/scripting.md](https://github.com/we-the-rebel-alliance/gws-plugin/blob/master/docs/scripting.md)) runs the plugin's tools for a script, with no model. It adds no authority:
 
 - A script names a session that names an agent, and runs as them. Every call resolves the method's action against that agent's rules and the session's own before anything runs, then the tool asserts the same action and resource as on the model path.
 - Only a resolved `allow` runs. An `ask` is refused, because no one is there to answer it, and a `deny` is refused; both cost no gws call and no prompt. The default block allows every method, so a script runs each method unless a rule says otherwise.

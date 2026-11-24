@@ -530,7 +530,7 @@ export async function authorizeGoogle(input: GoogleAuthorizeInput): Promise<Goog
 export async function refreshGoogle(input: GoogleRefreshInput): Promise<OAuthCredential> {
   const cannotRefresh = () =>
     new Error(`AUTH_REQUIRED: The Google Workspace sign-in for ${input.alias} cannot be refreshed. Next step: Run /connect, choose ${input.name}, and sign in again.`)
-  // Jelly's agent copy: the host renews the person's sign-in and puts the next copy in. Never send its sentinel to Google.
+  // A host's agent copy: the host renews the person's sign-in and puts the next copy in. Never send its sentinel to Google.
   if (isHostOwnedRefresh(input.credential)) throw cannotRefresh()
   const signIn = renewableSignIn(input.credential.metadata)
   if (!input.credential.refresh || !signIn) throw cannotRefresh()

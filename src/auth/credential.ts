@@ -13,7 +13,7 @@ import type { SignInIdentity } from "./identity.js"
  *
  * It is read two ways:
  * - **every call** reads it with `readSignIn`: the access level, the scopes, the email and the domain. The client is
- *   optional there, because a copy that cannot renew carries none of its secret: Jelly's copy of a person's sign-in
+ *   optional there, because a copy that cannot renew carries none of its secret: a host's copy of a person's sign-in
  *   for an agent (D210) keeps every metadata key but the secret-named ones, so `clientSecret` is left out.
  * - **a renewal** (`refreshGoogle`) and a new sign-in's reuse of the previous client read it with `renewableSignIn`,
  *   which needs the client ID and secret. Without them the sign-in is still read, but never renewed.
@@ -81,13 +81,13 @@ export function signInClient(metadata: RenewableSignIn): ClientChoice {
 }
 
 /**
- * The refresh token of Jelly's copy of a sign-in for an agent: the host keeps the real one, renews it in the person's
+ * The refresh token of a host's copy of a sign-in for an agent: the host keeps the real one, renews it in the person's
  * own engine, and puts the next copy in before this one claims to run out. A plugin that sees it never renews: it
  * asks for a new sign-in, without a network call.
  */
 export const HOST_OWNED_REFRESH = "jelly-host-owns-refresh"
 
-/** Whether the credential's renewal belongs to the host (Jelly's agent copy), not to this plugin. */
+/** Whether the credential's renewal belongs to the host (its agent copy), not to this plugin. */
 export function isHostOwnedRefresh(credential: { readonly refresh?: string }): boolean {
   return credential.refresh === HOST_OWNED_REFRESH
 }

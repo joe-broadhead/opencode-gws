@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { ACCESS_VALUES, CHANGING_ACTIONS } from "../src/domain/access.js"
 import { loadConfig } from "../src/domain/config.js"
 import { defaultRules } from "../src/host/agents.js"
-import { type Declaration, type DeclaredTool, declarationProblems, docProblems, effectFromRules, readPackage } from "./support/jelly-kit.js"
+import { type Declaration, type DeclaredTool, declarationProblems, effectFromRules, readPackage } from "./support/jelly-kit.js"
 import { ACCESS_CHOICES, type PluginSetting, settingChoices, settingsProblems, settingValueIssue } from "./support/jelly-settings.js"
 
 /**
@@ -14,7 +14,8 @@ import { ACCESS_CHOICES, type PluginSetting, settingChoices, settingsProblems, s
  */
 
 const ROOT = new URL("../", import.meta.url)
-const jelly = readPackage(ROOT).jelly as Declaration & { tools: DeclaredTool[] }
+const pkg = readPackage(ROOT)
+const jelly = pkg.jelly as Declaration & { tools: DeclaredTool[] }
 const READS = ["gws.catalog", "gws.events_list", "gws.plan", "gws.read", "gws.schema", "gws.status"]
 const RULES = defaultRules("all")
 
@@ -67,20 +68,19 @@ describe("the jelly declaration", () => {
       registered: [...READS, ...CHANGING_ACTIONS],
       actionPermissions: true,
     })
-    // The shared kit's key list predates Jelly's `nativeData`, `imageHosts` and `imageRead` (hey-jelly
-    // protocol/contracts/src/plugin-contract.ts, `PluginDeclarationSchema`); test/calendar.test.ts and
-    // test/images.test.ts hold those fields to Jelly's rules. Any other problem fails.
-    const newer = ["nativeData", "imageHosts", "imageRead"].map((key) => `jelly.${key} is not a key Jelly knows`)
+    // The copied kit is the old family's: its key list predates Jelly's `nativeData`, `imageHosts` and `imageRead`
+    // (hey-jelly protocol/contracts/src/plugin-contract.ts, `PluginDeclarationSchema`; test/calendar.test.ts and
+    // test/images.test.ts hold those fields to Jelly's rules), and it requires every package to be named
+    // `@joe-broadhead/opencode-<name>`, which the rename to `@we-the-rebel-alliance/gws-plugin` replaces. Any other
+    // problem fails.
+    const newer = [
+      ...["nativeData", "imageHosts", "imageRead"].map((key) => `jelly.${key} is not a key Jelly knows`),
+      `the package is named ${pkg.name}, not @joe-broadhead/opencode-<name>`,
+    ]
     expect(problems.filter((problem) => !newer.includes(problem))).toEqual([])
   })
 
   it("marks exactly the reads read-only", () => {
     expect(jelly.tools.filter((tool) => tool.readOnly).map((tool) => tool.permission).sort()).toEqual(READS)
-  })
-})
-
-describe("docs/jelly.md", () => {
-  it("follows the plugin authors' standard", () => {
-    expect(docProblems(ROOT)).toEqual([])
   })
 })

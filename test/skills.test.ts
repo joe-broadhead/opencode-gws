@@ -65,7 +65,10 @@ describe("two skills", () => {
       expect(dir).toMatch(/^opencode-gws(-[a-z0-9]+)*$/)
       expect(dir.length).toBeLessThanOrEqual(64)
       expect(frontmatter(text)).toMatch(new RegExp(`^name: ${dir}$`, "m"))
-      expect(frontmatter(text)).toMatch(/^description: .*\b(Use|Load) (when|for|only|before)\b/m)
+      // The fixed-context budget: one description line, at most 300 characters (the plugin standard).
+      const description = /^description: (.*)$/m.exec(frontmatter(text))?.[1]
+      expect(description, dir).toBeTruthy()
+      expect(description!.length, dir).toBeLessThanOrEqual(300)
     }
   })
 

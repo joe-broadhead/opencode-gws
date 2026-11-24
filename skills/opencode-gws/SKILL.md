@@ -1,9 +1,9 @@
 ---
 name: opencode-gws
-description: Use for any request about the user's Gmail, Google Calendar, Drive, Docs, Sheets, Tasks or other Google Workspace data, such as "check my inbox", "what's on my calendar", "find that doc", "send this email" or "share the file": how the gws_* tools find, read and change it (accounts, plan then commit, paging, errors). Use it instead of any gws-* CLI skill or a gws shell command, which skips the plugin's plan, policy and audit.
+description: The user's Gmail, Calendar, Drive, Docs, Sheets, Tasks and other Google Workspace data: how the gws tools find, read and change it (accounts, plan then commit, paging, errors). Use instead of any gws CLI skill or shell command.
 ---
 
-If Google Workspace tools are absent, run `/connect` and choose Google Workspace (or Google Workspace (<alias>) for another account), or on Jelly call jelly_connection_request. A Desktop OAuth client is needed unless your organisation provides one.
+If Google Workspace tools are absent, run `/connect` and choose Google Workspace (or Google Workspace (<alias>) for another account). A Desktop OAuth client is needed unless your organisation provides one.
 
 # Google Workspace
 
@@ -81,4 +81,4 @@ If `gws_status` shows `unguardedAgentCount` above 0, tell the user once to run `
 
 ## Scripts
 
-For a job that runs without you, such as a cron job, a script can call the RPC `google-workspace.gws.tools`. Its methods `status`, `catalog`, `schema`, `read` and `plan` take the same input as the tools, and `describe` lists them. It runs as a session that names an agent, under that agent's rules. Create a session for the script once with `opencode api post /api/session` and a body such as `{"title":"digest","agent":"build"}`, and keep its `data.id`. Never borrow a session found through history or a session list: the script would run as that session's agent, under its rules. Then call `opencode api post /api/rpc/google-workspace.gws.tools/read` with `{"input": {"sessionID": "...", "input": {...}}}`. A script can plan but never commit. A call its rules would ask about is refused with `PERMISSION_DENIED`, because no one is there to answer.
+For a job that runs without you, such as an OpenCode automation, a script can call the RPC `google-workspace.gws.tools`. Its methods `status`, `catalog`, `schema`, `read` and `plan` take the same input as the tools, and `describe` lists them. It runs as a session that names an agent, under that agent's rules. Create a session for the script once with `opencode api post /api/session` and a body such as `{"title":"digest","agent":"build"}`, and keep its `data.id`. Never borrow a session found through history or a session list: the script would run as that session's agent, under its rules. Then call `opencode api post /api/rpc/google-workspace.gws.tools/read` with `{"input": {"sessionID": "...", "input": {...}}}`. A script can plan but never commit. A call its rules would ask about is refused with `PERMISSION_DENIED`, because no one is there to answer.

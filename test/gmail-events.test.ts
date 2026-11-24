@@ -140,7 +140,7 @@ describe("gws_events_list keeps the source contract", () => {
 
   it("names the source and account on an empty first page, and refuses a source it does not serve or a scope Gmail does not take", async () => {
     const { list } = await harness()
-    expect(await list({ since: "2026-12-01T00:00:00Z" })).toMatchObject({ source: "gmail", account: "personal", owner: OWNER, events: [], more: false, plugin: "@joe-broadhead/opencode-gws" })
+    expect(await list({ since: "2026-12-01T00:00:00Z" })).toMatchObject({ source: "gmail", account: "personal", owner: OWNER, events: [], more: false, plugin: "@we-the-rebel-alliance/gws-plugin" })
     await expect(list({ since: SINCE, source: "drive" })).rejects.toThrow(
       /^SOURCE_UNKNOWN: The source 'drive' is not one events_list serves\. Next step: Call events_list without source, or with source "gmail" or "calendar"\.$/,
     )
@@ -324,12 +324,13 @@ describe("accounts and cursors", () => {
     await expect(list({ cursor: forged, account: "personal" })).rejects.toThrow(/^CURSOR_INVALID:/)
   })
 
-  it("reads a contract 1 cursor of the same mailbox for one release, and answers a bound one", async () => {
+  it("refuses a contract 1 cursor of the same mailbox, and continues a bound one", async () => {
     const { list } = await harness()
     const first = await list({ since: SINCE })
     const { v: _v, s: _s, b: _b, ...kept } = decodedState(first.cursor)
     const legacy = encodeCursor(GMAIL_SOURCE, kept)
-    const next = await list({ cursor: legacy })
+    await expect(list({ cursor: legacy })).rejects.toThrow(/^CURSOR_INVALID:/)
+    const next = await list({ cursor: first.cursor })
     expect(next).toMatchObject({ events: [], more: false })
     expect(decodedState(next.cursor)["v"]).toBe(2)
   })

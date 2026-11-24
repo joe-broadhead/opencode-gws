@@ -20,10 +20,10 @@
   ],
   "plugins": [
     {
-      "package": "@joe-broadhead/opencode-gws"
+      "package": "@we-the-rebel-alliance/gws-plugin"
     },
     {
-      "package": "@joe-broadhead/opencode-gws",
+      "package": "@we-the-rebel-alliance/gws-plugin",
       "options": {
         "accounts": {
           "work": {

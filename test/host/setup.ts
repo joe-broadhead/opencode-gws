@@ -5,7 +5,6 @@ import { installNetworkGuard } from "./network.js"
 
 // Runs before tests import plugin contracts or the SDK. Remove provider keys,
 // proxy settings and credential paths, not just OPENCODE-prefixed variables.
-const sdkOverride = process.env.HOST_SDK_DIR
 // The stock OpenCode binaries and the CI flag are read by the stock gate, so they are kept before the clear below.
 // Without this, every stock test skipped silently, even on a laptop with the binaries set.
 export const inherited = {
@@ -22,7 +21,6 @@ Object.assign(process.env, {
   XDG_STATE_HOME: join(root, "state"), XDG_CACHE_HOME: join(root, "cache"),
   TMPDIR: join(root, "tmp"), TMP: join(root, "tmp"), TEMP: join(root, "tmp"),
   LANG: "en_US.UTF-8", TZ: "UTC", NODE_ENV: "test",
-  ...(sdkOverride ? { HOST_SDK_DIR: sdkOverride } : {}),
 })
 for (const name of ["home", "config", "data", "state", "cache", "tmp"]) mkdirSync(join(root, name))
 export const network = installNetworkGuard()

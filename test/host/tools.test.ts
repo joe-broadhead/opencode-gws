@@ -49,8 +49,9 @@ describe("the twelve tools", () => {
     const offered = d.host.model.requests.at(-1)!
     expect(offered.tools).toEqual(expect.arrayContaining(["gws_read", ...COMMITS.map((category) => `gws_${category}`)]))
     expect(offered.tools).not.toEqual(expect.arrayContaining(["gws_plan", "gws_catalog"]))
-    expect(offered.system).toContain('search({ namespace: "gws", query })')
-    expect(offered.system).toContain("opencode-gws")
+    // The namespace line the model receives, and the skill it points at for everyday requests.
+    expect(offered.system).toContain("The user's Google Workspace")
+    expect(offered.system).toContain("opencode-gws-recipes")
   })
 
   it("runs status, catalog, schema, read, and plan, with only the read and the dry run reaching gws", async () => {

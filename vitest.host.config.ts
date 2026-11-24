@@ -2,8 +2,8 @@ import { defineConfig } from "vitest/config"
 
 /**
  * Host integration suite: the real OpenCode runtime embedded in-process via
- * the `@opencode/sdk` dev dependency (Node >= 24). Run with
- * `npm run test:host`; set HOST_SDK_DIR to run it on another SDK version.
+ * the `@opencode/sdk` 2.4.1 dev dependency (Node >= 24). Run with
+ * `npm run test:host`.
  */
 export default defineConfig({
   test: {

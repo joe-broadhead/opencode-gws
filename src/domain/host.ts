@@ -4,13 +4,13 @@
  */
 
 /** The supported OpenCode line; equal to package.json `opencode.host`. */
-export const HOST_RANGE = ">=2.2.3 <2.4.0"
+export const HOST_RANGE = ">=2.4.1 <2.5.0"
 
 /**
  * The OpenCode releases the checks run on (the host, pack and stock stages).
  * The one list: scripts/pack-smoke.mjs reads it from this file.
  */
-export const TESTED_HOSTS: readonly string[] = ["2.2.3", "2.2.4", "2.2.5", "2.2.6", "2.2.7", "2.3.0", "2.3.1", "2.3.2"]
+export const TESTED_HOSTS: readonly string[] = ["2.4.1"]
 
 /** The host as status reports it. */
 export interface HostCheck {
@@ -48,7 +48,7 @@ function satisfies(version: string, range: string): boolean {
   return compare(triple, floor) >= 0 && compare(triple, ceiling) < 0
 }
 
-/** The minor lines a range spans, as prose: `2.2 or 2.3` for `>=2.2.3 <2.4.0`, `2.2` for `>=2.2.3 <2.3.0`. */
+/** The minor lines a range spans, as prose: `2.4` for `>=2.4.1 <2.5.0`. */
 function lines(floor: Triple, ceiling: Triple): string {
   const last = ceiling[0] === floor[0] && ceiling[2] === 0 ? ceiling[1] - 1 : floor[1]
   const minors = Array.from({ length: Math.max(1, last - floor[1] + 1) }, (_, i) => `${floor[0]}.${floor[1] + i}`)

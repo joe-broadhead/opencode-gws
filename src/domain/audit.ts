@@ -3,7 +3,7 @@ import { dirname } from "node:path"
 import { GwsError, isErrorCode } from "./errors.js"
 import { commandIndex } from "./manifest.js"
 
-const EVENTS = new Set(["plugin.loaded", "operation.read", "helper.read", "operation.plan", "operation.commit", "calendar.today", "images.read"])
+const EVENTS = new Set(["plugin.loaded", "operation.read", "helper.read", "operation.plan", "operation.commit", "calendar_today", "images_read"])
 const CATEGORIES = new Set(["read", "write", "send", "share", "delete", "export", "admin"])
 /** Recorded for an error that is not a plugin error. */
 const UNKNOWN_ERROR = "UNKNOWN_ERROR"
@@ -23,7 +23,7 @@ interface AuditEvent {
   errorCode?: string
   /** `rpc` for a read, plan or commit a script made through the tools RPC; absent for a tool call. */
   caller?: "rpc"
-  /** `calendar.today`: how many of today's events were left out so the answer fits Jelly's 64 KB. */
+  /** `calendar_today`: how many of today's events were left out so the answer fits the agenda snapshot's cap. */
   omitted?: number
 }
 

@@ -6,7 +6,6 @@ import type { PluginMethod, ToolCall } from "@we-the-rebel-alliance/source-contr
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { EventsListOutput } from "../src/domain/contract.js"
 import { GwsError } from "../src/domain/errors.js"
-import { deprecatedNote, markCalendarTodayCalled, resetDeprecated } from "../src/host/deprecated.js"
 import type { PermissionRequest } from "../src/host/permissions.js"
 import { scriptMethods } from "../src/host/script-methods.js"
 import { SHEETS_MAX_BYTES, SHEETS_OPERATION } from "../src/host/sheets.js"
@@ -18,7 +17,7 @@ import { account, fakeTokens, testRuntime } from "./support/config.js"
 /**
  * The source contract's reads that are tools RPC methods only, beyond what the conformance kit proves
  * (test/source-conformance.test.ts): probe's refusals and scopes, events_list's Calendar source across syncs,
- * calendar_today's, images_read's and sheets_read's limits and refusals, and the deprecation of Jelly's old calendar.today.
+ * calendar_today's, images_read's and sheets_read's limits and refusals.
  */
 
 const CALENDAR = fileURLToPath(new URL("./fixtures/calendar-events.json", import.meta.url))
@@ -37,7 +36,6 @@ afterEach(async () => {
   for (const name of ["FAKE_GWS_CALENDAR", "FAKE_GWS_RESPONSES", "FAKE_GWS_OUTPUT_FILE", "FAKE_GWS_LOG"]) delete process.env[name]
   for (const runtime of runtimes.splice(0)) await runtime.close()
   rmSync(dir, { recursive: true, force: true })
-  resetDeprecated()
 })
 
 type Signed = { alias: string; connected: boolean; email?: string; grantedScopes?: string[] }
@@ -412,15 +410,5 @@ describe("sheets_read", () => {
     } finally {
       mock.mockRestore()
     }
-  })
-})
-
-describe("Jelly's calendar.today", () => {
-  it("is named in status once it is called, with the method to use instead", () => {
-    expect(deprecatedNote()).toBeUndefined()
-    markCalendarTodayCalled()
-    expect(deprecatedNote()).toBe(
-      "Deprecated method called: calendar.today on @joe-broadhead/opencode-gws. Use calendar_today on google-workspace.gws.tools instead; the old method works until 0.1.0.",
-    )
   })
 })

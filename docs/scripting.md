@@ -2,7 +2,7 @@
 
 Unofficial plugin. Not affiliated with Google.
 
-A script can call the gws tools with no model: a cron job, a shell script, or any program that can reach the OpenCode
+A script can call the gws tools with no model: an OpenCode automation, a shell script, or any program that can reach the OpenCode
 server. It uses the tools RPC, `google-workspace.gws.tools`, through `opencode api` or an OpenCode client.
 
 Each read tool is a method, with the same name, input and output. A `gws_read` call and the `read` method with the same

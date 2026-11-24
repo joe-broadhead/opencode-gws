@@ -4,10 +4,9 @@ import { fetchImage } from "../process/image-fetch.js"
 import type { Runtime } from "../runtime/index.js"
 
 /**
- * `images.read`, the read Jelly makes to draw a Google picture in an agent's UI (hey-jelly
- * `backend/host/src/agent-ui/image-route.ts`). Jelly sends the element's address, `{ url }`, only to the plugin whose
- * `imageHosts` name its host, after judging the declared permission, `gws.read`, against the agent's rules: an RPC
- * call carries no session, so the plugin cannot ask itself. Jelly never sees the token.
+ * `images_read`, the contract's image snapshot: one Google picture, as a data URI, for a consumer that draws it. The
+ * tools RPC method `images_read` (`./sources.ts`) checks the plugin's own permissions before the read; the account's
+ * token never leaves this process, and the answer carries no address.
  *
  * - A Drive link (`drive.google.com`) is never fetched. Its file id is read through gws, as the account: the file's
  *   `mimeType`, `size` and `thumbnailLink`, then, for a PNG, JPEG, GIF or WebP of at most 1 MB, its bytes
@@ -20,12 +19,12 @@ import type { Runtime } from "../runtime/index.js"
  * - Nothing is kept: no bytes in memory after the call, and no address in an error, a log or the audit.
  */
 
-/** The read's own deadline, inside Jelly's ten seconds. */
+/** The read's own deadline, so a slow picture still answers in time. */
 export const IMAGE_DEADLINE_MS = 8_000
 /** How many pictures are read at once; one more is `IMAGE_UNAVAILABLE`, so a UI of hundreds cannot flood Google. */
 export const IMAGE_CONCURRENCY = 4
 
-/** The method's declared schemas; `package.json` `jelly.rpc` carries the same two (test/images.test.ts). */
+/** The tools RPC method's declared schemas; `package.json` `jelly.rpc` still carries the picture's own two (test/images.test.ts). */
 export const IMAGE_INPUT = {
   type: "object",
   additionalProperties: false,
@@ -57,7 +56,7 @@ export interface ImagesOptions {
 /**
  * How one read runs as the image source (`images_read` on the tools RPC) asks: as a named account rather than the one
  * the address picks, with the source's own permission check before the Drive read, and told which account read it.
- * Jelly's `images.read` passes none of these.
+ * The snapshot always passes them; a direct caller may pass none.
  */
 export interface ImageReadAs {
   /** Read a Drive file as this account, through its sign-in. */
@@ -74,7 +73,7 @@ export interface ImageReadAs {
   readonly onAccount?: (account: string) => void
 }
 
-/** `images.read` over `runtime`, as the module says. */
+/** `images_read` over `runtime`, as the module says. */
 export function imagesRead(runtime: Reader, options: ImagesOptions = {}) {
   let active = 0
 
@@ -118,7 +117,7 @@ export function imagesRead(runtime: Reader, options: ImagesOptions = {}) {
     const started = Date.now()
     let account: string | undefined
     const audit = (outcome: "success" | "error", errorCode?: string) =>
-      runtime.audit?.emit({ event: "images.read", outcome, account, category: "read", durationMs: Date.now() - started, caller: "rpc", ...(errorCode ? { errorCode } : {}) })
+      runtime.audit?.emit({ event: "images_read", outcome, account, category: "read", durationMs: Date.now() - started, caller: "rpc", ...(errorCode ? { errorCode } : {}) })
     if (active >= IMAGE_CONCURRENCY) {
       audit("error", "IMAGE_UNAVAILABLE")
       throw new GwsError("IMAGE_UNAVAILABLE", `${IMAGE_CONCURRENCY} pictures are already being read`, { next: "Retry in a moment." })
