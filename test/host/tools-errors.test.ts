@@ -5,7 +5,7 @@ import { REPO } from "./harness.js"
 import { call, codeMode, driver, turn, type Driver } from "./tools-driver.js"
 
 /**
- * How a plugin error reaches the model on 2.2.3. After a direct call the
+ * How a plugin error reaches the model on 2.4.1. After a direct call the
  * model reads `{"error":{"type":"tool.execution","message": "CODE: what
  * happened. Next step: What to do."}}`. A Code Mode program catches an Error
  * whose message is that text, with no metadata; uncaught, the text is the
@@ -18,7 +18,7 @@ import { call, codeMode, driver, turn, type Driver } from "./tools-driver.js"
  * The host keeps that metadata only when it recognizes the plugin's
  * Tool.Error class. An embedded host whose SDK is the version installed in
  * this repository shares the plugin's @opencode/plugin, so it does. An
- * embedded host of another version (HOST_SDK_DIR, for example 2.2.4) does
+ * embedded host of this version does
  * not supply its own copy to the plugin: it sees a foreign class, labels
  * the error "unknown", keeps the message, and drops the metadata.
  *

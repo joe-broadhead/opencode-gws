@@ -119,7 +119,7 @@ async function setup(
 const run = (h: Harness, name: string, delivery = "steer") => h.commands.get(name)!.execute({ sessionID: "ses_1", prompt: { text: "" }, delivery })
 
 /** A tested host, as status reports it. */
-const TESTED = { version: "2.2.3", range: ">=2.2.3 <2.4.0", tested: true }
+const TESTED = { version: "2.4.1", range: ">=2.4.1 <2.5.0", tested: true }
 
 describe("commands", () => {
   it("registers only /gws-status, /gws-doctor and /gws-install", async () => {
@@ -174,7 +174,7 @@ describe("/gws-status", () => {
     const rows = ["Connection:", "Tools:", "Agents without default rules:", "OpenCode:", "Next step:"].map((row) => text.indexOf(row))
     expect(rows).toEqual([...rows].sort((a, b) => a - b))
     expect(text.match(/Next step:/g)).toHaveLength(1)
-    expect(text).toMatch(/OpenCode: 2\.2\.3 \(tested\)\nNext step: personal: To sign in again, run \/connect and choose Google Workspace \(personal\), or run opencode auth login gws-personal, and approve every scope Google lists\.$/)
+    expect(text).toMatch(/OpenCode: 2\.4\.1 \(tested\)\nNext step: personal: To sign in again, run \/connect and choose Google Workspace \(personal\), or run opencode auth login gws-personal, and approve every scope Google lists\.$/)
     expect(text).not.toMatch(/\*\*|`/)
     for (const secret of [STORED_TOKEN, TEST_CLIENT.clientSecret]) expect(JSON.stringify(h.synthetic)).not.toContain(secret)
   })
@@ -190,9 +190,9 @@ describe("/gws-status", () => {
   })
 
   it("says Nothing to do. and marks an untested host", () => {
-    const status: GwsStatus = { version: "1", host: { version: "2.4.0", range: ">=2.2.3 <2.4.0", tested: false }, state: "connected", access: "all", rpcCommits: false, nextStep: "Nothing to do.", gws: { path: "/bin/gws", version: "gws 0.22.5" }, services: [], accounts: [], unguardedAgents: [] }
+    const status: GwsStatus = { version: "1", host: { version: "2.5.0", range: ">=2.4.1 <2.5.0", tested: false }, state: "connected", access: "all", rpcCommits: false, nextStep: "Nothing to do.", gws: { path: "/bin/gws", version: "gws 0.22.5" }, services: [], accounts: [], unguardedAgents: [] }
     const text = formatStatus(status)
-    expect(text).toContain("OpenCode: 2.4.0 (host untested; supported range >=2.2.3 <2.4.0)")
+    expect(text).toContain("OpenCode: 2.5.0 (host untested; supported range >=2.4.1 <2.5.0)")
     expect(text).toMatch(/Next step: Nothing to do\.$/)
   })
 

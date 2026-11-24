@@ -37,7 +37,7 @@ describe("main package", () => {
 
   it("states the tested host line and has no lifecycle scripts", () => {
     expect(pkg.opencode).toMatchObject({
-      host: ">=2.2.3 <2.4.0",
+      host: ">=2.4.1 <2.5.0",
       vendor: { id: "google-workspace", name: "Google Workspace", domain: "workspace.google.com" },
       icons: [
         { src: "assets/icon.svg", mimeType: "image/svg+xml", sizes: ["any"] },
@@ -78,12 +78,16 @@ describe("main package", () => {
     ])
   })
 
-  it("pins every dev dependency exactly, with the OpenCode SDKs at 2.2.3", () => {
-    // The source contract is a tagged GitHub Release, not an npm version: pinned by its tag, and by its commit in the lockfile.
+  it("pins every dev dependency exactly, with the OpenCode SDKs and effect at 2.4.1 and 4.1.0", () => {
+    // The source contract is a GitHub commit, not an npm version: the v0.3.0 release's tag no longer exists, so the
+    // dependency names that release's commit, which the lockfile pins to the same one.
     const exact = (name: string, version: string) =>
-      /^\d+\.\d+\.\d+$/.test(version) || (name === "@we-the-rebel-alliance/source-contract" && /^github:we-the-rebel-alliance\/source-contract#v\d+\.\d+\.\d+$/.test(version))
+      /^\d+\.\d+\.\d+$/.test(version) ||
+      (name === "@we-the-rebel-alliance/source-contract" && /^github:we-the-rebel-alliance\/source-contract#[0-9a-f]{40}$/.test(version))
     expect(Object.entries(pkg.devDependencies).filter(([name, version]) => !exact(name, version as string))).toEqual([])
-    for (const name of ["@opencode/plugin", "@opencode/sdk", "@opencode/client"]) expect(pkg.devDependencies[name], name).toBe("2.2.3")
+    for (const name of ["@opencode/plugin", "@opencode/sdk", "@opencode/client"]) expect(pkg.devDependencies[name], name).toBe("2.4.1")
+    // @opencode/client 2.4.1's optional peer is effect 4.1.0, so the tree pins the same release.
+    expect(pkg.devDependencies.effect).toBe("4.1.0")
   })
 })
 

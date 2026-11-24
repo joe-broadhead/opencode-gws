@@ -183,22 +183,17 @@ describe("the calendar horizon", () => {
     expect(result.events[0]).toMatchObject({ external_id: "evt-cancelled", occurred_at: "2026-11-01T08:00:00.000Z", kind: "meeting", labels: ["cancelled"], actors: [], text: "" })
   })
 
-  it("reads a v0.0.8 cursor safely: no refusal, and a fresh window no older than the first run", async () => {
+  it("refuses a cursor with a sync token and no checkpoint, and starts a fresh first window only from since", async () => {
     const digest = createHash("sha256").update(CALENDAR).digest("hex").slice(0, 16)
     const binding = { plugin: "gws", source: "calendar", account: ACCOUNT, scope: { calendars: ["primary"] } }
-    // 0.0.8's cursor after it adopted Google's sync token: a sync token, no window, and t naming a 2040 instance.
     const syncToken = encodeBoundCursor(binding, { a: ACCOUNT, o: digest, y: "CPDAlphabeticalSyncToken", w: 0, t: Date.parse("2040-12-31T00:00:00Z"), n: 0 })
     const { runtime, calls } = google(weekly())
-    const result = await list(runtime, { cursor: syncToken }, NOW)
+    await expect(list(runtime, { cursor: syncToken }, NOW)).rejects.toThrow(/^CURSOR_INVALID:/)
+    expect(calls).toHaveLength(0)
+    const fresh = await list(runtime, {}, NOW)
     expect(calls[0]).toMatchObject({ timeMin: iso(NOW - FIRST_RUN), timeMax: iso(NOW + HORIZON + 1) })
-    expect(result.gap).toBeUndefined()
-    expect(ids(result.events)).toEqual(["weekly_2026-11-02"])
-
-    // 0.0.8's cursor during its full sync: it names a window this cursor cannot resume, so the read starts fresh too.
-    const fullSync = encodeBoundCursor(binding, { a: ACCOUNT, o: digest, y: "", w: Date.parse("2026-10-25T00:00:00Z"), t: Date.parse("2040-12-31T00:00:00Z"), n: 0 })
-    const resumed = await list(runtime, { cursor: fullSync }, NOW)
-    expect(calls[1]).toMatchObject({ timeMin: iso(NOW - FIRST_RUN), timeMax: iso(NOW + HORIZON + 1) })
-    expect(ids(resumed.events)).toEqual(["weekly_2026-11-02"])
+    expect(fresh.gap).toBeUndefined()
+    expect(ids(fresh.events)).toEqual(["weekly_2026-11-02"])
   })
 
   it("emits only kinds the declaration's reads name", async () => {
@@ -340,15 +335,17 @@ describe("the window", () => {
     expect(second.cursor.length).toBeLessThan(200)
   })
 
-  it("reads a 0.0.8 cursor as a fresh 24 hours even when since is much older", async () => {
+  it("refuses a cursor with no window and no opening time, so the next call starts from since", async () => {
     const digest = createHash("sha256").update(CALENDAR).digest("hex").slice(0, 16)
     const binding = { plugin: "gws", source: "calendar", account: ACCOUNT, scope: { calendars: ["primary"] } }
-    const syncToken = encodeBoundCursor(binding, { a: ACCOUNT, o: digest, y: "CPDAlphabeticalSyncToken", w: 0, t: Date.parse("2040-12-31T00:00:00Z"), n: 0 })
+    const bare = encodeBoundCursor(binding, { a: ACCOUNT, o: digest, g: 1, n: 0 })
     const { runtime, calls } = google([meeting("evt-in-window", iso(NOW - HOUR))])
-    const result = await list(runtime, { cursor: syncToken, since: Date.parse("2020-01-01T00:00:00Z") }, NOW)
-    // The cursor wins over since: a 0.0.8 token names no window to resume, so the first run's 24 hours is the floor.
-    expect(calls[0]).toMatchObject({ timeMin: iso(NOW - FIRST_RUN), timeMax: iso(NOW + HORIZON + 1) })
-    expect(ids(result.events)).toEqual(["evt-in-window"])
+    await expect(list(runtime, { cursor: bare, since: Date.parse("2020-01-01T00:00:00Z") }, NOW)).rejects.toThrow(/^CURSOR_INVALID:/)
+    expect(calls).toHaveLength(0)
+    // Without a cursor, since starts the window; only a fresh call with no since starts the first run's 24 hours.
+    const fresh = await list(runtime, { since: Date.parse("2020-01-01T00:00:00Z") }, NOW)
+    expect(calls[0]).toMatchObject({ timeMin: iso(Date.parse("2020-01-01T00:00:00Z")), timeMax: iso(NOW + HORIZON + 1) })
+    expect(ids(fresh.events)).toEqual(["evt-in-window"])
   })
 })
 
@@ -579,44 +576,22 @@ describe("cursor checkpoints", () => {
     expect(decoded.ok && decoded.state["f"]).toMatch(/^[0-9a-f]{32}$/)
   })
 
-  it("restarts a 0.0.12 open cursor from its saved bounds without reading its offset", async () => {
+  it("refuses a cursor without the checkpoint version, and one whose intra-page offset has no fingerprint", async () => {
     const digest = createHash("sha256").update(CALENDAR).digest("hex").slice(0, 16)
-    // 0.0.12's open cursor: bounds, page token and an intra-page offset, but no checkpoint version.
-    const old = encodeBoundCursor(BINDING, {
-      a: ACCOUNT,
-      o: digest,
-      w: NOW - 4 * HOUR,
-      x: NOW + HORIZON + 1,
-      i: NOW,
-      p: "0",
-      n: 1,
-    })
-    const { runtime, calls } = pagedGoogle([meeting("evt_a", iso(NOW - 3 * HOUR)), meeting("evt_b", iso(NOW - 2 * HOUR))])
-    const first = await list(runtime, { cursor: old }, NOW)
-    expect(first.events).toEqual([])
-    expect(first.more).toBe(true)
+    const unversioned = encodeBoundCursor(BINDING, { a: ACCOUNT, o: digest, w: NOW - 4 * HOUR, x: NOW + HORIZON + 1, i: NOW, p: "0", n: 1 })
+    const noFingerprint = encodeBoundCursor(BINDING, { a: ACCOUNT, o: digest, g: 1, w: NOW - HOUR, x: NOW + HORIZON + 1, i: NOW, n: 1 })
+    const { runtime, calls } = pagedGoogle([meeting("evt_a", iso(NOW - 3 * HOUR))])
+    for (const cursor of [unversioned, noFingerprint]) await expect(list(runtime, { cursor }, NOW)).rejects.toThrow(/^CURSOR_INVALID:/)
     expect(calls).toHaveLength(0)
-    const restart = decodeBoundCursor(BINDING, first.cursor)
-    expect(restart.ok && restart.state["n"]).toBe(0)
-    expect(restart.ok && restart.state["p"]).toBeUndefined()
-    expect(restart.ok && restart.state["g"]).toBe(1)
-    expect(restart.ok && restart.state["c"]).toBeUndefined()
-    const second = await list(runtime, { cursor: first.cursor }, NOW)
-    expect(calls[0]).toMatchObject({ timeMin: iso(NOW - 4 * HOUR), timeMax: iso(NOW + HORIZON + 1) })
-    expect(ids(second.events)).toEqual(["evt_a", "evt_b"])
   })
 
-  it("keeps a legacy finished cursor's r anchor and restarts a checkpoint without a fingerprint", async () => {
+  it("starts the window after a finished cursor an hour before the time it opened", async () => {
     const digest = createHash("sha256").update(CALENDAR).digest("hex").slice(0, 16)
-    const legacy = encodeBoundCursor(BINDING, { a: ACCOUNT, o: digest, r: NOW })
+    const finished = encodeBoundCursor(BINDING, { a: ACCOUNT, o: digest, g: 1, r: NOW })
     const { runtime, calls } = pagedGoogle([])
-    const next = await list(runtime, { cursor: legacy }, NOW + HOUR)
+    const next = await list(runtime, { cursor: finished }, NOW + HOUR)
     expect(calls[0]).toMatchObject({ timeMin: iso(NOW - HOUR), timeMax: iso(NOW + HOUR + HORIZON + 1) })
     expect(next.events).toEqual([])
-    const noFingerprint = encodeBoundCursor(BINDING, { a: ACCOUNT, o: digest, g: 1, w: NOW - HOUR, x: NOW + HORIZON + 1, i: NOW, n: 1 })
-    const restarted = await list(runtime, { cursor: noFingerprint }, NOW)
-    expect(restarted.events).toEqual([])
-    expect(restarted.more).toBe(true)
   })
 
   it("refuses another checkpoint version, a malformed fingerprint and an over-bound restart count", async () => {

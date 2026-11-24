@@ -140,7 +140,7 @@ describe("scope preflight with a read-only sign-in", () => {
 })
 
 describe("onboarding commands", () => {
-  // A synthetic message with resume: false is enqueued in the session inbox; 2.2.3 emits no separate event for it.
+  // A synthetic message with resume: false is enqueued in the session inbox and emits no separate event.
   const posted = (command: string) => (event: { type: string; data?: Record<string, unknown> }) =>
     event.type === "session.inbox.enqueued" && (event.data?.["item"] as { type?: string } | undefined)?.type === "synthetic" && JSON.stringify(event).includes(`"command":"${command}"`)
 

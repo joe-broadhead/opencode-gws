@@ -17,17 +17,15 @@ import {
   tokenHost,
 } from "../src/domain/images.js"
 import { IMAGE_CONCURRENCY, IMAGE_DEADLINE_MS, IMAGE_INPUT, IMAGE_OUTPUT, imagesRead } from "../src/host/images.js"
-import { JellyRpc, registerJellyRpc } from "../src/host/jelly-rpc.js"
 import { fetchImage } from "../src/process/image-fetch.js"
 import { Stage } from "../src/process/staging.js"
 import type { Runtime } from "../src/runtime/index.js"
 import { account, accountDir, testRuntime } from "./support/config.js"
 
 /**
- * images.read, the read Jelly makes to draw a Google picture in an agent's UI (hey-jelly
- * backend/host/src/agent-ui/image-route.ts, protocol/contracts/src/agent-ui/routes.ts AgentUiImageReadSchema): the
- * address gate, where the token may go, the size cap while streaming, the type from the bytes, which account reads,
- * and the declaration. Every network answer here is a fake `fetch`; nothing reaches the network.
+ * The image snapshot behind images_read: the address gate, where the token may go, the size cap while streaming, the
+ * type from the bytes, which account reads, and the declaration. Every network answer here is a fake `fetch`;
+ * nothing reaches the network.
  */
 
 const root = new URL("../", import.meta.url)
@@ -50,7 +48,7 @@ const png = (size: number) => {
 
 const THUMB = "https://lh3.googleusercontent.com/drive-storage/AJQWtBfake=s220"
 
-describe("the address images.read takes", () => {
+describe("the addresses it takes", () => {
   it("is https on drive.google.com or a name under googleusercontent.com", () => {
     for (const ok of [
       THUMB,
@@ -175,7 +173,7 @@ describe("what the bytes are", () => {
     expect(() => imageAnswer(SVG)).toThrow(/^IMAGE_TYPE_REFUSED: /)
   })
 
-  it("answers Jelly's shape, and refuses a picture over 1 MB", () => {
+  it("answers the image output's shape, and refuses a picture over 1 MB", () => {
     expect(imageAnswer(PNG)).toEqual({ mime: "image/png", base64: Buffer.from(PNG).toString("base64") })
     expect(imageAnswer(png(IMAGE_MAX_BYTES)).mime).toBe("image/png")
     expect(() => imageAnswer(png(IMAGE_MAX_BYTES + 1))).toThrow(/^IMAGE_TOO_LARGE: /)
@@ -383,7 +381,7 @@ function fakeRuntime(accounts: Record<string, unknown> = { work: account({ servi
 const FILE = "1AbCdEfGhIjKlMnOp"
 const LINK = `https://drive.google.com/file/d/${FILE}/view?usp=drivesdk`
 
-describe("images.read", () => {
+describe("the image snapshot", () => {
   afterEach(() => {
     vi.useRealTimers()
   })
@@ -397,7 +395,7 @@ describe("images.read", () => {
     expect(fake.reads).toEqual([{ account: "work", operation: "drive.files.get", params: { fileId: FILE, "supportsAllDrives": true, fields: "mimeType,size,thumbnailLink" } }])
     expect(fake.downloads).toEqual([{ account: "work", fileId: FILE }])
     expect(calls).toHaveLength(0)
-    expect(fake.audited).toEqual([{ event: "images.read", outcome: "success", account: "work", category: "read", durationMs: expect.any(Number), caller: "rpc" }])
+    expect(fake.audited).toEqual([{ event: "images_read", outcome: "success", account: "work", category: "read", durationMs: expect.any(Number), caller: "rpc" }])
   })
 
   it("answers the thumbnail, with the token, for a file that is not a picture or is over 1 MB", async () => {
@@ -502,12 +500,12 @@ describe("images.read", () => {
     for (const leak of [secret, FILE, TOKEN, "evil.com"]) expect(text).not.toContain(leak)
   })
 
-  it("answers a picture of 47 KB within Jelly's 64 KB RPC limit", async () => {
+  it("keeps a 47 KB picture's answer within 64 KB of JSON", async () => {
     const fake = fakeRuntime()
     fake.meta[FILE] = { mimeType: "image/png", size: String(47 * 1024) }
     fake.files[FILE] = png(47 * 1024)
     const answer = await imagesRead(fake.runtime)(LINK)
-    // hey-jelly backend/host/src/plugin-views/rpc.ts: an answer over VIEW_DATA_MAX_BYTES of JSON is refused.
+    // A consumer's answer cap: the data URI of a 47 KB picture still leaves room under 64 KB.
     expect(new TextEncoder().encode(JSON.stringify(answer)).byteLength).toBeLessThanOrEqual(65_536)
   })
 
@@ -549,7 +547,7 @@ describe("images.read", () => {
     await vi.waitFor(async () => expect((await read(THUMB)).mime).toBe("image/png"))
   })
 
-  it("gives up after its deadline, inside Jelly's ten seconds", async () => {
+  it("gives up after its deadline", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     const fake = fakeRuntime()
     let aborted: unknown
@@ -567,32 +565,7 @@ describe("images.read", () => {
   })
 })
 
-describe("images.read on the package's RPC", () => {
-  it("shares one registration with calendar.today, and answers a failure as the declared error", async () => {
-    const fake = fakeRuntime()
-    const registered: { contract: unknown; handlers: Record<string, (input: unknown, context: unknown) => Promise<unknown>> }[] = []
-    const ctx = {
-      rpc: {
-        register: async (contract: unknown, handlers: Record<string, (input: unknown, context: unknown) => Promise<unknown>>) => {
-          registered.push({ contract, handlers })
-          return { dispose: async () => {} }
-        },
-      },
-    }
-    await registerJellyRpc(ctx as never, fake.runtime)
-    expect(registered).toHaveLength(1)
-    expect(registered[0]?.contract).toBe(JellyRpc)
-    expect(Object.keys(registered[0]!.handlers).sort()).toEqual(["calendar.today", "images.read"])
-    const context = { signal: new AbortController().signal, error: (type: string, message: string, data: unknown) => ({ type, message, data }) }
-    expect(await registered[0]!.handlers["images.read"]!({ url: "https://evil.com/a.png" }, context)).toEqual({
-      type: "failed",
-      message: expect.stringMatching(/^IMAGE_HOST_REFUSED: /),
-      data: { code: "IMAGE_HOST_REFUSED", next: expect.any(String) },
-    })
-  })
-})
-
-describe("images.read through the plugin's own read path, with a fake gws", () => {
+describe("the image snapshot through the plugin's own read path, with a fake gws", () => {
   const runtimes: Runtime[] = []
   /** The bytes the fake gws writes for a download, in a file beside the runtime's own. */
   const body = (runtime: Runtime, bytes: Uint8Array) => {

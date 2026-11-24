@@ -27,10 +27,8 @@ import { network } from "./setup.js"
  * off. The only provider the session uses is the scripted OpenAI-compatible
  * endpoint on 127.0.0.1.
  *
- * Host version: the SDK in the root devDependencies (2.2.3) by default.
- * HOST_SDK_DIR names a directory whose node_modules holds another
- * @opencode/sdk (for example 2.2.4, installed outside the lockfile); the
- * host then runs that SDK and reports its version.
+ * Host version: the SDK in the root devDependencies, 2.4.1, which is the one
+ * tested release.
  */
 
 export { REPO } from "./package.js"
@@ -105,7 +103,7 @@ export interface Harness {
   close(): Promise<void>
 }
 
-const SDK = join(process.env.HOST_SDK_DIR ? realpathSync(process.env.HOST_SDK_DIR) : REPO, "node_modules", "@opencode", "sdk")
+const SDK = join(REPO, "node_modules", "@opencode", "sdk")
 
 function sdkManifest(): { version: string; exports: { ".": { import: string } } } {
   return JSON.parse(readFileSync(join(SDK, "package.json"), "utf8"))

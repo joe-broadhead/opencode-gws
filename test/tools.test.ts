@@ -186,23 +186,23 @@ describe("tool registration", () => {
     })
     // The host reserves `execute` for Code Mode, so no direct tool may take that name.
     expect(h.tools.has("execute")).toBe(false)
-    // The Code Mode namespace text names gws_read as the direct tool it is, never as a Code Mode call.
-    expect(NAMESPACE.description).toContain("the direct tool gws_read")
-    expect(NAMESPACE.description).not.toMatch(/\bwith read\b/)
+    // The Code Mode namespace text names gws_read as the direct tool it is, never as a Code Mode call, and keeps
+    // the fixed-context budget (at most 400 characters).
+    expect(NAMESPACE.description).toContain("read with gws_read")
+    expect(NAMESPACE.description.length).toBeLessThanOrEqual(400)
   })
 
   it("describes what each tool does without internal jargon, and names the direct commit tools", async () => {
     const h = await setup({})
     const texts = [NAMESPACE.description, ...[...h.tools.values()].map((registered) => registered.description)]
     for (const text of texts) expect(text).not.toMatch(/\b(?:No network|WS-[A-Z]|manifest hash|adapter|discovery kind|TODO)\b/i)
+    // The namespace names the classes, and the plan tool names the direct commit tool of each.
+    expect(NAMESPACE.description).toContain("the direct commit tool its category names")
     for (const name of ["gws_write", "gws_send", "gws_share", "gws_delete", "gws_export", "gws_admin"]) {
-      expect(NAMESPACE.description).toContain(name)
       expect(tool(h, "plan").description).toContain(name)
     }
     for (const name of ["write", "send", "share", "delete", "export", "admin"] as const) {
-      const description = tool(h, name).description
-      expect(description).toMatch(/Show the preview first; pass only \{planId\}/)
-      expect(description).toMatch(/Default access allows without a prompt; "ask-changes" asks and "read-only" denies/)
+      expect(tool(h, name).description).toContain("Pass only {planId}")
     }
     expect(tool(h, "status").description).toMatch(/sign-in/)
     expect(tool(h, "status").description).not.toMatch(/no network/i)

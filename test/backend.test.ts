@@ -19,7 +19,7 @@ const provenance = JSON.parse(readFileSync(join(root, "native/provenance.json"),
 }
 const platform = currentPlatform()
 const target = gwsTarget(platform)
-const REPO = "joe-broadhead/opencode-gws"
+const REPO = "we-the-rebel-alliance/gws-plugin"
 const { version: VERSION } = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { version: string }
 const TAG = `v${VERSION}`
 

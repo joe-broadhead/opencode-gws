@@ -115,18 +115,19 @@ describe("the README's generated blocks", () => {
 })
 
 describe("the tested releases", () => {
-  const said = `${TESTED_HOSTS.slice(0, -1).join(", ")} and ${TESTED_HOSTS.at(-1)}`
+  // One tested release reads "2.4.1"; several read "a, b and c".
+  const said = TESTED_HOSTS.length === 1 ? TESTED_HOSTS[0]! : `${TESTED_HOSTS.slice(0, -1).join(", ")} and ${TESTED_HOSTS.at(-1)}`
 
   it("names exactly the tested hosts in every file that says what is tested", () => {
-    // README, AGENTS.md, SECURITY, the configuration doc and the CHANGELOG's Unreleased section: wherever a sentence
+    // README, AGENTS.md, SECURITY, the configuration doc and the CHANGELOG's 0.0.0 section: wherever a sentence
     // mentions a release as tested, the list is TESTED_HOSTS, in full.
-    const unreleased = /## \[Unreleased\]([\s\S]*?)(?=\n## |$)/.exec(read("CHANGELOG.md"))?.[1] ?? ""
+    const unreleased = /## 0\.0\.0 \(unreleased\)([\s\S]*?)(?=\n## |$)/.exec(read("CHANGELOG.md"))?.[1] ?? ""
     const sources: [string, string][] = [
       ["README.md", read("README.md")],
       ["AGENTS.md", read("AGENTS.md")],
       ["SECURITY.md", read("SECURITY.md")],
       ["docs/configuration.md", read("docs/configuration.md")],
-      ["CHANGELOG.md (Unreleased)", unreleased],
+      ["CHANGELOG.md (0.0.0)", unreleased],
     ]
     for (const [file, body] of sources) {
       const mentions = body
@@ -142,11 +143,11 @@ describe("the tested releases", () => {
   })
 
   it("names the tested hosts in full wherever prose states them", () => {
-    expect(TESTED_HOSTS).toContain("2.2.6")
+    expect(TESTED_HOSTS).toContain("2.4.1")
     // Prose wraps, so compare with the line breaks flattened.
     const flat = (path: string) => read(path).replace(/\s+/g, " ")
     expect(flat("README.md")).toContain(`tested on ${said}`)
-    expect(flat("docs/configuration.md")).toContain(`only ${said} are tested`)
+    expect(flat("docs/configuration.md")).toContain(TESTED_HOSTS.length === 1 ? `only ${said} is tested` : `only ${said} are tested`)
     expect(flat("AGENTS.md")).toContain(`on stock OpenCode ${said}`)
     expect(flat("CONTRIBUTING.md")).toContain(`tested stock OpenCode: ${said}`)
     // No doc names an untested example release as tested.
@@ -160,7 +161,7 @@ describe("the install spec", () => {
     // the commit that sets the version. A spec with a placeholder, such as #v<version>, is not concrete.
     const { version } = JSON.parse(read("package.json")) as { version: string }
     const files = ["README.md", "CONTRIBUTING.md", ...readdirSync(`${ROOT}docs`).map((name) => `docs/${name}`)]
-    const specs = files.flatMap((file) => [...read(file).matchAll(/github:joe-broadhead\/opencode-gws#(v\d+\.\d+\.\d+(?:[-+][\w.-]*\w)?)/g)].map((match) => ({ file, tag: match[1] })))
+    const specs = files.flatMap((file) => [...read(file).matchAll(/github:we-the-rebel-alliance\/gws-plugin#(v\d+\.\d+\.\d+(?:[-+][\w.-]*\w)?)/g)].map((match) => ({ file, tag: match[1] })))
     expect(specs.length).toBeGreaterThanOrEqual(1)
     for (const spec of specs) expect(spec).toEqual({ file: spec.file, tag: `v${version}` })
   })
@@ -274,9 +275,10 @@ describe("the text the model is given", () => {
     }
   })
 
-  it("keeps the plan-then-commit shape at every access value", () => {
+  it("keeps the plan-then-commit shape at every access value, within the fixed-context budget", () => {
     // A commit always needs its plan: the default only removes the prompt, never the plan.
-    expect(NAMESPACE.description).toContain("A change takes two steps")
+    expect(NAMESPACE.description).toContain("A change is plan, then the direct commit tool")
+    expect(NAMESPACE.description.length).toBeLessThanOrEqual(400)
     for (const file of ["README.md", "SECURITY.md", "docs/configuration.md"]) expect({ file, plan: read(file).includes("plan") }).toEqual({ file, plan: true })
   })
 })

@@ -18,8 +18,8 @@ import { REPO } from "./package.js"
  * serve working directory, where the plugin is not loaded: a call without a location is the location-error case.
  */
 
-/** The versions the family tests, TESTED_HOSTS in src/domain/host.ts. */
-export const TESTED_HOSTS = ["2.2.3", "2.2.4", "2.2.5", "2.2.6", "2.2.7", "2.3.0", "2.3.1", "2.3.2"] as const
+/** The version tested, TESTED_HOSTS in src/domain/host.ts. */
+export const TESTED_HOSTS = ["2.4.1"] as const
 /** The stock binary for a version, from OPENCODE_BIN_<version> as the environment had it ("" when unset). Never guessed. */
 export function binary(version: string): string {
   return inherited.stockBinaries[`OPENCODE_BIN_${version.replaceAll(".", "_")}`] ?? ""

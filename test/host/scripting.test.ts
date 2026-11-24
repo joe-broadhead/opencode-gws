@@ -1,4 +1,7 @@
 import { Rpc } from "@opencode/plugin/rpc"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { account } from "../support/config.js"
 import { request } from "../support/requests.js"
@@ -17,7 +20,7 @@ const Tools = Rpc.define({
   methods: {
     describe: { input: open, output: open },
     ...Object.fromEntries(
-      ["status", "catalog", "schema", "read", "plan", "events_list", "sheets_read"].map((name) => [
+      ["status", "catalog", "schema", "read", "plan", "events_list", "sheets_read", "calendar_today", "images_read"].map((name) => [
         name,
         { input: open, output: open, errors: { failed: open } },
       ]),
@@ -31,7 +34,7 @@ const sessions: Record<string, string> = {}
 
 beforeAll(async () => {
   host = await startHost({
-    options: { accounts: { [ACCOUNT]: account({ services: [...SERVICES, "sheets"] }) } },
+    options: { accounts: { [ACCOUNT]: account({ services: [...SERVICES, "sheets", "calendar"] }) } },
     agents: {
       locked: { permissions: [{ action: "gws.*", resource: "*", effect: "deny" }] },
       careful: { permissions: [{ action: "gws.read", resource: "*", effect: "ask" }] },
@@ -128,6 +131,33 @@ describe("tools RPC on a real host", () => {
     await host.opencode.sessions.wait({ sessionID: sessions.build! } as never)
     expect(writes().length).toBe(before + 1)
     expect(asked(sessions.build!).length).toBe(prompts)
+  })
+
+  it("answers the agenda and a picture as the source contract's snapshots, through the tools RPC", async () => {
+    const now = Date.now()
+    const picture = mkdtempSync(join(tmpdir(), "gws-host-snapshot-"))
+    try {
+      const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13])
+      writeFileSync(join(picture, "gws-picture"), bytes)
+      process.env["FAKE_GWS_RESPONSES"] = JSON.stringify({
+        "calendar.calendars.get": { timeZone: "UTC" },
+        "calendar.events.list": {
+          items: [{ id: "evt-host", status: "confirmed", summary: "Standup", start: { dateTime: new Date(now - 60_000).toISOString() }, end: { dateTime: new Date(now + 60_000).toISOString() } }],
+        },
+        "drive.files.get": { mimeType: "image/png", size: String(bytes.byteLength) },
+      })
+      process.env["FAKE_GWS_OUTPUT_FILE"] = join(picture, "gws-picture")
+      const agenda = await run("calendar_today", sessions.build!, { source: "calendar-today", account: ACCOUNT })
+      expect(agenda.value, agenda.message).toMatchObject({ account: ACCOUNT, trust: "untrusted" })
+      expect((agenda.value["data"] as { items: Array<{ title: string }> }).items[0]?.title).toBe("Standup")
+      const image = await run("images_read", sessions.build!, { url: "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQRs/view", account: ACCOUNT })
+      expect(image.value, image.message).toMatchObject({ account: ACCOUNT, trust: "untrusted", data: { alt: "A picture from Google Workspace", dataUri: expect.stringMatching(/^data:image\/png;base64,/) } })
+      expect(await run("calendar_today", sessions.locked!, { source: "calendar-today", account: ACCOUNT })).toMatchObject({ type: "failed", code: "PERMISSION_DENIED" })
+    } finally {
+      delete process.env["FAKE_GWS_RESPONSES"]
+      delete process.env["FAKE_GWS_OUTPUT_FILE"]
+      rmSync(picture, { recursive: true, force: true })
+    }
   })
 
   it("names an unknown session with SESSION_UNKNOWN, and a session without an agent with SESSION_AGENT_REQUIRED", async () => {
