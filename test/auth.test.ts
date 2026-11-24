@@ -509,6 +509,24 @@ describe("refresh", () => {
     }
   })
 
+  it("gives token requests a 20-second deadline and reports a timed-out renewal in the plugin's words", async () => {
+    const deadline = AbortSignal.abort(new DOMException("Fixture deadline", "TimeoutError"))
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(deadline)
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+      throw new DOMException("Fixture deadline", "TimeoutError")
+    })
+    try {
+      await expect(refreshGoogle({
+        alias: "default", name: "Google Workspace", credential: signedIn(), options: { fetch },
+      })).rejects.toThrow("Google token request failed: could not reach the token endpoint.")
+      expect(timeout).toHaveBeenCalledExactlyOnceWith(20_000)
+      expect(fetch).toHaveBeenCalledTimes(1)
+      expect(fetch.mock.calls[0]?.[1]?.signal).toBe(deadline)
+    } finally {
+      timeout.mockRestore()
+    }
+  })
+
   it("asks for a new sign-in when the credential has no stored client", async () => {
     const fetchSpy = vi.fn()
     await expect(refreshGoogle({ alias: "default", name: "Google Workspace", credential: { ...signedIn(), metadata: { clientId: "x" } }, options: { fetch: fetchSpy as never } })).rejects.toThrow(
