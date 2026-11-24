@@ -17,19 +17,18 @@ import { SHEET_OUTPUT_SCHEMA, SHEETS_MAX_BYTES, SHEETS_OPERATION, SHEETS_READ, r
  * The source contract's methods that are not tools (`package.json` `sources`, read through the tools RPC
  * `google-workspace.gws.tools`): `probe`, and the three snapshot sources' reads, `calendar_today` (`gws.calendar.today`,
  * an `agenda`), `images_read` (`gws.image`, an `image`) and `sheets_read` (`gws.sheets`, an `x-gws/sheet`). Each is a
- * read-only method of the tools RPC with its own action, never a model tool: a consumer such as Memory, Artifacts or Jelly calls it in a session its grant fences.
+ * read-only method of the tools RPC with its own action, never a model tool: a consumer calls it in a session its grant fences.
  *
  * - `probe` answers whose a source is, `{ source, account, owner, scopes, trust }`, from the account's verified sign-in
  *   (the email in the id_token Google returned at sign-in, which `gws_status` also reports) and the scopes Google
  *   granted for that source's service. It calls no Google API and reads no content, so it asserts `gws.probe` only.
  *   An account with no verified email (not signed in, or a headless credential) is refused with AUTH_REQUIRED, the
  *   contract's NEEDS_SIGN_IN: there is no `owner: null`.
- * - `calendar_today` is Jelly's `calendar.today` (the same reader: the account's own time zone, 60 seconds of reuse,
- *   a stale answer when Google fails later the same day) as the contract's snapshot: `{ data: <agenda>, asOf, account,
- *   trust }`, where `asOf` is when Google was read. It asserts `gws.calendar_today`, then `gws.read` on
- *   `<account>:calendar.calendars.get` and `<account>:calendar.events.list`, before any read.
- * - `images_read` is Jelly's `images.read` as the contract's snapshot: `{ data: { dataUri, alt }, asOf, account?,
- *   trust }`. It asserts `gws.images_read`, and `gws.read` on `<account>:drive.files.get` before a Drive read (the
+ * - `calendar_today` is the agenda snapshot (`./calendar.ts`: the account's own time zone, 60 seconds of reuse, a
+ *   stale answer when Google fails later the same day): `{ data: <agenda>, asOf, account, trust }`, where `asOf` is
+ *   when Google was read. It asserts `gws.calendar_today`, then `gws.read` on `<account>:calendar.calendars.get` and
+ *   `<account>:calendar.events.list`, before any read.
+ * - `images_read` is the image snapshot (`./images.ts`): `{ data: { dataUri, alt }, asOf, account?, trust }`. It asserts `gws.images_read`, and `gws.read` on `<account>:drive.files.get` before a Drive read (the
  *   file's thumbnail, when it is not itself a picture, is fetched with the token of that same, asserted read). An
  *   address on Google's image servers is fetched without any account's token: that fetch is no gws operation, so no
  *   declared grant could cover it, and it carries no `account`. A GIF is refused (the image output takes PNG, JPEG and

@@ -2,7 +2,6 @@ import { createHash } from "node:crypto"
 import { decodeBoundCursor, encodeBoundCursor } from "@we-the-rebel-alliance/source-contract/cursor"
 import {
   EVENT_LIMITS,
-  FIRST_RUN_HOURS,
   type EventsListRequest,
   type EventsListResult,
   type EventsRemoval,
@@ -124,16 +123,12 @@ import { CURSOR_PLUGIN, PAGE_MAX_BYTES, PLUGIN_PACKAGE } from "./source-page.js"
  *   is kept exactly and nothing is truncated.
  * - The scope is one calendar: `primary`, or the primary calendar's own id.
  *   The cursor is the contract's version 2, bound to (gws, calendar,
- *   account, scope), and names a digest of the calendar's id, so a cursor
- *   from another account or calendar is refused. A new cursor is tagged
- *   `g` 1. A cursor from 0.0.8, which names a Google sync token and no
- *   window this source can resume, is read as a fresh first window at the
- *   first run's 24 hours, whatever `since` says. A 0.0.12 **finished** cursor
- *   keeps its legacy `r` anchor (it never stored the opening time); a 0.0.12
- *   **open** cursor is not resumed by its numeric offset: the call returns an
- *   empty restart page and the next call reads the saved window from its
- *   lower bound. Rolling back to 0.0.11 refuses every new cursor, so discard
- *   it and pass a fresh `since`.
+ *   account, scope), tagged with the checkpoint version `g` 1, and names a
+ *   digest of the calendar's id, so a cursor from another account or
+ *   calendar is refused. Only that shape is read: a cursor with a sync
+ *   token, another checkpoint version, no window this source can resume or
+ *   no checkpoint is `CURSOR_INVALID`, and the consumer starts again with
+ *   `since`.
  */
 
 /** The `source` input that names Calendar. */
@@ -180,17 +175,16 @@ const EVENT_FIELDS =
   "nextPageToken,items(id,status,summary,description,location,start,end,updated,htmlLink,recurringEventId,originalStartTime(dateTime,date),organizer(email,displayName),attendees(email,displayName,self))"
 
 /**
- * Where a listing stands. A finished window names the time it opened (`r`,
- * so the next window starts an hour before it). A window being read names
- * its bounds (`w`, `x`), the time it opened (`i`), the checkpoint version
- * (`g`), and the checkpoint. Within a page, `p` is its token, `n` counts
- * outcomes already read, and `f` is its fingerprint. At a page boundary,
- * `n` is zero, `f` is the consumed page's fingerprint, `q` is the token
- * that fetched it, and `h` is the digest of its next token. The next call
- * verifies the prior page and token digest before following that token. `c` counts
- * consecutive restarts. An earlier open development cursor has `w`/`x`/`p`/`n` but no
- * `g`, so its offset is not reused; a 0.0.8 cursor has none of `r`, `x`,
- * `i`, `g`.
+ * Where a listing stands, in the one shape this source writes. A finished
+ * window names the time it opened (`r`, so the next window starts an hour
+ * before it). A window being read names its bounds (`w`, `x`), the time it
+ * opened (`i`), the checkpoint version (`g` 1), and the checkpoint. Within a
+ * page, `p` is its token, `n` counts outcomes already read, and `f` is its
+ * fingerprint. At a page boundary, `n` is zero, `f` is the consumed page's
+ * fingerprint, `q` is the token that fetched it, and `h` is the digest of its
+ * next token. The next call verifies the prior page and token digest before
+ * following that token. `c` counts consecutive restarts. Anything else is
+ * not this shape and is refused.
  */
 interface CursorState {
   readonly r?: number
@@ -200,7 +194,7 @@ interface CursorState {
   readonly p?: string
   readonly q?: string
   readonly n: number
-  readonly g?: number
+  readonly g: number
   readonly f?: string
   readonly h?: string
   readonly j?: string
@@ -228,10 +222,9 @@ interface OpenWindow {
   readonly e?: number
 }
 
-/** The window to read, whether a cursor was restarted, and whether its prior page must be verified first. */
+/** The window to read, and whether its prior page must be verified first. */
 interface Opened {
   readonly window: OpenWindow
-  readonly restart: boolean
   readonly verify: boolean
 }
 
@@ -273,31 +266,36 @@ const digest = (calendar: string) => createHash("sha256").update(calendar).diges
 /** The cursor binding: the plugin, the source, the account and the calendar the call named. */
 const binding = (account: string, named: string) => ({ plugin: CURSOR_PLUGIN, source: CALENDAR_SOURCE, account, scope: { calendars: [named] } })
 
-/** The state a cursor holds, when this source, account and calendar issued it. */
+/** The state a cursor holds, when this source, account and calendar issued it, in the one shape this source writes. */
 function stateOf(cursor: string, account: string, named: string, calendar: string): CursorState {
   const decoded = decodeBoundCursor(binding(account, named), cursor)
   const state = decoded.ok ? decoded.state : undefined
-  const refuse = () => new GwsError("CURSOR_INVALID", `the cursor was not issued by events_list for account '${account}' and this calendar`)
+  const refuse = () => new GwsError("CURSOR_INVALID", `the cursor was not issued by events_list for account '${account}' and this calendar, in the cursor shape it writes`)
   if (!state || state["a"] !== account || state["o"] !== digest(calendar)) throw refuse()
   const { r, w, x, i, g, f, h, j, c, e, n, p, q } = state
+  // The checkpoint version is this design's tag: a cursor without it, or with another version, is not this shape.
+  if (g !== CHECKPOINT) throw refuse()
   if (n !== undefined && (typeof n !== "number" || !Number.isSafeInteger(n) || n < 0)) throw refuse()
   if (r !== undefined && (typeof r !== "number" || !Number.isSafeInteger(r) || r < 0 || r > TIME_MAX)) throw refuse()
   if (w !== undefined && (typeof w !== "number" || !Number.isSafeInteger(w) || w < 0 || w > TIME_MAX)) throw refuse()
   if (i !== undefined && (typeof i !== "number" || !Number.isSafeInteger(i) || i < 0 || i > TIME_MAX)) throw refuse()
-  // A checkpoint version is this design's tag: another version is not read as if it were this one.
-  if (g !== undefined && g !== CHECKPOINT) throw refuse()
   if (f !== undefined && (typeof f !== "string" || !new RegExp(`^[0-9a-f]{${FINGERPRINT_HEX}}$`).test(f))) throw refuse()
   if (h !== undefined && (typeof h !== "string" || !new RegExp(`^[0-9a-f]{${NEXT_HEX}}$`).test(h))) throw refuse()
   if (j !== undefined && (typeof j !== "string" || !/^[0-9a-f]{16}(?:\.[0-9a-f]{16}){0,7}$/.test(j))) throw refuse()
+  // The checkpoint's two shapes: an intra-page offset counts a fingerprinted page; a boundary names both the page it
+  // consumed and the expected-next digest. Anything else is another version's cursor.
   if (h !== undefined && f === undefined) throw refuse()
+  if (n !== undefined && n > 0 && f === undefined) throw refuse()
+  if (f !== undefined && (n === undefined || n === 0) && h === undefined) throw refuse()
   if (c !== undefined && (typeof c !== "number" || !Number.isSafeInteger(c) || c < 0 || c > PAGE_RESTARTS)) throw refuse()
   if (e !== undefined && (typeof e !== "number" || !Number.isSafeInteger(e) || e < 0 || e > MAX_WINDOW_PAGES)) throw refuse()
-  if ((f !== undefined || h !== undefined || j !== undefined || c !== undefined || e !== undefined) && g !== CHECKPOINT) throw refuse()
-  if (x !== undefined) {
-    if (typeof w !== "number" || typeof x !== "number" || !Number.isSafeInteger(x) || x > TIME_MAX || x <= w) throw refuse()
+  // A finished window names only the time it opened; a window being read names both bounds and the time it opened.
+  if (r !== undefined && (w !== undefined || x !== undefined || i !== undefined)) throw refuse()
+  if (r === undefined) {
+    if (typeof w !== "number" || typeof x !== "number" || typeof i !== "number") throw refuse()
+    if (!Number.isSafeInteger(x) || x > TIME_MAX || x <= w) throw refuse()
+    if (i < w || i > x) throw refuse()
   }
-  if (i !== undefined && w !== undefined && i < w) throw refuse()
-  if (i !== undefined && x !== undefined && i > x) throw refuse()
   if (p !== undefined && (typeof p !== "string" || p.length === 0 || p.length > PAGE_TOKEN_MAX)) throw refuse()
   if (q !== undefined && (typeof q !== "string" || q.length === 0 || q.length > PAGE_TOKEN_MAX)) throw refuse()
   return {
@@ -305,7 +303,7 @@ function stateOf(cursor: string, account: string, named: string, calendar: strin
     ...(typeof w === "number" ? { w } : {}),
     ...(typeof x === "number" ? { x } : {}),
     ...(typeof i === "number" ? { i } : {}),
-    ...(typeof g === "number" ? { g } : {}),
+    g,
     ...(typeof f === "string" ? { f } : {}),
     ...(typeof h === "string" ? { h } : {}),
     ...(typeof j === "string" ? { j } : {}),
@@ -318,26 +316,14 @@ function stateOf(cursor: string, account: string, named: string, calendar: strin
 }
 
 /**
- * The window this call reads, and whether the cursor is restarted rather
- * than resumed. A checkpointed open window resumes its bounds, opening time,
- * page token and intra-page offset, but only when the page fingerprint says
- * the same page is there. A 0.0.12 open cursor has no checkpoint: its
- * numeric offset counted a different page shape, so it restarts at the
- * window's saved lower bound with no progress. A 0.0.12 finished cursor
- * starts the next window from its `r` (the legacy anchor, because it never
- * stored the opening time). A 0.0.8 cursor starts a fresh 24 hours whatever
- * `since` says. A start later than now is read as now, so the window keeps
- * its seven days ahead instead of collapsing to an instant.
+ * The window this call reads. A checkpointed open window resumes its bounds, opening time, page token and intra-page
+ * offset; the page fingerprint says whether the same page is still there. A finished cursor starts the next window an
+ * hour before the time it opened. A fresh call starts at `since`, or at the first run's 24 hours. A start later than
+ * now is read as now, so the window keeps its seven days ahead instead of collapsing to an instant.
  */
 function windowOf(state: CursorState | undefined, request: EventsListRequest, now: number): Opened {
-  if (state?.x !== undefined && state.w !== undefined) {
-    // `i` is missing only on a cursor written before this field: the bounds still name the opening time.
-    const i = Math.min(Math.max(0, state.i ?? state.x - HORIZON_MS - 1), state.x)
-    // An old open cursor's numeric offset is not reused; an old boundary (which stored a forward token, not its
-    // digest) restarts too, because its checkpoint cannot be verified in the current shape.
-    if (state.g !== CHECKPOINT || (state.n > 0 && state.f === undefined) || (state.n === 0 && state.p !== undefined) || (state.n === 0 && state.h !== undefined && state.f === undefined)) {
-      return { window: { w: state.w, x: state.x, i, g: CHECKPOINT, n: 0 }, restart: true, verify: false }
-    }
+  if (state !== undefined && state.w !== undefined && state.x !== undefined) {
+    const i = state.i!
     if (state.n > 0) {
       return {
         window: {
@@ -352,13 +338,10 @@ function windowOf(state: CursorState | undefined, request: EventsListRequest, no
           ...(state.c === undefined ? {} : { c: state.c }),
           ...(state.e === undefined ? {} : { e: state.e }),
         },
-        restart: false,
         verify: false,
       }
     }
-    if (state.f !== undefined || state.h !== undefined) {
-      // A boundary without both the prior-page fingerprint and the expected-next digest cannot be verified.
-      if (state.f === undefined || state.h === undefined) return { window: { w: state.w, x: state.x, i, g: CHECKPOINT, n: 0 }, restart: true, verify: false }
+    if (state.f !== undefined) {
       return {
         window: {
           w: state.w,
@@ -368,12 +351,11 @@ function windowOf(state: CursorState | undefined, request: EventsListRequest, no
           ...(state.q === undefined ? {} : { q: state.q }),
           n: 0,
           f: state.f,
-          h: state.h,
+          h: state.h!,
           ...(state.j === undefined ? {} : { j: state.j }),
           ...(state.c === undefined ? {} : { c: state.c }),
           ...(state.e === undefined ? {} : { e: state.e }),
         },
-        restart: false,
         verify: true,
       }
     }
@@ -388,18 +370,14 @@ function windowOf(state: CursorState | undefined, request: EventsListRequest, no
         ...(state.c === undefined ? {} : { c: state.c }),
         ...(state.e === undefined ? {} : { e: state.e }),
       },
-      restart: false,
       verify: false,
     }
   }
-  const wanted =
-    state === undefined
-      ? startTime(request, now)
-      : state.r === undefined
-        ? now - FIRST_RUN_HOURS * 60 * 60 * 1000
-        : Math.min(now, state.r) - OVERLAP_MS
+  // stateOf accepts only a finished window or an open one; this keeps the two in step if that ever changes.
+  if (state !== undefined && state.r === undefined) throw new GwsError("CURSOR_INVALID", "the cursor names no window this source can resume")
+  const wanted = state?.r === undefined ? startTime(request, now) : Math.min(now, state.r) - OVERLAP_MS
   const x = Math.min(now + HORIZON_MS + 1, TIME_MAX)
-  return { window: { w: Math.max(0, Math.min(wanted, now, x - 1)), x, i: Math.min(now, x), g: CHECKPOINT, n: 0 }, restart: false, verify: false }
+  return { window: { w: Math.max(0, Math.min(wanted, now, x - 1)), x, i: Math.min(now, x), g: CHECKPOINT, n: 0 }, verify: false }
 }
 
 /**
@@ -569,8 +547,7 @@ export async function calendarEvents(runtime: Pick<Runtime, "read">, account: st
     // The loop either returns or throws; this is unreachable but keeps the return type total.
     throw new GwsError("GWS_API_ERROR", "the checkpoint could not be encoded")
   }
-  // A page that makes no progress
-  // A page that makes no progress: a pre-checkpoint cursor's offset is not reused, or a page changed under its fingerprint.
+  // A page that makes no progress: its membership changed under the fingerprint its cursor stored.
   const restartPage = (count?: number, reason: "changed" | "conflict" = "changed"): EventsListResult => {
     if (count !== undefined && count > PAGE_RESTARTS) {
       const what = reason === "conflict" ? "the calendar returned two versions of the same outcome in one page" : "the calendar changed the same page while it was being read"
@@ -586,7 +563,6 @@ export async function calendarEvents(runtime: Pick<Runtime, "read">, account: st
       { scope, plugin: PLUGIN_PACKAGE, asOf: at },
     )
   }
-  if (opened.restart) return restartPage()
   // One ordered walk of what Google answered from the cursor's place: every outcome and where the cursor resumes after it.
   const steps: Step[] = []
   const seen = { event: new Map<string, string>(), removal: new Map<string, string>() }

@@ -2,12 +2,12 @@ import { stableEventId } from "./calendar-id.js"
 import type { PluginConfig } from "./types.js"
 
 /**
- * Today's calendar for Jelly's native calendar (`calendar.today`), as pure logic: which account answers, the bounds
- * of today in the calendar's own time zone, and Google's events turned into the shape Jelly reads
- * (hey-jelly `docs/architecture/plugin-native-data.md`). Nothing here reads Google or the clock: the host passes both.
+ * Today's calendar for the agenda snapshot (`calendar_today`), as pure logic: which account answers, the bounds of
+ * today in the calendar's own time zone, and Google's events turned into the agenda's shape. Nothing here reads
+ * Google or the clock: the host passes both.
  */
 
-/** At most this many events in one answer (Jelly reads no more). */
+/** At most this many events in one answer: the agenda output's own limit. */
 export const CALENDAR_MAX_EVENTS = 50
 const ID_MAX = 128
 const TITLE_MAX = 200
@@ -27,7 +27,10 @@ export interface CalendarEvent {
   joinUrl?: string
 }
 
-/** The most an answer may take as UTF-8 JSON: Jelly refuses an RPC answer over 64 KB. */
+/**
+ * The most an answer may take as UTF-8 JSON: the snapshot's answer has to fit one RPC result, so the agenda is cut
+ * here rather than at a transport limit.
+ */
 export const CALENDAR_MAX_BYTES = 60 * 1024
 
 /**
@@ -131,7 +134,7 @@ export function todayBounds(now: number, zone: string): { start: number; end: nu
   return { start: startOf(today, zone), end: startOf(nextDay(today), zone) }
 }
 
-/** An instant as Jelly reads it: ISO 8601 in UTC, to the second. */
+/** An instant as the agenda carries one: ISO 8601 in UTC, to the second. */
 export function iso(instant: number): string {
   return `${new Date(instant).toISOString().slice(0, 19)}Z`
 }
@@ -139,7 +142,7 @@ export function iso(instant: number): string {
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value)
 
 /**
- * A text field cut to `max` UTF-16 units (JavaScript's length, which Jelly checks) without splitting a character,
+ * A text field cut to `max` UTF-16 units (JavaScript's length, which the output schema counts) without splitting a character,
  * or undefined when it is not text or is blank.
  */
 function clip(value: unknown, max: number): string | undefined {
@@ -155,7 +158,7 @@ function clip(value: unknown, max: number): string | undefined {
   return `${kept}…`
 }
 
-/** An https link without credentials, as Jelly accepts one; anything else is left out. */
+/** An https link without credentials; anything else is left out. */
 export function httpsLink(value: unknown): string | undefined {
   if (typeof value !== "string" || value.length > URL_MAX) return undefined
   try {
@@ -166,7 +169,7 @@ export function httpsLink(value: unknown): string | undefined {
   }
 }
 
-/** Google's event id, or the shared stable digest of it when it is longer than Jelly reads. */
+/** Google's event id, or the shared stable digest of it when it is longer than the agenda's id field takes. */
 function eventId(value: unknown): string | undefined {
   if (typeof value !== "string" || value === "") return undefined
   return stableEventId(value, ID_MAX)

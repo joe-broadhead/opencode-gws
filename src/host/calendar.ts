@@ -3,24 +3,23 @@ import { GwsError } from "../domain/errors.js"
 import type { Runtime } from "../runtime/index.js"
 
 /**
- * `calendar.today`, the read Jelly's native calendar makes (hey-jelly `docs/architecture/plugin-native-data.md`).
+ * `calendar_today`, the contract's agenda snapshot: today in one account's primary calendar, in that calendar's own
+ * time zone, as the small agenda a consumer draws.
  *
- * Jelly calls a view's method on the RPC registered under the package's own name, through its core plugin's relay,
- * with the input the method declares: `{}`. The host judges the declared permission, `gws.read`, against the agent's
- * rules before the call reaches the plugin; an RPC call carries no session, so the plugin cannot assert it itself.
- * The method reads only through the plugin's own read path (`runtime.read`: the account's own sign-in, the read
- * policy, the audit), never downloads gws, and never writes.
+ * The reader is the tools RPC method `calendar_today` (`./sources.ts`), which asserts the plugin's own permissions
+ * before it runs; this module reads only through the plugin's own read path (`runtime.read`: the account's own
+ * sign-in, the read policy, the audit), never downloads gws, and never writes.
  *
  * One account answers (`calendarAccount`). Its primary calendar's own time zone sets today's bounds. A good answer
  * is kept in memory: a call within FRESH_MS of it is answered from it, and when a later read fails for any reason
  * but the sign-in, the kept events of the same day come back as `stale`, with the time they were read. An answer
- * over 60 KB of JSON leaves out its latest-starting events until it fits (Jelly refuses one over 64 KB); the audit
- * records how many as a `calendar.today` record's `omitted`.
+ * over 60 KB of JSON leaves out its latest-starting events until it fits (the snapshot's own cap); the audit
+ * records how many as a `calendar_today` record's `omitted`.
  */
 
 /** A call this soon after a good read is answered from it, so a view that polls does not reach Google each time. */
 export const FRESH_MS = 60_000
-/** The read's own deadline, inside Jelly's ten seconds, so a slow Google still leaves time for the stale answer. */
+/** The read's own deadline, so a slow Google still leaves time for the stale answer. */
 export const READ_DEADLINE_MS = 8_000
 /** How many events one `events.list` page asks for: today's ended events and declines can come first. */
 const PAGE_SIZE = 250
@@ -28,7 +27,7 @@ const PAGE_SIZE = 250
 const text = (min: number, max: number) => ({ type: "string", minLength: min, maxLength: max }) as const
 const INSTANT = text(1, 80)
 
-/** The method's declared schemas; `package.json` `jelly.rpc` carries the same two (test/calendar.test.ts). */
+/** The tools RPC method's declared schemas; `package.json` `jelly.rpc` still carries the agenda's own two (test/calendar.test.ts). */
 export const TODAY_INPUT = { type: "object", properties: {}, additionalProperties: false } as const
 export const TODAY_OUTPUT = {
   type: "object",
@@ -98,7 +97,7 @@ export function calendarToday(runtime: Reader, now: () => number = Date.now) {
   const answer = (entry: Kept, state: CalendarToday["state"]): CalendarToday => {
     const at = now()
     const fitted = fitAnswer({ account: entry.account, at: iso(entry.at), state, events: entry.events.filter((event) => Date.parse(event.end) > at) })
-    if (fitted.omitted > 0) runtime.audit?.emit({ event: "calendar.today", outcome: "success", account: entry.account, category: "read", omitted: fitted.omitted })
+    if (fitted.omitted > 0) runtime.audit?.emit({ event: "calendar_today", outcome: "success", account: entry.account, category: "read", omitted: fitted.omitted })
     return fitted.answer
   }
 

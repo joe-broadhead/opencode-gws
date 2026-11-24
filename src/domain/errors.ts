@@ -161,12 +161,12 @@ export const ErrorCode = {
   },
   CALENDAR_UNAVAILABLE: {
     meaning:
-      "The read Jelly's calendar makes, calendar.today, has no answer: no configured account enables calendar, or Google's answer for the primary calendar named no time zone.",
+      "The agenda snapshot (calendar_today) has no answer: no configured account enables calendar, or Google's answer for the primary calendar named no time zone.",
     next: "Add calendar to an account's enabledServices; if it is enabled, retry later.",
   },
   IMAGE_HOST_REFUSED: {
     meaning:
-      "The picture Jelly asked images.read for has an address the plugin does not take: not https, a user name, password, port or IP address in it, a host other than drive.google.com or Google's image servers (lh3 to lh7 under googleusercontent.com; any other googleusercontent.com name can be anyone's), or a Drive link that names no file. Nothing was fetched.",
+      "The picture images_read was asked for has an address the plugin does not take: not https, a user name, password, port or IP address in it, a host other than drive.google.com or Google's image servers (lh3 to lh7 under googleusercontent.com; any other googleusercontent.com name can be anyone's), or a Drive link that names no file. Nothing was fetched.",
     next: "Show the picture from a Drive file link or an address Google returned, such as a file's thumbnailLink.",
   },
   IMAGE_TYPE_REFUSED: {
@@ -175,7 +175,7 @@ export const ErrorCode = {
     next: "Show a PNG, JPEG, GIF or WebP picture instead; for images_read, a PNG, JPEG or WebP.",
   },
   IMAGE_TOO_LARGE: {
-    meaning: "The picture is over 1 MB, the most Jelly draws; the plugin stops reading at that size and answers nothing.",
+    meaning: "The picture is over 1 MB, the most one read takes; the plugin stops reading at that size and answers nothing.",
     next: "Show the file's thumbnail (its thumbnailLink) instead.",
   },
   IMAGE_UNAVAILABLE: {
@@ -251,8 +251,8 @@ export const ErrorCode = {
 
   // ── Setup: these stop the plugin from loading ────────────────────────
   HOST_UNTESTED: {
-    meaning: "The OpenCode version is outside the supported range in package.json opencode.host (>=2.2.3 <2.4.0).",
-    next: 'Use OpenCode 2.2.3 or a later 2.2 or 2.3 release, or set "allowUntestedHost": true.',
+    meaning: "The OpenCode version is outside the supported range in package.json opencode.host (>=2.4.1 <2.5.0).",
+    next: 'Use OpenCode 2.4.1 or a later 2.4 release, or set "allowUntestedHost": true.',
   },
   OPTIONS_INVALID: {
     meaning:

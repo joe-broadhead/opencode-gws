@@ -56,7 +56,7 @@ const NOT_DEFAULT: readonly string[] = ["modelarmor", "admin-reports"]
  * Every manifest service a person's sign-in can use: services that need
  * domain-wide delegation (Keep) are left out, as are NOT_DEFAULT. The
  * default account enables them, and so does an interactive account that
- * names no `enabledServices`, such as the one Jelly adds.
+ * names no `enabledServices`, such as one a host adds at sign-in.
  */
 function defaultServices(): string[] {
   return loadManifest()
