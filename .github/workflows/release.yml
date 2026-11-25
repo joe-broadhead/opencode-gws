@@ -1,15 +1,17 @@
 name: Release
 
 # A tag v<package.json version> on a master commit whose CI passed creates the GitHub Release. Releases are not
-# published to npm: a consumer pins the tag, github:we-the-rebel-alliance/gws-plugin#v<version>, and dist/ is built by
-# this workflow. Only the owner decides a release; an agent never pushes a tag on its own.
+# published to npm: a consumer pins the tag, github:we-the-rebel-alliance/gws-plugin#v<version>, and the committed
+# dist/ is what that tag installs, with no build. Only the owner decides a release; an agent never pushes a tag on its
+# own.
 
 on:
   push:
     tags:
       - "v*"
 
-permissions: {}
+permissions:
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -19,7 +21,7 @@ jobs:
   release:
     name: release
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
