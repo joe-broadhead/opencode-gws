@@ -1,6 +1,6 @@
 ---
 name: gws-recipes
-description: Ready gws requests for everyday tasks: recent or unread mail, replies and drafts, the week's meetings, finding, sharing or trashing Drive files and Docs, Sheets rows, and standup, meeting-prep and weekly-digest reports.
+description: Ready gws requests for everyday tasks, including recent or unread mail, replies and drafts, the week's meetings, finding, sharing or trashing Drive files and Docs, Sheets rows, and standup, meeting-prep and weekly-digest reports.
 ---
 
 If Google Workspace tools are absent, run `/connect` and choose Google Workspace (or Google Workspace (<alias>) for another account). A Desktop OAuth client is needed unless your organisation provides one.

@@ -1,6 +1,6 @@
 ---
 name: gws
-description: The user's Gmail, Calendar, Drive, Docs, Sheets, Tasks and other Google Workspace data: how the gws tools find, read and change it (accounts, plan then commit, paging, errors). Use instead of any gws CLI skill or shell command.
+description: The user's Gmail, Calendar, Drive, Docs, Sheets, Tasks and other Google Workspace data, and how the gws tools find, read and change it (accounts, plan then commit, paging, errors). Use instead of any gws CLI skill or shell command.
 ---
 
 If Google Workspace tools are absent, run `/connect` and choose Google Workspace (or Google Workspace (<alias>) for another account). A Desktop OAuth client is needed unless your organisation provides one.

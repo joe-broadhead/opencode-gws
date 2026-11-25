@@ -18879,6 +18879,10 @@ var ErrorCode = {
     meaning: "The plugin options are not valid: an unknown key, a wrong type, an unknown service, an access value that is not all, ask-changes or read-only, or scopes that name something the account does not enable.",
     next: "Fix the plugin options in opencode.json; the message names the option."
   },
+  SKILLS_INVALID: {
+    meaning: "A packaged skill is invalid: a missing file or body, a frontmatter name that does not match its directory, or a description that uses a YAML block scalar.",
+    next: "Fix skills/<id>/SKILL.md; put the description on one line after `description:` and do not use > or |."
+  },
   GWS_UNAVAILABLE: {
     meaning: "No gws binary is available: this platform has no release binary, the binary is not installed yet, or binary.path does not exist.",
     next: "Call the method again so the first-use download can run, or set binary.path to a gws 0.22.5 executable."
@@ -26111,6 +26115,11 @@ function parseSkill(raw, id, file2) {
   if (!match || !name || !description) throw new Error(`SKILLS_INVALID: the skill file ${file2} has no name and description frontmatter`);
   if (name !== id) throw new Error(`SKILLS_INVALID: the skill file ${file2} names "${name}", not its directory "${id}"`);
   if (description.length === 0) throw new Error(`SKILLS_INVALID: the skill file ${file2} has an empty description`);
+  if (description.startsWith(">") || description.startsWith("|")) {
+    throw new GwsError("SKILLS_INVALID", `The skill file ${file2} has a block-scalar description (${description}); descriptions must be one line.`, {
+      next: "Put the description on one line after `description:`; do not use > or |."
+    });
+  }
   if (content.length === 0) throw new Error(`SKILLS_INVALID: the skill file ${file2} has no content`);
   return { name, description, content };
 }

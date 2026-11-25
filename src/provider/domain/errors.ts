@@ -245,6 +245,11 @@ export const ErrorCode = {
       "The plugin options are not valid: an unknown key, a wrong type, an unknown service, an access value that is not all, ask-changes or read-only, or scopes that name something the account does not enable.",
     next: "Fix the plugin options in opencode.json; the message names the option.",
   },
+  SKILLS_INVALID: {
+    meaning:
+      "A packaged skill is invalid: a missing file or body, a frontmatter name that does not match its directory, or a description that uses a YAML block scalar.",
+    next: "Fix skills/<id>/SKILL.md; put the description on one line after `description:` and do not use > or |.",
+  },
   GWS_UNAVAILABLE: {
     meaning: "No gws binary is available: this platform has no release binary, the binary is not installed yet, or binary.path does not exist.",
     next: "Call the method again so the first-use download can run, or set binary.path to a gws 0.22.5 executable.",

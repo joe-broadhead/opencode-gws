@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Plugin } from "@opencode/plugin"
 import { afterAll, describe, expect, it } from "vitest"
+import { parse } from "yaml"
 
 const root = join(import.meta.dirname, "..", "..")
 
@@ -23,10 +24,20 @@ function expectedSkills(): ExpectedSkill[] {
     .map((id) => {
       const raw = readFileSync(join(directory, id, "SKILL.md"), "utf8")
       const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(raw)
-      const front = match?.[1] ?? ""
-      const name = /^name:\s*(.+)$/m.exec(front)?.[1]?.trim()
-      const description = /^description:\s*(.+)$/m.exec(front)?.[1]?.trim()
-      if (!match || !name || !description || !(match[2] ?? "").trim()) throw new Error(`the skill file skills/${id}/SKILL.md is invalid`)
+      if (!match || !(match[2] ?? "").trim()) throw new Error(`the skill file skills/${id}/SKILL.md is invalid`)
+      let frontmatter: unknown
+      try {
+        frontmatter = parse(match[1])
+      } catch (error) {
+        throw new Error(`the skill file skills/${id}/SKILL.md has invalid YAML frontmatter: ${(error as Error).message}`)
+      }
+      const fields = frontmatter !== null && typeof frontmatter === "object" ? (frontmatter as Record<string, unknown>) : {}
+      const name = fields.name
+      const description = fields.description
+      if (typeof name !== "string" || name.length === 0) throw new Error(`the skill file skills/${id}/SKILL.md has no name`)
+      if (name !== id) throw new Error(`the skill file skills/${id}/SKILL.md names "${name}", not its directory`)
+      if (typeof description !== "string" || description.trim().length === 0) throw new Error(`the skill file skills/${id}/SKILL.md has no description`)
+      if (description.trim().startsWith(">") || description.trim().startsWith("|")) throw new Error(`the skill file skills/${id}/SKILL.md uses a block-scalar description`)
       return { id, name, description }
     })
 }
@@ -101,6 +112,8 @@ describe("skills on OpenCode 2.4.1", () => {
 
       expect([...listed.map((entry) => entry.id)].sort()).toEqual(expect.arrayContaining(skills.map((skill) => skill.id)))
       for (const skill of skills) {
+        expect(skill.name).toBe(skill.id)
+        expect(skill.description.trim()).not.toMatch(/^[>|]/)
         const entry = listed.find((candidate) => candidate.id === skill.id)
         expect(entry, `the host did not list ${skill.id}`).toBeDefined()
         expect(entry?.name).toBe(skill.name)
