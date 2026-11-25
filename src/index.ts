@@ -1,83 +1,51 @@
 import { Plugin } from "@opencode/plugin"
-import { loadConfig } from "./domain/config.js"
-import { GwsError } from "./domain/errors.js"
-import { HOST_RANGE, checkHost } from "./domain/host.js"
-import { PLUGIN_ID, PLUGIN_VERSION } from "./domain/version.js"
-import { agentLister, registerApprovalRules } from "./host/agents.js"
-import { planSummary, registerCommands } from "./host/commands.js"
-import { integrationAuthReporter, integrationConnection, integrationIds, integrationTokenProvider, registerIntegrations } from "./host/integrations.js"
-import { registerRpc, statusSource } from "./host/rpc.js"
-import { registerSkills, skillLister } from "./host/skills.js"
-import { registerTools } from "./host/tools.js"
-import { registerToolsRpc, scriptMethods } from "./host/script-methods.js"
-import { Runtime } from "./runtime/index.js"
+import { registerAccounts } from "@we-the-rebel-alliance/plugin-contract/accounts"
+import { assertHost, register } from "@we-the-rebel-alliance/plugin-contract/register"
+import { authFactory, integrationAuthReporter, integrationConnection, integrationIds, integrationTokenProvider } from "./accounts.js"
+import { createHandlers, type StatusState } from "./handlers/index.js"
+import { manifest, packageVersion } from "./manifest.js"
+import { loadConfig } from "./provider/domain/config.js"
+import { Runtime } from "./provider/index.js"
 
 /**
- * Entrypoint: options → host guard → runtime → host surfaces → cleanup.
- *
- * Setup performs local work only: config validation, trusted binary
- * resolution, a no-network version probe, and integration, tool, skill,
- * RPC (status and the script methods) and command registration. It never
- * calls a Google API and never fetches Discovery.
+ * The plugin's one `register` call: the host gate, the provider, one integration per alias, and every method through
+ * the contract's doors. No module registers a tool, an RPC id or a permission rule itself.
  */
 export default Plugin.define({
-  id: PLUGIN_ID,
+  id: manifest.plugin.name,
   async setup(ctx) {
+    assertHost(ctx, manifest)
+    const config = loadConfig(ctx.options)
+    const ids = integrationIds(config.accounts)
+    const runtime = await Runtime.create(config, {
+      pluginVersion: packageVersion,
+      projectDirectory: ctx.location.directory,
+      tokenProvider: integrationTokenProvider(ctx, config, ids),
+      connection: integrationConnection(ctx, ids),
+      onAuthState: integrationAuthReporter(ctx, config, ids),
+    })
+
+    let registration: Awaited<ReturnType<typeof register>> | undefined
     try {
-      return await start(ctx)
+      const accounts = await registerAccounts(ctx, {
+        manifest,
+        options: ctx.options as Record<string, unknown>,
+        auth: authFactory(ctx, config),
+      })
+      const state: StatusState = {
+        hostVersion: ctx.app.version,
+        accountProblems: [...accounts.problems],
+      }
+      registration = await register(ctx, manifest, createHandlers({ runtime, manifest, version: packageVersion, state }))
+      runtime.audit.emit({ event: "plugin.loaded", outcome: "success" })
+      return async () => {
+        await registration?.dispose().catch(() => undefined)
+        await runtime.close()
+      }
     } catch (error) {
-      // Every setup failure reads CODE: What happened. Next step: What to do.
-      throw GwsError.from(error) ?? error
+      await registration?.dispose().catch(() => undefined)
+      await runtime.close()
+      throw error
     }
   },
 })
-
-async function start(ctx: Plugin.Context): Promise<() => Promise<void>> {
-  const config = loadConfig(ctx.options)
-  const host = checkHost(ctx.app.version, HOST_RANGE, config.allowUntestedHost)
-  const ids = integrationIds(config.accounts)
-
-  const runtime = await Runtime.create(config, {
-    pluginVersion: PLUGIN_VERSION,
-    host,
-    projectDirectory: ctx.location.directory,
-    tokenProvider: integrationTokenProvider(ctx, config, ids),
-    connection: integrationConnection(ctx, ids),
-    onAuthState: integrationAuthReporter(ctx, config, ids),
-  })
-
-  let stopRpc: (() => Promise<void>) | undefined
-  let stopToolsRpc: (() => Promise<void>) | undefined
-  let stopCommands: (() => Promise<void>) | undefined
-  const close = async () => {
-    const settled = runtime.close()
-    try {
-      await stopCommands?.()
-      await stopToolsRpc?.()
-      await stopRpc?.()
-    } finally {
-      await settled
-    }
-  }
-  try {
-    await registerIntegrations(ctx, config, ids)
-    await registerApprovalRules(ctx, config.access)
-    const status = statusSource(runtime, agentLister(ctx), skillLister(ctx), config.access)
-    await registerTools(ctx, runtime, status)
-    await registerSkills(ctx, config)
-    stopRpc = await registerRpc(ctx, runtime, status)
-    stopToolsRpc = await registerToolsRpc(ctx, scriptMethods({ runtime, assert: (request) => ctx.permission.assert(request as never), status, listAgents: agentLister(ctx) }))
-    stopCommands = await registerCommands(ctx, {
-      status,
-      plans: (sessionID) => runtime.plans.list({ sessionId: sessionID }).map(planSummary),
-      doctor: runtime,
-      install: async (settled) => ({ path: await runtime.binaryFor({ signal: settled, mayDownload: async () => undefined }), version: runtime.version }),
-    }, runtime.signal)
-    runtime.audit.emit({ event: "plugin.loaded", outcome: "success" })
-  } catch (error) {
-    await close()
-    throw error
-  }
-
-  return close
-}
