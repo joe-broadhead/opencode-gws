@@ -3,8 +3,9 @@
 ## Layers
 
 ```
-src/index.ts        one register call: host gate, provider, integrations, handlers
+src/index.ts        one register call: host gate, skills, provider, integrations, handlers
 src/accounts.ts     integration mechanism: auth methods, token, connection, auth-state reports
+src/skills.ts       registers every skills/<id>/SKILL.md through ctx.skill.transform
 src/handlers/       one handler per method; schemas and error mapping
 src/provider/       the gws client and the operation pipeline
 ```
@@ -43,6 +44,6 @@ child process, staging and the image fetch; `src/provider/sources/` holds the ev
 ## OpenCode APIs
 
 The plugin uses `@opencode/plugin` 2.4.1 only: `ctx.integration` for the sign-in methods and credentials,
-`ctx.options`, `ctx.app.version`, `ctx.location.directory`, and `ctx.agent.list()` through the contract's
-`unguardedAgents`. Every door (agent tool, Code Mode, RPC) and every permission rule comes from the contract's
-`register`; the plugin writes none of them.
+`ctx.options`, `ctx.app.version`, `ctx.location.directory`, `ctx.skill.transform` for the packaged skills, and
+`ctx.agent.list()` through the contract's `unguardedAgents`. Every door (agent tool, Code Mode, RPC) and every
+permission rule comes from the contract's `register`; the plugin writes none of them.

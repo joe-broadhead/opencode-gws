@@ -45,6 +45,7 @@ src/
   index.ts               Plugin.define({ id: "gws", setup }) → one register call
   manifest.ts            reads package.json capabilities and version
   accounts.ts            the integration mechanism's host wiring (auth, token, connection, auth state)
+  skills.ts              registers every skills/<id>/SKILL.md through ctx.skill.transform
   handlers/              one file per method, plus the schemas and error mapping
   provider/
     index.ts             Runtime: binary, work directory, plans, audit

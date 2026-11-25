@@ -6,6 +6,7 @@ import { createHandlers, type StatusState } from "./handlers/index.js"
 import { manifest, packageVersion } from "./manifest.js"
 import { loadConfig } from "./provider/domain/config.js"
 import { Runtime } from "./provider/index.js"
+import { registerSkills } from "./skills.js"
 
 /**
  * The plugin's one `register` call: the host gate, the provider, one integration per alias, and every method through
@@ -27,6 +28,7 @@ export default Plugin.define({
 
     let registration: Awaited<ReturnType<typeof register>> | undefined
     try {
+      await registerSkills(ctx)
       const accounts = await registerAccounts(ctx, {
         manifest,
         options: ctx.options as Record<string, unknown>,

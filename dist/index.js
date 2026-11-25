@@ -26091,6 +26091,52 @@ var Runtime = class _Runtime {
   }
 };
 
+// src/skills.ts
+import { existsSync as existsSync2, readdirSync as readdirSync2, readFileSync as readFileSync4 } from "node:fs";
+import { dirname as dirname6, join as join10 } from "node:path";
+import { fileURLToPath as fileURLToPath3 } from "node:url";
+import { Skill } from "@opencode/plugin";
+var ROOT2 = join10(dirname6(fileURLToPath3(new URL("./skills.js", import.meta.url).href)), "..");
+var SKILLS = join10(ROOT2, "skills");
+function skillIds(directory = SKILLS) {
+  if (!existsSync2(directory)) throw new Error(`SKILLS_INVALID: the skills directory ${directory} is missing from the package`);
+  return readdirSync2(directory, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).filter((id) => existsSync2(join10(directory, id, "SKILL.md"))).sort();
+}
+function parseSkill(raw, id, file2) {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(raw);
+  const front = match?.[1] ?? "";
+  const name = /^name:\s*(.+)$/m.exec(front)?.[1]?.trim();
+  const description = /^description:\s*(.+)$/m.exec(front)?.[1]?.trim();
+  const content = (match?.[2] ?? "").trim();
+  if (!match || !name || !description) throw new Error(`SKILLS_INVALID: the skill file ${file2} has no name and description frontmatter`);
+  if (name !== id) throw new Error(`SKILLS_INVALID: the skill file ${file2} names "${name}", not its directory "${id}"`);
+  if (description.length === 0) throw new Error(`SKILLS_INVALID: the skill file ${file2} has an empty description`);
+  if (content.length === 0) throw new Error(`SKILLS_INVALID: the skill file ${file2} has no content`);
+  return { name, description, content };
+}
+async function registerSkills(ctx) {
+  const ids = skillIds();
+  if (ids.length === 0) throw new Error(`SKILLS_INVALID: the package has no skills in ${SKILLS}`);
+  let registered = 0;
+  await ctx.skill.transform((editor) => {
+    for (const id of ids) {
+      const file2 = `skills/${id}/SKILL.md`;
+      const path = join10(SKILLS, id, "SKILL.md");
+      const parsed = parseSkill(readFileSync4(path, "utf8"), id, file2);
+      editor.add({
+        id: Skill.ID.make(id),
+        name: Skill.Name.make(parsed.name),
+        description: parsed.description,
+        path: Skill.Info.fields.path.make(path),
+        content: parsed.content,
+        autoinvoke: true
+      });
+      registered += 1;
+    }
+  });
+  return registered;
+}
+
 // src/index.ts
 var index_default = Plugin.define({
   id: manifest.plugin.name,
@@ -26107,6 +26153,7 @@ var index_default = Plugin.define({
     });
     let registration;
     try {
+      await registerSkills(ctx);
       const accounts = await registerAccounts(ctx, {
         manifest,
         options: ctx.options,
