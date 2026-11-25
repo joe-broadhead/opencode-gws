@@ -235,42 +235,6 @@
           "trust": "untrusted"
         }
       }
-    },
-    "gws.sheets": {
-      "probe": {
-        "answer": {
-          "source": "sheets",
-          "account": "work",
-          "owner": {
-            "id": "mailto:ana@example.test",
-            "label": "Ana Silva"
-          },
-          "scopes": [
-            "https://www.googleapis.com/auth/gmail.readonly"
-          ],
-          "trust": "untrusted"
-        }
-      },
-      "snapshot": {
-        "answer": {
-          "data": {
-            "range": "Sheet1!A1:B2",
-            "sheet": "Sheet1",
-            "rows": [
-              [
-                "name",
-                "count"
-              ],
-              [
-                "alpha",
-                2
-              ]
-            ]
-          },
-          "asOf": "2026-11-20T09:00:00.000Z",
-          "trust": "untrusted"
-        }
-      }
     }
   },
   "events": {

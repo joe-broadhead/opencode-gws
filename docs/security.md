@@ -24,7 +24,8 @@ used.
 
 ## The plan/commit flow
 
-1. `plan` resolves the operation, applies the policy, stages any upload, runs `gws --dry-run`, and stores the exact
+1. The plan method for the change's class (`plan_write`, `plan_send`, `plan_share`, `plan_delete`, `plan_export` or
+   `plan_admin`) resolves the operation, applies the policy, stages any upload, runs `gws --dry-run`, and stores the exact
    commit argv with the plan. It writes nothing.
 2. The preview shows the redacted command, the recipients a send or share reaches, the destination of an export, and
    Google's dry-run answer. The contract mints a single-use `planId` and stores the answer.
