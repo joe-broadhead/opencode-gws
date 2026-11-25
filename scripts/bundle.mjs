@@ -40,6 +40,8 @@ await build({
   target: "es2022",
   external: ["@opencode/plugin", "@opencode/plugin/*"],
   legalComments: "inline",
+  // The YAML parser is CommonJS and reads `process` with require(); the bundle is ESM, so give it a real require.
+  banner: { js: 'import { createRequire } from "node:module";\nconst require = createRequire(import.meta.url);' },
   logLevel: "warning",
   entryPoints: [join(SRC, "index.ts")],
   outfile: join(DIST, "index.js"),

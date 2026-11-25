@@ -26,9 +26,10 @@ export default Plugin.define({
       onAuthState: integrationAuthReporter(ctx, config, ids),
     })
 
+    let skillsRegistration: Awaited<ReturnType<typeof registerSkills>> | undefined
     let registration: Awaited<ReturnType<typeof register>> | undefined
     try {
-      await registerSkills(ctx)
+      skillsRegistration = await registerSkills(ctx)
       const accounts = await registerAccounts(ctx, {
         manifest,
         options: ctx.options as Record<string, unknown>,
@@ -41,10 +42,12 @@ export default Plugin.define({
       registration = await register(ctx, manifest, createHandlers({ runtime, manifest, version: packageVersion, state }))
       runtime.audit.emit({ event: "plugin.loaded", outcome: "success" })
       return async () => {
+        await skillsRegistration?.dispose().catch(() => undefined)
         await registration?.dispose().catch(() => undefined)
         await runtime.close()
       }
     } catch (error) {
+      await skillsRegistration?.dispose().catch(() => undefined)
       await registration?.dispose().catch(() => undefined)
       await runtime.close()
       throw error

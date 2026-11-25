@@ -1,44 +1,40 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { Plugin } from "@opencode/plugin"
 import { afterAll, describe, expect, it } from "vitest"
-import { parse } from "yaml"
+import { parse as parseYaml } from "yaml"
 
-const root = join(import.meta.dirname, "..", "..")
+const root = join(fileURLToPath(new URL("../..", import.meta.url)))
 
 interface ExpectedSkill {
   readonly id: string
   readonly name: string
   readonly description: string
+  readonly path: string
+  readonly content: string
 }
 
-/** Every `skills/<id>/SKILL.md`, read the way the plugin reads it. */
+/** Every `skills/<id>/SKILL.md`, parsed as YAML: the independent source of truth for what the host must register. */
 function expectedSkills(): ExpectedSkill[] {
   const directory = join(root, "skills")
   return readdirSync(directory, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
-    .filter((id) => readFileSync(join(directory, id, "SKILL.md"), "utf8"))
     .sort()
     .map((id) => {
-      const raw = readFileSync(join(directory, id, "SKILL.md"), "utf8")
-      const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(raw)
-      if (!match || !(match[2] ?? "").trim()) throw new Error(`the skill file skills/${id}/SKILL.md is invalid`)
-      let frontmatter: unknown
-      try {
-        frontmatter = parse(match[1])
-      } catch (error) {
-        throw new Error(`the skill file skills/${id}/SKILL.md has invalid YAML frontmatter: ${(error as Error).message}`)
+      const path = join(directory, id, "SKILL.md")
+      const text = readFileSync(path, "utf8")
+      const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text)
+      if (!match) throw new Error(`the skill file skills/${id}/SKILL.md has no frontmatter`)
+      const fields = parseYaml(match[1] ?? "") as Record<string, unknown>
+      if (fields.name !== id) throw new Error(`the skill file skills/${id}/SKILL.md names "${String(fields.name)}", not its directory`)
+      if (typeof fields.description !== "string" || fields.description.trim() === "") throw new Error(`the skill file skills/${id}/SKILL.md has no description`)
+      if (["", ">", "|", ">-", "|-", ">+", "|+"].includes(fields.description.trim())) {
+        throw new Error(`the skill file skills/${id}/SKILL.md registers a block marker, not its text`)
       }
-      const fields = frontmatter !== null && typeof frontmatter === "object" ? (frontmatter as Record<string, unknown>) : {}
-      const name = fields.name
-      const description = fields.description
-      if (typeof name !== "string" || name.length === 0) throw new Error(`the skill file skills/${id}/SKILL.md has no name`)
-      if (name !== id) throw new Error(`the skill file skills/${id}/SKILL.md names "${name}", not its directory`)
-      if (typeof description !== "string" || description.trim().length === 0) throw new Error(`the skill file skills/${id}/SKILL.md has no description`)
-      if (description.trim().startsWith(">") || description.trim().startsWith("|")) throw new Error(`the skill file skills/${id}/SKILL.md uses a block-scalar description`)
-      return { id, name, description }
+      return { id, name: fields.name as string, description: fields.description, path, content: text.slice(match[0].length).trim() }
     })
 }
 
@@ -48,13 +44,13 @@ const scratch = mkdtempSync(join(tmpdir(), "gws-skills-host-"))
 afterAll(() => rmSync(scratch, { recursive: true, force: true }))
 
 /**
- * The built bundle in the real OpenCode 2.4.1 host, loaded as a plugin definition in an empty temp project. The plugin's
- * setup must register every `skills/<id>/SKILL.md` through `ctx.skill.transform`; stock discovery cannot find them,
- * because the project is empty and is not the package. A probe plugin captures the same host context so
- * `ctx.skill.list` is checked as well as the host's `skill.list`.
+ * The built bundle in the real OpenCode 2.4.1 host, loaded through the host's package resolver in an empty temp
+ * project. The plugin's setup must register every `skills/<id>/SKILL.md` through `ctx.skill.transform`; stock
+ * discovery cannot find them, because the project is empty and is not the package. A probe plugin captures the same
+ * host context so `ctx.skill.list` is checked as well as the host's `skill.list`.
  */
 describe("skills on OpenCode 2.4.1", () => {
-  it("registers every skills/<id>/SKILL.md before the plugin becomes active", async () => {
+  it("registers every skills/<id>/SKILL.md with the YAML description", async () => {
     const project = join(scratch, "project")
     const home = join(scratch, "home")
     for (const directory of [project, home, join(home, "config"), join(home, "cache"), join(home, "data"), join(home, "state")]) {
@@ -63,6 +59,7 @@ describe("skills on OpenCode 2.4.1", () => {
     // Stock discovery looks in `<project>/skills`; the project is empty, so a listing can only come from transform.
     expect(project.startsWith(`${root}/`)).toBe(false)
     expect(readdirSync(project)).toEqual([])
+
     const saved = new Map<string, string | undefined>()
     const setEnv = (key: string, value: string | undefined) => {
       if (!saved.has(key)) saved.set(key, process.env[key])
@@ -80,7 +77,7 @@ describe("skills on OpenCode 2.4.1", () => {
     for (const key of Object.keys(process.env)) if (key.startsWith("OPENCODE")) setEnv(key, undefined)
     setEnv("OPENCODE_TEST_HOME", home)
 
-    const contexts: Array<Parameters<ReturnType<typeof Plugin.define>["setup"]>[0]> = []
+    const contexts: Plugin.Context[] = []
     const probe = Plugin.define({
       id: "gws.test.skill-probe",
       setup(ctx) {
@@ -89,9 +86,15 @@ describe("skills on OpenCode 2.4.1", () => {
     })
 
     const { OpenCode } = await import("@opencode/sdk")
-    const plugin = (await import(join(root, "dist/index.js"))).default
+    const { load, resolve } = await import("@opencode/plugin/host")
+    const { waitForActivation } = await import("@we-the-rebel-alliance/plugin-contract/kit")
+    const entry = resolve({ directory: root }).server
+    expect(entry).toBeDefined()
+    const module = (await load(entry!)) as { readonly default?: Plugin.Plugin }
+    const definition = module.default
+    expect(definition).toBeDefined()
     const host = await OpenCode.create({
-      plugins: [plugin, probe],
+      plugins: [definition!, probe],
       config: { directory: project },
       app: { name: "opencode", version: "2.4.1" },
       log: { level: "error", emit: () => {} },
@@ -100,33 +103,31 @@ describe("skills on OpenCode 2.4.1", () => {
       const location = { directory: project }
       const session = await host.sessions.create({ location, agent: "build", permissions: [] })
       await host.sessions.prompt({ sessionID: session.id, text: "activate the skills test", delivery: "queue" }).catch(() => undefined)
+      await waitForActivation({
+        isActive: async () => {
+          const list = await host.plugin.list({ location }).catch(() => undefined)
+          return list?.data.some((candidate: { readonly id?: string }) => candidate.id === definition!.id) ?? false
+        },
+        timeoutMs: 20_000,
+      })
 
-      const deadline = Date.now() + 30_000
-      let listed: Array<{ id: string; name: string; description?: string }> = []
-      while (Date.now() < deadline) {
-        const answer = await host.skill.list({ location }).catch(() => undefined)
-        listed = answer?.data ?? []
-        if (skills.every((skill) => listed.some((entry) => entry.id === skill.id))) break
-        await new Promise((resolve) => setTimeout(resolve, 100))
-      }
-
-      expect([...listed.map((entry) => entry.id)].sort()).toEqual(expect.arrayContaining(skills.map((skill) => skill.id)))
+      const answer = await host.skill.list({ location })
       for (const skill of skills) {
         expect(skill.name).toBe(skill.id)
         expect(skill.description.trim()).not.toMatch(/^[>|]/)
-        const entry = listed.find((candidate) => candidate.id === skill.id)
-        expect(entry, `the host did not list ${skill.id}`).toBeDefined()
-        expect(entry?.name).toBe(skill.name)
-        expect(entry?.description).toBe(skill.description)
+        const registered = answer.data.find((candidate: { readonly id: string }) => candidate.id === skill.id)
+        expect(registered, `the host did not list ${skill.id}`).toBeDefined()
+        expect(registered?.name).toBe(skill.id)
+        expect(registered?.path).toBe(skill.path)
+        expect(registered?.content.trim().length).toBeGreaterThan(0)
+        expect(registered?.description).toBe(skill.description)
       }
 
       expect(contexts.length).toBeGreaterThan(0)
       const context = contexts[contexts.length - 1]!
       const fromContext = await context.skill.list({ location })
       for (const skill of skills) {
-        const entry = fromContext.data.find((candidate) => candidate.id === skill.id)
-        expect(entry, `ctx.skill.list did not list ${skill.id}`).toBeDefined()
-        expect(entry?.description).toBe(skill.description)
+        expect(fromContext.data.find((candidate: { readonly id: string }) => candidate.id === skill.id)?.description).toBe(skill.description)
       }
     } finally {
       await host.close()
