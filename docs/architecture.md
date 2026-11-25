@@ -19,9 +19,8 @@ child process, staging and the image fetch; `src/provider/sources/` holds the ev
 
 - **Binary.** `src/provider/process/binary.ts` resolves one pinned gws 0.22.5 executable from `native/provenance.json`
   and the release manifest `manifest/native.json`, checks its SHA-256 and refuses a writable or project-local copy. A
-  call may download it only when the access rules allow the first-use write. The `v0.0.0` package does not commit
-  `manifest/native.json` yet, so native calls answer `GWS_UNAVAILABLE` until the lead adds the manifest and gzips, or
-  `binary.path` names a system copy.
+  call may download it only when the access rules allow the first-use write. The `v0.0.0` package carries `manifest/native.json`, and its release assets carry the verified `gws-<target>.gz` files;
+  `binary.path` can name a system copy instead.
 - **Command catalog.** `manifest/generated.json` is generated from the pinned gws by `npm run manifest` (cases in
   `scripts/generate-manifest.mjs`). Runtime code resolves every request to a catalog entry before it spawns anything.
 - **Process.** `src/provider/process/run.ts` spawns with an argv array and `shell: false`, with a timeout, output caps

@@ -1,25 +1,22 @@
 # Google Workspace
 
 Google Workspace for OpenCode: Gmail, Calendar, Drive, Docs and Sheets, with plans and per-class commits. The plugin
-is built for a pinned, verified `gws` 0.22.5 executable against each account's own Google sign-in, but the `v0.0.0`
-package does not yet carry `manifest/native.json` or the native `gws-<target>.gz` assets. Until the lead adds them,
-native calls answer `GWS_UNAVAILABLE`, and `binary.path` must name a system copy. It never calls a `gws` found on
-`PATH`, and it ships no OAuth client.
+is built for a pinned, verified `gws` 0.22.5 executable against each account's own Google sign-in. The `v0.0.0`
+package carries `manifest/native.json`, and its release assets carry the verified `gws-<target>.gz` files. It never
+calls a `gws` found on `PATH`, and it ships no OAuth client.
 
 ## Install
 
 ```sh
-opencode plugin add github:we-the-rebel-alliance/gws-plugin#<release-tag>
+opencode plugin add github:we-the-rebel-alliance/gws-plugin#v0.0.0
 ```
 
-The release tag is assigned when this branch is merged. The owner must first clear the pre-transfer `v0.0.0`–`v0.0.13`
-tags; until then `#v0.0.0` resolves to the old package, so use only the tag the owner cuts. The plugin needs Node 24 and
+The install tag is `v0.0.0`; the lead's release bot cuts it after merge. The plugin needs Node 24 and
 OpenCode `>=2.4.1 <2.5.0`; it is tested on `2.4.1`. A release outside that range is refused with `HOST_UNTESTED`; a
 release inside the range starts, and status reports it as untested.
 
-When `manifest/native.json` and its `gws-<target>.gz` assets are present, the first call that needs the executable
-downloads and verifies the pinned 0.22.5 build. The `v0.0.0` package does not commit them yet; `binary.path` can name
-an absolute system copy until the lead attaches them.
+On the first call that needs the `gws` executable, the plugin downloads and verifies the pinned 0.22.5 build from its
+`v0.0.0` release assets. `binary.path` can name an absolute system copy instead.
 
 ## Sign in
 
@@ -142,9 +139,9 @@ None.
 - **`NEEDS_SIGN_IN`, `SCOPE_MISSING`**: run `/connect`, choose the account's integration and approve every scope. A
   read-only sign-in cannot approve a write; sign in again and choose Read and write.
 - **`ACCOUNT_REQUIRED`, `ACCOUNT_UNKNOWN`**: pass `account` with one of the aliases `status` lists.
-- **`GWS_UNAVAILABLE`, `BINARY_TRUST_FAILED`**: the package has no native manifest yet, the first-use download was
-  refused, or the configured `binary.path` is not a trusted 0.22.5 executable. Point `binary.path` at a copy only you
-  can write, or wait for the lead's native manifest/assets.
+- **`GWS_UNAVAILABLE`, `BINARY_TRUST_FAILED`**: the first-use download was refused, or the configured `binary.path` is
+  not a trusted 0.22.5 executable. Remove a bad cached copy under the plugin cache, or point `binary.path` at a copy
+  only you can write.
 - **`PLAN_INVALID`, `PLAN_USED`**: plan again and show the new preview; check the current state with `read` before
   repeating a committed change.
 - **`PERMISSION_DENIED`**: a deny-only policy rule, the admin gate or the session's rules refused the call. Tell the

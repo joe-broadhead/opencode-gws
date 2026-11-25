@@ -36,4 +36,7 @@ credentials, emails, phone numbers and home directories before it writes.
 ## Release
 
 The lead cuts releases after a pull request merges. `plugin-kit release <version>` creates the local tag; CI publishes
-the GitHub release from it. Never push a tag or publish by hand.
+the GitHub release from it. Never push a tag or publish by hand. The release names the native files explicitly: the
+`v<version>` `gws-<target>.gz` assets, `manifest/native.json` and `native/provenance.json`. They are separate from the
+package tarball; `manifest/native.json` downloads the gzips, so a directory glob would upload a directory instead of
+the named assets.

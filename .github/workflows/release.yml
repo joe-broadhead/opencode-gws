@@ -51,7 +51,15 @@ jobs:
           npm pack --pack-destination release
           assets=(release/*.tgz release/conformance.json)
           if [ -f native/provenance.json ]; then cp native/provenance.json release/native-provenance.json; assets+=(release/native-provenance.json); fi
-          if [ -f manifest/native.json ]; then cp manifest/native.json release/native.json; assets+=(release/native.json); fi
+          if [ -f manifest/native.json ]; then
+            cp manifest/native.json release/native.json
+            assets+=(release/native.json)
+            for target in darwin-arm64 darwin-x64 linux-arm64-gnu linux-x64-gnu; do
+              test -f "native/gws-$target.gz"
+              cp "native/gws-$target.gz" release/
+              assets+=("release/gws-$target.gz")
+            done
+          fi
           sha256sum "${assets[@]}" > release/SHA256SUMS
       - name: Create the GitHub Release
         env:
@@ -62,5 +70,10 @@ jobs:
           set -euo pipefail
           assets=(release/*.tgz release/conformance.json release/SHA256SUMS)
           if [ -f release/native-provenance.json ]; then assets+=(release/native-provenance.json); fi
-          if [ -f release/native.json ]; then assets+=(release/native.json); fi
+          if [ -f release/native.json ]; then
+            assets+=(release/native.json)
+            for target in darwin-arm64 darwin-x64 linux-arm64-gnu linux-x64-gnu; do
+              assets+=("release/gws-$target.gz")
+            done
+          fi
           gh release create "$TAG" "${assets[@]}" --repo "$REPO" --verify-tag --title "$TAG" --generate-notes

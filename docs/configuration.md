@@ -26,7 +26,7 @@ One interactive account with the default services:
 
 ```json
 {
-  "plugins": [{ "package": "github:we-the-rebel-alliance/gws-plugin#<release-tag>" }]
+  "plugins": [{ "package": "github:we-the-rebel-alliance/gws-plugin#v0.0.0" }]
 }
 ```
 
@@ -36,7 +36,7 @@ Two accounts, a narrower service list, and changes that ask first:
 {
   "plugins": [
     {
-      "package": "github:we-the-rebel-alliance/gws-plugin#<release-tag>",
+      "package": "github:we-the-rebel-alliance/gws-plugin#v0.0.0",
       "options": {
         "access": "ask-changes",
         "services": ["gmail", "calendar", "drive"],
