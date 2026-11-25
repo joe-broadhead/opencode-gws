@@ -65,8 +65,12 @@ function checkTarball(tarball, version) {
     .split("\n")
     .filter(Boolean)
     .map((path) => path.replace(/^package\//, ""))
-  const required = ["package.json", "dist/index.js", "README.md", "LICENSE", "manifest/generated.json", "NOTICE", "licenses/gws/LICENSE", "skills/gws/SKILL.md", "skills/gws-recipes/SKILL.md"]
+  const required = ["package.json", "dist/index.js", "README.md", "LICENSE", "manifest/generated.json", "manifest/native.json", "NOTICE", "licenses/gws/LICENSE", "licenses/gws/NOTICE", "skills/gws/SKILL.md", "skills/gws-recipes/SKILL.md"]
   for (const path of required) check(listing.includes(path), `the tarball lacks ${path}`)
+  const notice = run("tar", ["-xOzf", tarball, "package/NOTICE"])
+  check(notice.includes("Copyright Eemeli Aro <eemeli@gmail.com>") && notice.includes("ISC License"), "NOTICE lacks the bundled yaml ISC notice")
+  const gwsNotice = run("tar", ["-xOzf", tarball, "package/licenses/gws/NOTICE"])
+  check(gwsNotice.includes("manifest/native.json"), "licenses/gws/NOTICE does not name the packaged manifest/native.json")
   check(!listing.some((path) => /(^|\/)gws$/.test(path)), "the tarball contains a gws binary")
   check(!listing.some((path) => /\.d\.[cm]?ts$/.test(path)), "the tarball contains type declarations")
   check(!listing.some((path) => path.startsWith("views/")), "the tarball contains a legacy view")
