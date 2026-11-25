@@ -1,90 +1,48 @@
 # Architecture
 
-Unofficial plugin. Not affiliated with Google. Requires OpenCode 2.4.1 or a later 2.4 release (`>=2.4.1 <2.5.0`).
+## Layers
 
 ```
-OpenCode
-  agents ── load ──► two skills
-     │
-     └── call ─────► gws tools
-                       ├─ manifest resolution (operation id)
-                       ├─ category
-                       ├─ policy (deny-only constraints, admin gate)
-                       ├─ argv (params, body, upload, output)
-                       ├─ spawn (argv array, shell false, isolated env)
-                       └─ result
-                            │
-                            ▼
-                         gws 0.22.5
-                            │
-                            ▼
-                     Google Workspace APIs
+src/index.ts        one register call: host gate, provider, integrations, handlers
+src/accounts.ts     integration mechanism: auth methods, token, connection, auth-state reports
+src/handlers/       one handler per method; schemas and error mapping
+src/provider/       the gws client and the operation pipeline
 ```
 
-A change is a dry-run plan, then one commit tool. The RPC, the TUI, and the commands cannot approve or commit; the one exception is the tools RPC's commit methods, which exist only when the `rpcCommits` option is on ([scripting.md](scripting.md#committing-from-a-script-rpccommits)).
+The handler layer knows the contract; it never spawns a process or reads a credential. The provider layer knows gws and
+Google; it never registers a tool, an RPC id or a permission rule. `src/provider/domain/` holds the catalog, policy,
+recipient rules, plans, configuration, audit and error table; `src/provider/process/` holds the binary resolution, the
+child process, staging and the image fetch; `src/provider/sources/` holds the events and snapshot readers.
 
-## Source layout
+## The provider client
 
-Each layer has one job and a fixed set of allowed imports. `test/architecture.test.ts` fails on a violation.
+- **Binary.** `src/provider/process/binary.ts` resolves one pinned gws 0.22.5 executable from `native/provenance.json`
+  and the release manifest `manifest/native.json`, checks its SHA-256 and refuses a writable or project-local copy. A
+  call may download it only when the access rules allow the first-use write. `binary.path` names a system copy instead.
+- **Command catalog.** `manifest/generated.json` is generated from the pinned gws by `npm run manifest` (cases in
+  `scripts/generate-manifest.mjs`). Runtime code resolves every request to a catalog entry before it spawns anything.
+- **Process.** `src/provider/process/run.ts` spawns with an argv array and `shell: false`, with a timeout, output caps
+  and the call's cancellation signal. Only this directory spawns `gws`.
+- **Reads and writes.** `src/provider/operations.ts` is one pipeline: resolve → classify → policy → build → run → parse.
+  A read is audited as `operation.read`; a plan runs `--dry-run` and stores the exact commit argv; a commit re-stages
+  its files, applies the stored argv, audits the outcome and emits the contract's `changed` nudge.
+- **Policy.** Deny-only rules constrain services, categories, operations, recipients, public sharing, file roots and
+  page sizes. The admin gate is separate: `admin.enabled`, `admin.allowedServices` and a required reason on every admin
+  plan.
 
-```
-src/
-  index.ts          Plugin.define: host check, options, ask rules, tools, skills, commands, RPCs
-  rpc.ts            internal status contract in plain JSON Schema; @opencode/plugin/rpc only
-  tui.tsx           status dialog; host UI modules and ./rpc only
-  runtime/
-    index.ts        lifecycle, composing operations and accounts
-    operations.ts   resolve, policy, plan, commit
-    accounts.ts     tokens, spawn, status
-  host/             the only other modules that import @opencode/plugin
-    agents.ts       default ask rules
-    tools.ts        the 12 tool adapters
-    event-sources.ts events_list's sources (gws.gmail, gws.calendar) on the source contract package
-    gmail-events.ts events_list for Gmail: search, then history, as events
-    calendar-events.ts events_list for Calendar: a bounded window of meetings, as events
-    source-page.ts  what every events_list page names: the package, the cursor's plugin, the page cap
-    sources.ts      the source contract's probe, calendar_today, images_read and sheets_read
-    sheets.ts       gws.sheets: one range of one spreadsheet, read with values.get
-    permissions.ts  permission.assert inputs; no signal field
-    skills.ts       the two skills
-    integrations.ts sign-in
-    commands.ts     /gws-status, /gws-doctor
-    rpc.ts          status implementation
-    script-methods.ts tools RPC: every tool spec and source read as a method, for a script running as a session, on the source contract's transport
-    calendar.ts     the agenda reader behind calendar_today
-    images.ts       the image reader behind images_read
-  domain/           pure logic; imports only domain/
-    contract.ts     tool schemas
-    config.ts       options
-    scopes.ts       read and write scope sets
-    policy.ts       deny-only constraints and the admin gate
-    errors.ts       the error table; the Errors section of docs/configuration.md is generated from it
-    manifest.ts     catalog and coverage
-    gmail.ts        what events_list takes from a message: noise, people, text
-    calendar.ts     today's calendar: the answering account, today's bounds, the agenda's shape
-    images.ts       pictures: the address gate, the token hosts, the type from the bytes, the account
-  process/          the only spawn site; image-fetch.ts, the one HTTPS fetch of a picture
-  auth/             OAuth client, form, setup, doctor; no host import
-```
+## State and caches
 
-| Layer | May import |
-| --- | --- |
-| `index.ts` | the plugin, host, runtime, domain |
-| `rpc.ts` | `@opencode/plugin/rpc` |
-| `tui.tsx` | `@opencode/plugin/tui`, `@opentui/*`, `solid-js`, `./rpc` |
-| `host/` | `@opencode/plugin`, `domain/`, `runtime/`, `auth/`, `rpc.ts` |
-| `runtime/` | `domain/`, `process/`, `auth/` |
-| `auth/`, `process/` | `domain/` |
-| `domain/` | `domain/` only |
+- Plans live in memory, bound to the session, agent and account, for `policy.planTtlSeconds` (15 minutes by default).
+  A plan commits once; a failed handler uses it up, and a refused permission releases it.
+- The account's own address and the calendar day's read are kept in memory for a short time. Nothing else is cached.
+- The audit log is one JSON line per call, under the plugin's state directory unless `audit.path` names a file. It
+  records codes, accounts, categories, operations and durations, never a body, token or URL query.
+- The gws binary and its Discovery cache live under the plugin's cache directory. A headless credentials-file account
+  gets its own gws directory there.
 
-Only `index.ts`, `host/`, `rpc.ts`, and `tui.tsx` import `@opencode/plugin`. Only `process/` spawns. `scripts/bundle.mjs` builds exactly two self-contained files with esbuild: `dist/index.js` (the server part) and `dist/tui.js` (the TUI part, its JSX compiled first by Babel's Solid preset). Each inlines first-party code and the RPC contract, and has no relative import, so a running OpenCode that reloads the plugin in place never pairs a new entry with a stale sibling module. Only `@opencode/plugin`, OpenTUI, Solid and Node built-ins stay external. The RPC contract (`src/rpc.ts`) is plain JSON Schema with plain TypeScript types, so the TUI bundle carries no schema library; `zod` is used for the tool schemas and is bundled into `dist/index.js` only. Modules that find package files from `import.meta.url` (the manifest, the skills, the gws package) see the URL of their source path under `dist/`, so their relative paths still reach the package root. There are no peer dependencies; the host supplies those modules.
+## OpenCode APIs
 
-`manifest/generated.json` is the coverage contract. Regenerate it with `npm run manifest`. It is stored minified, with each scope URL once in a shared table and no field that a method's id gives; `scripts/manifest-format.mjs` writes and reads that form, and `src/domain/manifest.ts` expands it the same way. `docs/coverage.md`, the Errors section of `docs/configuration.md`, and the scope table in `docs/auth.md` are generated by `npm run docs:coverage`. Do not edit them by hand.
-
-## Platform facts
-
-Facts about OpenCode 2.4 that this plugin relies on, and how each was checked. These hold on 2.4.1.
-
-| Fact | How it was checked |
-| --- | --- |
-| Credential status | A status set with `integration.connection.status` is not on what `connection.active` returns; `integration.get` projects it as `connections[].status`. The plugin reads a credential's `needs_auth` mark back from the projection (`src/host/integrations.ts`), so a sign-in it reported clears once Google accepts the account again. There is no host test: gws's sign-in calls Google's own authorization and token endpoints, and the host harness has no fake for them, so `test/integration-connection.test.ts` uses a host fake whose `active()` returns the credential without a status. |
+The plugin uses `@opencode/plugin` 2.4.1 only: `ctx.integration` for the sign-in methods and credentials,
+`ctx.options`, `ctx.app.version`, `ctx.location.directory`, and `ctx.agent.list()` through the contract's
+`unguardedAgents`. Every door (agent tool, Code Mode, RPC) and every permission rule comes from the contract's
+`register`; the plugin writes none of them.

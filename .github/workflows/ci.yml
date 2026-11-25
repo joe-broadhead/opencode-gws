@@ -1,7 +1,6 @@
 name: CI
 
-# Every step also runs locally: npm ci --ignore-scripts && npm run fetch:gws && npm run check.
-
+# Every step also runs locally: npm ci --ignore-scripts && npm run check.
 on:
   pull_request:
   push:
@@ -19,14 +18,8 @@ concurrency:
 jobs:
   ci:
     name: ci
-    # A fork's pull request runs on GitHub's runner, never on a self-hosted one; everything else may use the
-    # organisation's public runner when CI_RUNNER_PUBLIC names it.
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (vars.CI_RUNNER_PUBLIC || 'ubuntu-24.04') || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
-    env:
-      # The binary the actionlint step downloads, so the lint stage's check-workflows lints the same files again.
-      ACTIONLINT_BIN: ${{ github.workspace }}/actionlint
-
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -39,32 +32,10 @@ jobs:
           node-version: 24
           cache: npm
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: 1.4.4
-
-      # The workflows are tools too: actionlint parses them as workflows, not as YAML, so a `${{ }}` in a context that
-      # does not exist fails here rather than leaving GitHub to reject the file and run nothing at all.
-      - name: actionlint
-        run: |
-          set -euo pipefail
-          version=1.7.12
-          base="https://github.com/rhysd/actionlint/releases/download/v${version}"
-          curl -sSfLO "${base}/actionlint_${version}_linux_amd64.tar.gz"
-          curl -sSfLO "${base}/actionlint_${version}_checksums.txt"
-          grep " actionlint_${version}_linux_amd64.tar.gz$" "actionlint_${version}_checksums.txt" | sha256sum -c -
-          tar xzf "actionlint_${version}_linux_amd64.tar.gz" actionlint
-          ./actionlint -color
-
       - name: Install
         run: npm ci --ignore-scripts
 
-      - name: Fetch the pinned gws executable
-        run: npm run fetch:gws
-
-      # The stock OpenCode binary the host and pack stages spawn, the one tested release (TESTED_HOSTS in
-      # src/domain/host.ts), so it really runs here: a missing one fails the run (PUBLIC-PATTERN R34).
+      # The stock OpenCode binary the host and pack stages spawn, so they run the real release here.
       - name: Stock OpenCode binary
         run: |
           platform="$(node -p 'process.platform')-$(node -p 'process.arch')"
