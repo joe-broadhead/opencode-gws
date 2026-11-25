@@ -86,9 +86,14 @@ describe("plan and commit", () => {
     commit: async () => ({ ok: true, planId: plan.planId, category: "send", operation: "gmail.send", result: { id: "m1" } }),
   }
 
+  it("refuses an operation whose effective category is another plan's class", async () => {
+    const table = handlers(runtime)
+    await expect(table.plan_write.run({ operation: "gmail.send" }, call())).rejects.toThrow(/^PLAN_INVALID: plan_write: plan_write plans only write operations/)
+  })
+
   it("plans with the committing method and a preview, and keeps the gws plan id private", async () => {
     const table = handlers(runtime)
-    const answer = (await table.plan.run({ operation: "gmail.send", input: { to: "sam@example.test", subject: "s", body: "b" } }, call())) as Record<string, unknown>
+    const answer = (await table.plan_send.run({ operation: "gmail.send", input: { to: "sam@example.test", subject: "s", body: "b" } }, call())) as Record<string, unknown>
     expect(answer).toMatchObject({ method: "send", trust: "untrusted", gwsPlanId: "gws-plan-1" })
     expect(answer["reaches"]).toEqual([{ id: "sam@example.test" }])
     expect(JSON.stringify(answer)).not.toContain("planId")

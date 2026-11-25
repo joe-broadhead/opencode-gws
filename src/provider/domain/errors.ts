@@ -45,7 +45,7 @@ export const ErrorCode = {
   },
   INPUT_INVALID: {
     meaning:
-      "A source read refused its input, or Google could not find the spreadsheet or read the named range for sheets_read.",
+      "A source read refused its input: an unknown source, a malformed cursor, or a value its declaration does not allow.",
     next: "Compare the input with the source's declaration (package.json sources) and the installed plugin, then retry.",
   },
   SOURCE_UNKNOWN: {
@@ -101,7 +101,7 @@ export const ErrorCode = {
   // ── Scripts (the tools RPC) ───────────────────────────────────────────
   PERMISSION_DENIED: {
     meaning:
-      "The session's permission rules denied the call or require an approval a script cannot give. For sheets_read, Google may instead have refused the selected account's access.",
+      "The session's permission rules denied the call or require an approval a script cannot give.",
     next: "Add an allow rule for the tool to the session's agent or to the session, or use a session whose agent allows it.",
   },
 

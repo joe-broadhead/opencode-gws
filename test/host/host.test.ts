@@ -26,7 +26,7 @@ describe("OpenCode 2.4.1 host", () => {
       expect(run.failure).toBeUndefined()
       expect(run.definition?.id).toBe("gws")
       expect(run.namespace?.description).toBe(pkg.capabilities.plugin.summary)
-      expect(run.tools).toHaveLength(16)
+      expect(run.tools).toHaveLength(20)
       expect(run.rpc?.id).toBe("gws")
       expect([...(run.rpc?.events ?? [])]).toEqual(["changed"])
 

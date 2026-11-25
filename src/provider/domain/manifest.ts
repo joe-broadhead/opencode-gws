@@ -180,6 +180,10 @@ export function helperInput(id: string): unknown {
   return z.toJSONSchema(helperAdapter(id)!.inputSchema, { io: "input", unrepresentable: "any" })
 }
 
+function planTool(category: Category): string | undefined {
+  return COMMITTED.has(category) ? `plan_${category}` : undefined
+}
+
 function commitTool(category: Category): string | undefined {
   return COMMITTED.has(category) ? category : undefined
 }
@@ -286,6 +290,7 @@ export function catalog(input: CatalogInput = {}, services?: ReadonlySet<string>
   }
   if (include.has("methods")) {
     for (const method of commandIndex().methods.values()) {
+      const plan = planTool(method.category)
       const tool = commitTool(method.category)
       consider({
         kind: "method",
@@ -296,6 +301,7 @@ export function catalog(input: CatalogInput = {}, services?: ReadonlySet<string>
         httpMethod: method.httpMethod,
         ...(method.pathTemplate ? { path: method.pathTemplate } : {}),
         executable: methodExecutable(method),
+        ...(plan && methodExecutable(method) ? { planTool: plan } : {}),
         ...(tool && methodExecutable(method) ? { commitTool: tool } : {}),
         ...restrictionMarks(method.id),
       })
@@ -304,6 +310,7 @@ export function catalog(input: CatalogInput = {}, services?: ReadonlySet<string>
   if (include.has("helpers")) {
     for (const helper of commandIndex().helpers.values()) {
       const executable = helperExecutable(helper)
+      const plan = planTool(helper.category)
       const tool = commitTool(helper.category)
       const alternative = executable ? undefined : HELPER_ALTERNATIVES[helper.id]
       consider({
@@ -313,6 +320,7 @@ export function catalog(input: CatalogInput = {}, services?: ReadonlySet<string>
         description: helper.description,
         category: helper.category,
         executable,
+        ...(plan && executable ? { planTool: plan } : {}),
         ...(tool && executable ? { commitTool: tool } : {}),
         ...(alternative ? { alternative } : {}),
       })

@@ -65,7 +65,7 @@ function checkTarball(tarball, version) {
     .split("\n")
     .filter(Boolean)
     .map((path) => path.replace(/^package\//, ""))
-  const required = ["package.json", "dist/index.js", "README.md", "LICENSE", "manifest/generated.json", "native/provenance.json", "skills/gws/SKILL.md", "skills/gws-recipes/SKILL.md"]
+  const required = ["package.json", "dist/index.js", "README.md", "LICENSE", "manifest/generated.json", "NOTICE", "licenses/gws/LICENSE", "skills/gws/SKILL.md", "skills/gws-recipes/SKILL.md"]
   for (const path of required) check(listing.includes(path), `the tarball lacks ${path}`)
   check(!listing.some((path) => /(^|\/)gws$/.test(path)), "the tarball contains a gws binary")
   check(!listing.some((path) => /\.d\.[cm]?ts$/.test(path)), "the tarball contains type declarations")
@@ -101,7 +101,7 @@ async function kitHostLoad(installed, version) {
     if (runHost.failure !== undefined) throw new Error(`the plugin does not load: ${runHost.failure}`)
     check(runHost.definition?.id === PLUGIN_ID, "the installed package's id is not gws")
     check(runHost.namespace?.name === PLUGIN_ID, "the tool namespace is not gws")
-    check(runHost.tools.length === 16, `the installed package registers ${runHost.tools.length} tools, not 16`)
+    check(runHost.tools.length === 20, `the installed package registers ${runHost.tools.length} tools, not 20`)
     check(runHost.rpc?.id === PLUGIN_ID, `the RPC id is ${runHost.rpc?.id}, not gws`)
     const status = await runHost.call("status", {})
     check(status.ok, `status over RPC failed: ${status.ok ? "" : status.message}`)
@@ -113,7 +113,7 @@ async function kitHostLoad(installed, version) {
     check(!missing.ok && missing.code === "ACCOUNT_REQUIRED", `events_list without an account answered ${missing.ok ? "a page" : missing.code}`)
     const unknown = await runHost.call("events_list", { account: "nobodyhere" })
     check(!unknown.ok && unknown.code === "ACCOUNT_UNKNOWN", `events_list with an unknown alias answered ${unknown.ok ? "a page" : unknown.code}`)
-    console.log("ok contract host harness 2.4.1: 16 tools, one RPC id, status and two-account refusals")
+    console.log("ok contract host harness 2.4.1: 20 tools, one RPC id, status and two-account refusals")
   } finally {
     await runHost.close()
   }
@@ -149,7 +149,7 @@ async function stockLoad(binary, installed, version, root) {
   const reported = run(binary, ["--version"]).trim()
   check(/2\.4\.1$/.test(reported), `${binary} reports ${reported}, not 2.4.1`)
   const project = join(root, "project")
-  mkdirSync(project)
+  mkdirSync(project, { recursive: true })
   writeFileSync(join(project, "opencode.json"), JSON.stringify({ plugins: [{ package: installed, options: { accounts: { work: {}, personal: {} }, audit: { enabled: false } } }] }))
   const port = await freePort()
   const password = randomBytes(24).toString("hex")
@@ -180,7 +180,8 @@ async function stockLoad(binary, installed, version, root) {
       "the plugin to load",
     )
     check(entry?.state?.status === "active", `the stock host did not activate the plugin: ${JSON.stringify(entry?.state)}\n${log}`)
-    const { output } = await api("POST", `/api/rpc/${PLUGIN_ID}/status`, { input: {} })
+    const session = await api("POST", "/api/session", { agent: "build", title: "pack smoke" })
+    const { output } = await api("POST", `/api/rpc/${PLUGIN_ID}/status`, { input: { sessionID: session.data.id, input: {} } })
     check(output?.name === PLUGIN_ID && output?.version === version, "the stock host's status does not name gws and its version")
     check(output?.accounts?.length === 2, "the stock host's status does not list two accounts")
     console.log(`ok stock OpenCode ${reported}: plugin active, status over RPC`)

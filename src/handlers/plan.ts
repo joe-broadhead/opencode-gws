@@ -1,4 +1,6 @@
 import type { MethodHandler } from "@we-the-rebel-alliance/plugin-contract/register"
+import { GwsError } from "../provider/domain/errors.js"
+import type { CommitCategory } from "../provider/domain/types.js"
 import type { Runtime } from "../provider/index.js"
 import { throwRefusal } from "./errors.js"
 import { PLAN_INPUT, PLAN_OUTPUT } from "./schemas.js"
@@ -10,20 +12,25 @@ function reaches(preview: { readonly recipients?: readonly string[]; readonly re
 }
 
 /**
- * `plan`: a gws dry run that writes nothing. The answer is the person's preview (the redacted command and Google's
- * dry-run answer) and the private plan id the matching commit reads from `call.plan`; the register mints the public
- * planId.
+ * `plan_<category>`: a gws dry run for one commit class that writes nothing. The answer is the person's preview (the
+ * redacted command and Google's dry-run answer) and the private plan id the matching commit reads from `call.plan`;
+ * the register mints the public planId. An operation whose effective category is another class is refused.
  */
-export function planHandler(runtime: Runtime): MethodHandler {
+export function planHandler(runtime: Runtime, category: CommitCategory): MethodHandler {
   return {
     description:
-      "Prepare a change without making it: a gws dry run whose preview names the exact operation, recipients and destination. " +
-      "Show it to the person, then commit with the tool its category names, passing only the planId. Admin plans need a reason.",
+      `Plan one ${category} change without making it: a gws dry run whose preview names the exact operation, recipients and destination. ` +
+      `Show it to the person, then commit with ${category}, passing only the planId.`,
     input: PLAN_INPUT,
     output: PLAN_OUTPUT,
     async run(input, call) {
       try {
         const target = runtime.inspect({ ...(input as Record<string, unknown>), account: call.account } as never, "plan")
+        if (target.category !== category) {
+          throw new GwsError("CATEGORY_MISMATCH", `plan_${category} plans only ${category} operations, and ${target.operation} is ${target.category}`, {
+            next: target.category === "read" ? "Plan a read with read." : `Use plan_${target.category} for this operation.`,
+          })
+        }
         const plan = await runtime.plan({ ...(input as Record<string, unknown>), account: call.account } as never, {
           sessionId: call.sessionID,
           agentId: call.agent,
@@ -39,7 +46,7 @@ export function planHandler(runtime: Runtime): MethodHandler {
           ...(preview.recipientsUnknown === undefined ? [] : [`Recipients unknown: ${preview.recipientsUnknown}`]),
         ].slice(0, 20)
         return {
-          method: plan.category,
+          method: category,
           output: { operation: target.operation, category: plan.category, preview, dryRun: plan.dryRun },
           changes,
           ...(reaches(preview) === undefined ? {} : { reaches: reaches(preview) }),
@@ -49,7 +56,7 @@ export function planHandler(runtime: Runtime): MethodHandler {
           gwsExpiresAt: plan.expiresAt,
         }
       } catch (error) {
-        return throwRefusal(error, "plan")
+        return throwRefusal(error, `plan_${category}`)
       }
     },
   }

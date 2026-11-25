@@ -45,16 +45,6 @@ export const IMAGES_READ_INPUT: JsonSchema = {
   required: ["url"],
   additionalProperties: false,
 }
-export const SHEETS_READ_INPUT: JsonSchema = {
-  type: "object",
-  properties: {
-    source: { const: "sheets" },
-    spreadsheetId: { type: "string", minLength: 10, maxLength: 128, pattern: "^[A-Za-z0-9_-]{10,128}$" },
-    range: { type: "string", minLength: 1, maxLength: 256 },
-  },
-  required: ["spreadsheetId", "range"],
-  additionalProperties: false,
-}
 
 const ENVELOPE: JsonSchema = {
   type: "object",

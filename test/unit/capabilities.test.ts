@@ -18,14 +18,18 @@ describe("capabilities", () => {
     expect(manifest.plugin.host).toEqual({ opencode: ">=2.4.1 <2.5.0", tested: ["2.4.1"] })
   })
 
-  it("declares the 16 methods from the inventory", () => {
+  it("declares the 20 methods: 8 reads, 6 plans and 6 commits", () => {
     expect(Object.keys(manifest.methods).sort()).toEqual(
-      ["status", "catalog", "schema", "read", "plan", "events_list", "calendar_today", "images_read", "sheets_read", "probe", "write", "send", "share", "delete", "export", "admin"].sort(),
+      ["status", "catalog", "schema", "read", "events_list", "calendar_today", "images_read", "probe",
+        "plan_write", "plan_send", "plan_share", "plan_delete", "plan_export", "plan_admin",
+        "write", "send", "share", "delete", "export", "admin"].sort(),
     )
     const byClass = Object.fromEntries(Object.entries(manifest.methods).map(([name, item]) => [name, item.class]))
     expect(byClass).toMatchObject({ status: "read", write: "write", send: "send", share: "share", delete: "delete", export: "export", admin: "admin" })
-    for (const commit of ["write", "send", "share", "delete", "export", "admin"]) expect(manifest.methods[commit]?.commits).toBe("plan")
-    expect(manifest.methods["plan"]?.plans).toBe(true)
+    for (const commit of ["write", "send", "share", "delete", "export", "admin"]) {
+      expect(manifest.methods[commit]?.commits).toBe(`plan_${commit}`)
+      expect(manifest.methods[`plan_${commit}`]?.plans).toBe(true)
+    }
   })
 
   it("declares one service per Google service and at least changed", () => {
@@ -34,7 +38,6 @@ describe("capabilities", () => {
     expect(services["gws.calendar"]).toEqual({ id: "gws.calendar", label: "Calendar" })
     expect(services["gws.calendar.today"]).toEqual({ id: "gws.calendar", label: "Calendar" })
     expect(services["gws.image"]).toEqual({ id: "gws.drive", label: "Drive" })
-    expect(services["gws.sheets"]).toEqual({ id: "gws.sheets", label: "Sheets" })
     expect(manifest.events).toEqual({ changed: {} })
   })
 

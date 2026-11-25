@@ -8,7 +8,6 @@ import { COMMIT_OUTPUT } from "./schemas.js"
 function capabilitiesOf(operation: string): string[] {
   if (operation.startsWith("gmail.")) return ["gws.gmail"]
   if (operation.startsWith("calendar.")) return ["gws.calendar", "gws.calendar.today"]
-  if (operation.startsWith("sheets.")) return ["gws.sheets"]
   return []
 }
 

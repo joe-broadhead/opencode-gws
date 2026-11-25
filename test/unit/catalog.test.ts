@@ -104,17 +104,19 @@ describe("catalog entries", () => {
     }
   })
 
-  it("mark what can run and name its commit tool", () => {
-    expect(entry("gmail.users.messages.send")).toMatchObject({ executable: true, commitTool: "send", category: "send" })
+  it("mark what can run and name its plan and commit tools", () => {
+    expect(entry("gmail.users.messages.send")).toMatchObject({ executable: true, planTool: "plan_send", commitTool: "send", category: "send" })
     expect(entry("gmail.users.messages.list")).toMatchObject({ executable: true, category: "read" })
+    expect(entry("gmail.users.messages.list")?.planTool).toBeUndefined()
     expect(entry("gmail.users.messages.list")?.commitTool).toBeUndefined()
-    expect(entry("drive.files.export")).toMatchObject({ executable: true, commitTool: "export" })
+    expect(entry("drive.files.export")).toMatchObject({ executable: true, planTool: "plan_export", commitTool: "export" })
     expect(entry("gmail.triage")).toMatchObject({ kind: "helper", executable: true })
   })
 
   it("mark denied, deploy, and watch entries as not runnable, with no commit tool", () => {
     for (const id of ["drive.teamdrives.list", "script.projects.deployments.create", "gmail.users.watch", "gmail.watch", "script.push"]) {
       expect(entry(id), id).toMatchObject({ executable: false })
+      expect(entry(id)?.planTool, id).toBeUndefined()
       expect(entry(id)?.commitTool, id).toBeUndefined()
     }
   })

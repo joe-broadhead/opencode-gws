@@ -11,15 +11,14 @@ import { planHandler } from "./plan.js"
 import { probeHandler } from "./probe.js"
 import { readHandler } from "./read.js"
 import { schemaHandler } from "./schema.js"
-import { sheetsReadHandler } from "./sheets-read.js"
 import { statusHandler } from "./status.js"
 import type { StatusState } from "./state.js"
 
 export type { StatusState } from "./state.js"
 export { statusHandler } from "./status.js"
 
-/** The six per-class commit tools (LD-6); each commits the one plan its category names. */
-const COMMITS: readonly CommitCategory[] = ["write", "send", "share", "delete", "export", "admin"]
+/** The six classes: one planning read and one commit tool each (LD-6). */
+const CATEGORIES: readonly CommitCategory[] = ["write", "send", "share", "delete", "export", "admin"]
 
 /** The one handler table the contract's `register` wires through every door. */
 export function createHandlers(input: { readonly runtime: Runtime; readonly manifest: Manifest; readonly version: string; readonly state: StatusState }): HandlerTable {
@@ -29,12 +28,11 @@ export function createHandlers(input: { readonly runtime: Runtime; readonly mani
     catalog: catalogHandler(runtime),
     schema: schemaHandler(runtime),
     read: readHandler(runtime),
-    plan: planHandler(runtime),
+    ...Object.fromEntries(CATEGORIES.map((category) => [`plan_${category}`, planHandler(runtime, category)])),
     events_list: eventsListHandler(runtime),
     calendar_today: calendarTodayHandler(runtime),
     images_read: imagesReadHandler(runtime),
-    sheets_read: sheetsReadHandler(runtime),
     probe: probeHandler(() => runtime.status()),
-    ...Object.fromEntries(COMMITS.map((category) => [category, commitHandler(runtime, category)])),
+    ...Object.fromEntries(CATEGORIES.map((category) => [category, commitHandler(runtime, category)])),
   } as HandlerTable
 }

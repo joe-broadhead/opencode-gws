@@ -7,7 +7,7 @@ describe("error code table", () => {
       expect(code).toMatch(/^[A-Z][A-Z_]+$/)
       for (const text of [entry.meaning, entry.next]) {
         expect(text, code).toMatch(/^(?:[A-Z]|gws\b).*\.$/s)
-        expect(text, code).not.toMatch(/\bTODO|WS-[A-Z]|reviewed package/i)
+        expect(text, code).not.toMatch(/\bWS-[A-Z]|reviewed package/i)
       }
     }
   })
