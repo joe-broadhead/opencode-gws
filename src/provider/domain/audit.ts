@@ -1,0 +1,117 @@
+import { mkdir, rename, stat, writeFile } from "node:fs/promises"
+import { dirname } from "node:path"
+import { GwsError, isErrorCode } from "./errors.js"
+import { commandIndex } from "./manifest.js"
+
+const EVENTS = new Set(["plugin.loaded", "operation.read", "helper.read", "operation.plan", "operation.commit", "calendar_today", "images_read"])
+const CATEGORIES = new Set(["read", "write", "send", "share", "delete", "export", "admin"])
+/** Recorded for an error that is not a plugin error. */
+const UNKNOWN_ERROR = "UNKNOWN_ERROR"
+
+/** Only the code from the error table is retained; never an upstream message or arbitrary exception. */
+export function auditErrorCode(error: unknown): string {
+  return GwsError.from(error)?.code ?? UNKNOWN_ERROR
+}
+
+interface AuditEvent {
+  event: string
+  outcome: "success" | "error" | "denied"
+  account?: string
+  category?: string
+  operation?: string
+  durationMs?: number
+  errorCode?: string
+  /** `rpc` for a read, plan or commit a script made through the tools RPC; absent for a tool call. */
+  caller?: "rpc"
+  /** `calendar_today`: how many of today's events were left out so the answer fits the agenda snapshot's cap. */
+  omitted?: number
+}
+
+type Writer = (line: string, signal: AbortSignal) => Promise<void>
+
+/**
+ * The JSONL file's size cap. A write that would pass it first moves the file
+ * to `<path>.1`, replacing the previous one, so the log never exceeds about
+ * twice this.
+ */
+export const AUDIT_MAX_BYTES = 5 * 1024 * 1024
+const MAX_QUEUE = 64
+const WRITE_TIMEOUT_MS = 100
+
+/** Nonblocking, bounded audit. A stalled sink is quarantined until runtime reload. */
+export class Audit {
+  degraded = false
+  private closed = false
+  private stalled = false
+  private readonly queue: string[] = []
+  private active?: { controller: AbortController; timer: ReturnType<typeof setTimeout> }
+  private readonly write: Writer
+
+  constructor(
+    private readonly config: { enabled: boolean; path: string },
+    private readonly version: string,
+    writer?: Writer,
+  ) {
+    this.write = writer ?? (async (line, signal) => {
+      await mkdir(dirname(this.config.path), { recursive: true, mode: 0o700 })
+      if (signal.aborted) return
+      const size = await stat(this.config.path).then((found) => found.size, () => 0)
+      if (size > 0 && size + Buffer.byteLength(line) > AUDIT_MAX_BYTES) await rename(this.config.path, `${this.config.path}.1`)
+      if (signal.aborted) return
+      await writeFile(this.config.path, line, { flag: "a", mode: 0o600, signal })
+    })
+  }
+
+  emit(event: AuditEvent): void {
+    if (!this.config.enabled || this.closed || this.stalled) return
+    if (!EVENTS.has(event.event) || !["success", "error", "denied"].includes(event.outcome)) { this.degraded = true; return }
+    if (this.queue.length >= MAX_QUEUE) { this.degraded = true; return }
+    const index = commandIndex()
+    // Explicit projection: extra properties, reasons, parameters and error text never reach storage.
+    this.queue.push(`${JSON.stringify({
+      timestamp: new Date().toISOString(), plugin: "gws", version: this.version,
+      event: event.event, outcome: event.outcome,
+      account: event.account && /^[a-zA-Z0-9_-]{1,64}$/.test(event.account) ? event.account : undefined,
+      category: event.category && CATEGORIES.has(event.category) ? event.category : undefined,
+      operation: event.operation && (index.methods.has(event.operation) || index.helpers.has(event.operation)) ? event.operation : undefined,
+      durationMs: Number.isFinite(event.durationMs) && event.durationMs! >= 0 ? Math.round(event.durationMs!) : undefined,
+      errorCode: event.errorCode === undefined ? undefined : isErrorCode(event.errorCode) ? event.errorCode : UNKNOWN_ERROR,
+      caller: event.caller === "rpc" ? event.caller : undefined,
+      omitted: Number.isSafeInteger(event.omitted) && event.omitted! > 0 ? event.omitted : undefined,
+    })}\n`)
+    this.pump()
+  }
+
+  private pump(): void {
+    if (this.active || this.closed || this.stalled) return
+    const line = this.queue.shift()
+    if (line === undefined) return
+    const controller = new AbortController()
+    const timer = setTimeout(() => {
+      this.degraded = true
+      this.stalled = true
+      this.queue.length = 0
+      controller.abort()
+      // Never dispatch a replacement while this underlying write may still be alive.
+    }, WRITE_TIMEOUT_MS)
+    this.active = { controller, timer }
+    void Promise.resolve().then(() => {
+      if (!controller.signal.aborted) return this.write(line, controller.signal)
+    }).catch(() => { this.degraded = true }).finally(() => {
+      clearTimeout(timer)
+      this.active = undefined
+      this.pump()
+    })
+  }
+
+  close(): void {
+    if (this.closed) return
+    this.closed = true
+    if (this.queue.length || this.active) this.degraded = true
+    this.queue.length = 0
+    if (this.active) {
+      clearTimeout(this.active.timer)
+      this.active.controller.abort()
+    }
+  }
+}
