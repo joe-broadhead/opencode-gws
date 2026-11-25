@@ -80,4 +80,3 @@ export function signInClient(metadata: RenewableSignIn): ClientChoice {
   const { clientId, clientSecret, clientRedirectUris } = metadata
   return { client: { clientId, clientSecret, ...(clientRedirectUris ? { redirectUris: clientRedirectUris } : {}) }, source: metadata.clientSource }
 }
-
