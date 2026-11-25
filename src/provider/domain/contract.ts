@@ -104,14 +104,6 @@ export const RequestInput = z
   })
   .describe("One gws operation on one account")
 
-export const CommitInput = z
-  .strictObject({
-    planId: z.string().min(16).max(512).describe("planId returned by plan; single-use and bound to this session"),
-  })
-  .describe("Commit exactly one approved plan")
-
-export const StatusInput = z.strictObject({}).describe("No arguments")
-
 export const CatalogInput = z
   .strictObject({
     query: z
@@ -269,84 +261,7 @@ export const CommitOutput = z.object({
   cleanupDegraded: z.boolean().optional().describe("The change succeeded, but private staging cleanup failed; do not retry the mutation"),
 })
 
-// ── events_list ─────────────────────────────────────────────────────────
-// The source contract's events_list (@we-the-rebel-alliance/plugin-contract, `events`), as Zod, for the tool's
-// schemas. The domain imports nothing outside it, so the limits are written out here; test/gmail-events.test.ts keeps
-// them equal to the package's.
-
-export const EventsListInput = z
-  .strictObject({
-    since: z
-      .string()
-      .max(40)
-      .regex(/^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2}))?$/, "must be an ISO date, or an ISO date-time with Z or an offset")
-      .optional()
-      .describe("Where to start when there is no cursor: an ISO date (a UTC day) or an ISO date-time with Z or an offset. Default: 24 hours ago"),
-    cursor: z.string().min(1).max(1024).optional().describe("The cursor of the previous result, to continue from it. It wins over since"),
-    limit: z.number().int().min(1).max(500).optional().describe("Most events to return, 1 to 500; 100 by default"),
-    account: Account,
-    source: z.string().max(64).optional().describe('The source to list: "gmail" (the default) or "calendar"'),
-    scope: z
-      .record(z.string().max(64), z.union([z.string().max(256), z.array(z.string().max(256)).max(64)]))
-      .optional()
-      .describe('Calendar only: the one calendar to read, { "calendars": ["primary"] } by default. Gmail takes no scope'),
-  })
-  .describe("List Gmail messages, or Calendar meetings from a cursor's window through seven days ahead, as the source contract's events")
-
-const EventActor = z.object({ role: z.string(), id: z.string().describe("mailto: and the address"), name: z.string().optional() })
-
-export const SourceEvent = z.object({
-  source: z.enum(["gmail", "calendar"]),
-  account: z.string().describe("The account alias"),
-  external_id: z.string().describe("The Gmail message id, or the Calendar event id"),
-  kind: z.enum(["message", "meeting"]),
-  occurred_at: z.string().describe("When Gmail received it, or when the meeting starts (a cancellation: when it was cancelled), UTC ISO"),
-  thread: z.string().nullable().describe("gmail-thread: and the thread id; null for a meeting"),
-  actors: z.array(EventActor).max(20).describe("From, To, Cc and Bcc, or the organizer and attendees, as mailto: ids"),
-  title: z.string().max(300).describe(`The subject or the meeting's title. ${Untrusted}`),
-  text: z.string().max(4096).describe(`The message's own text without quoted replies or signature, or the meeting's description and location. ${Untrusted}`),
-  url: z.string().nullable().describe("The thread in Gmail, or the event in Calendar"),
-  labels: z.array(z.string()).max(20).describe("Gmail system labels such as inbox, sent, important; a meeting's status such as confirmed or cancelled"),
-  hash: z.string().describe("sha256: of the other fields"),
-})
-
-export const EventsListOutput = z.object({
-  source: z.enum(["gmail", "calendar"]).describe("The source listed, also on an empty page"),
-  account: z.string().describe("The account alias listed, also on an empty page"),
-  owner: z.object({ id: z.string(), label: z.string() }).describe("The signed-in address"),
-  events: z.array(SourceEvent).describe("Oldest first"),
-  cursor: z.string().describe("Pass it to the next call"),
-  more: z.boolean().describe("True when another call now would list more"),
-  trust: z.literal("untrusted"),
-  scope: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional().describe("The calendar read, for Calendar"),
-  refused: z
-    .array(z.object({ external_id: z.string(), reason: z.enum(["instruction", "secret", "owner"]), detail: z.string().optional() }))
-    .optional()
-    .describe("Left out for good, such as a message holding a secret; the cursor moves past them"),
-  failed: z
-    .array(z.object({ external_id: z.string(), code: z.string(), retryAfterSec: z.number().optional() }))
-    .optional()
-    .describe("Not read this time; the page answers the cursor it was called with, so the next call reads them again"),
-  removals: z
-    .array(
-      z.object({
-        external_id: z.string(),
-        at: z.string().describe("When the source stopped standing behind it, UTC ISO"),
-        reason: z.enum(["deleted", "withheld", "expired"]),
-      }),
-    )
-    .optional()
-    .describe("Listed for good as removed; Calendar reports a cancellation Google answers without a start as deleted"),
-  gap: z
-    .object({ reason: z.enum(["expired", "window-truncated"]), since: z.string() })
-    .optional()
-    .describe("Present when Google no longer kept the history behind the cursor and the source read on from since"),
-  plugin: z.string().optional().describe("The package that answered"),
-  asOf: z.string().optional().describe("When the page was read, UTC ISO"),
-})
-
 export type RequestInput = z.infer<typeof RequestInput>
-export type CommitInput = z.infer<typeof CommitInput>
 export type SchemaInput = z.infer<typeof SchemaInput>
 export type CatalogInput = z.infer<typeof CatalogInput>
 export type CatalogEntry = z.infer<typeof CatalogEntry>
@@ -358,5 +273,3 @@ export type Preview = z.infer<typeof Preview>
 export type ReadOutput = z.infer<typeof ReadOutput>
 export type PlanOutput = z.infer<typeof PlanOutput>
 export type CommitOutput = z.infer<typeof CommitOutput>
-export type EventsListInput = z.infer<typeof EventsListInput>
-export type EventsListOutput = z.infer<typeof EventsListOutput>

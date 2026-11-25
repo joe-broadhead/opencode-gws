@@ -1,8 +1,8 @@
 import * as z from "zod"
 import { STATUS_SCHEMA } from "@we-the-rebel-alliance/plugin-contract/accounts"
-import { PAGE_SCHEMA, PROBE_SCHEMA } from "@we-the-rebel-alliance/plugin-contract/events"
+import { EVENTS_LIST_INPUT_SCHEMA, PAGE_SCHEMA, PROBE_SCHEMA } from "@we-the-rebel-alliance/plugin-contract/events"
 import type { JsonSchema } from "@we-the-rebel-alliance/plugin-contract/manifest"
-import { CatalogInput, CatalogOutput, EventsListInput, ReadOutput, RequestInput, SchemaInput, SchemaOutput } from "../provider/domain/contract.js"
+import { CatalogInput, CatalogOutput, ReadOutput, RequestInput, SchemaInput, SchemaOutput } from "../provider/domain/contract.js"
 
 /**
  * The handler table's schemas. Inputs omit `account`: the register adds the selector to every method declared
@@ -13,7 +13,6 @@ function json(schema: z.ZodType): JsonSchema {
   return rest as JsonSchema
 }
 
-export const EMPTY: JsonSchema = { type: "object", properties: {}, additionalProperties: false }
 
 export const STATUS_OUTPUT = STATUS_SCHEMA
 export const PAGE_OUTPUT = PAGE_SCHEMA
@@ -26,7 +25,7 @@ export const SCHEMA_OUTPUT = json(SchemaOutput)
 export const READ_INPUT = json(RequestInput.omit({ account: true }))
 export const READ_OUTPUT = json(ReadOutput)
 export const PLAN_INPUT = json(RequestInput.omit({ account: true }))
-export const EVENTS_INPUT = json(EventsListInput.omit({ account: true }))
+export const EVENTS_INPUT = EVENTS_LIST_INPUT_SCHEMA
 export const PROBE_INPUT: JsonSchema = {
   type: "object",
   properties: { source: { type: "string", description: "A declared source name: gmail, calendar, calendar-today, image or sheets." } },

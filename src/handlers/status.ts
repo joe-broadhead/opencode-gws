@@ -1,5 +1,4 @@
 import { accountStatuses, statusAnswer } from "@we-the-rebel-alliance/plugin-contract/accounts"
-import type { MethodCall } from "@we-the-rebel-alliance/plugin-contract/register"
 import type { Manifest } from "@we-the-rebel-alliance/plugin-contract/manifest"
 import type { AccountView, RuntimeStatus } from "../provider/domain/status.js"
 import type { MethodHandler } from "@we-the-rebel-alliance/plugin-contract/register"
@@ -32,22 +31,9 @@ export function statusHandler(input: {
         hostVersion: input.state.hostVersion,
         accounts,
         problems,
-        unguardedAgents: await unguardedAgents(call, problems),
+        unguardedAgents: await call.unguardedAgents(),
       })
     },
-  }
-}
-
-/**
- * The agents the generated rules do not reach. At this commit the call throws on a host read failure; the freeze
- * answers `{ ok, agents }` or `{ ok: false, error }`, and only this function changes.
- */
-async function unguardedAgents(call: MethodCall, problems: string[]): Promise<readonly string[]> {
-  try {
-    return await call.unguardedAgents()
-  } catch (error) {
-    problems.push(`the agent list could not be read: ${error instanceof Error ? error.message : String(error)}`)
-    return []
   }
 }
 

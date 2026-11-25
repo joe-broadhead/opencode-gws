@@ -26,7 +26,7 @@ const call = (overrides: Partial<MethodCall> = {}): MethodCall =>
     account: "work",
     door: "tool",
     bus: { name: "gws", emit: async () => ({ ok: true }) as const },
-    unguardedAgents: async () => [],
+    unguardedAgents: async () => ({ ok: true, agents: [] }) as const,
     ...overrides,
   }) as MethodCall
 
@@ -42,7 +42,7 @@ describe("handler table", () => {
 describe("status", () => {
   it("answers the contract's shape, one entry per alias, with the agents that lack the rules", async () => {
     const table = handlers({ status: async () => status })
-    const answer = (await table.status.run({}, call({ unguardedAgents: async () => ["build"] }))) as Record<string, unknown>
+    const answer = (await table.status.run({}, call({ unguardedAgents: async () => ({ ok: true, agents: ["build"] }) as const }))) as Record<string, unknown>
     expect(answer).toMatchObject({ name: "gws", version: "0.0.0", state: "needs_sign_in", unguardedAgents: ["build"] })
     expect(answer["accounts"]).toEqual([
       { alias: "work", state: "ready", owner: { id: "mailto:ana@example.test", label: "ana@example.test" } },
