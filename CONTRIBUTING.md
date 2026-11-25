@@ -16,7 +16,7 @@ Read `AGENTS.md` first; it lists the layout, the rules and the contract wiring.
 
 | Command | Runs |
 |---|---|
-| `npm run check` | fetch the pinned gws, lint, typecheck, build, unit, `plugin-kit check`, host, pack, docs drift |
+| `npm run check` | fetch the pinned gws, lint, typecheck, bundle, unit, `plugin-kit check`, host, pack, docs drift |
 | `npx plugin-kit check` | manifest, methods, accounts, sources, bus, status, T0 and T1 |
 | `npx plugin-kit docs --check` | generated sections are current |
 | `npm run test:host` | the built bundle on the real OpenCode 2.4.1 host |

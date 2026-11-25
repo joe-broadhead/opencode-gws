@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Remove build output so `npm run build` and `npm pack` never ship stale
+ * Remove build output so `npm run bundle` and `npm pack` never ship stale
  * modules from an earlier source layout.
  */
 import { rmSync } from "node:fs"

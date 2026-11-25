@@ -31,7 +31,7 @@ manifest's `plans` and `commits` express that. `gws.sheets` is deferred until th
 | Command | Does |
 |---|---|
 | `npm ci` | installs dev tooling only; there are no runtime dependencies |
-| `npm run check` | everything CI runs: lint, typecheck, build, unit, the kit's conformance (T0/T1), host, pack, docs |
+| `npm run check` | everything CI runs: lint, typecheck, bundle, unit, the kit's conformance (T0/T1), host, pack, docs |
 | `npx plugin-kit check` | the contract gate alone: manifest, methods, accounts, sources, bus, status, T0 and T1 |
 | `npx plugin-kit docs` | regenerates the doc sections between the `generated` markers |
 | `npx plugin-kit record --account <alias>` | records and redacts `fixtures/conformance.json` from a real account |
@@ -54,7 +54,7 @@ src/
     domain/              catalog, policy, recipients, plans, config, errors, audit
     process/             binary resolution and provenance, spawn, staging, image fetch
     sources/             gmail/calendar events, calendar_today, image
-scripts/                 esbuild build, native fetch, catalog generation, pack smoke
+scripts/                 esbuild bundle, native fetch, catalog generation, pack smoke
 skills/                  gws and gws-recipes
 docs/                    the standard's file set
 ```

@@ -196,7 +196,7 @@ async function stockLoad(binary, installed, version, root) {
 async function main() {
   check(Number(process.versions.node.split(".")[0]) >= 24, `the embedded host needs Node >= 24 (running ${process.version})`)
   const version = packageJson(ROOT).version
-  check(existsSync(join(ROOT, "dist", "index.js")), "dist/index.js is missing; run npm run build first")
+  check(existsSync(join(ROOT, "dist", "index.js")), "dist/index.js is missing; run npm run bundle first")
   const root = realpathSync(mkdtempSync(join(process.env.TMPDIR ?? "/tmp", "gws-pack-")))
   try {
     mkdirSync(join(root, "tarballs"))
