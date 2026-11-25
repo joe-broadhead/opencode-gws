@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
-  "files": { "includes": ["**", "!manifest/generated.json"] },
+  "files": { "includes": ["**", "!manifest/generated.json", "!dist"] },
   "formatter": { "enabled": false },
   "assist": { "enabled": false },
   "linter": {
@@ -18,23 +18,6 @@
       "linter": { "rules": { "suspicious": { "noExplicitAny": "off" } } }
     },
     {
-      // The shared tools RPC suite, copied whole: its comma expressions, its type-only imports that check what is not
-      // exported, and its one assignment in an expression keep its own style.
-      "includes": ["test/tools-rpc.test.ts"],
-      "linter": {
-        "rules": {
-          "complexity": { "noCommaOperator": "off" },
-          "correctness": { "noUnusedImports": "off" },
-          "suspicious": { "noAssignInExpressions": "off" }
-        }
-      }
-    },
-    {
-      "includes": ["src/tui.tsx"],
-      "linter": { "rules": { "a11y": { "preset": "none" } } }
-    },
-    {
-      // Jelly's icon cleaner refuses a <title> today (hey-jelly issue #33 asks it to allow one).
       "includes": ["assets/icon.svg"],
       "linter": { "rules": { "a11y": { "noSvgWithoutTitle": "off" } } }
     }

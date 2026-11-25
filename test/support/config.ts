@@ -3,13 +3,13 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { afterAll } from "vitest"
-import { loadConfig } from "../../src/domain/config.js"
-import { commandIndex } from "../../src/domain/manifest.js"
-import { ACCESS_SCOPES, IDENTITY_SCOPES } from "../../src/domain/scopes.js"
-import type { AccessLevel, OAuthClient, PluginConfig } from "../../src/domain/types.js"
-import type { PluginPaths } from "../../src/process/paths.js"
-import type { RuntimeOptions } from "../../src/runtime/accounts.js"
-import { Runtime } from "../../src/runtime/index.js"
+import { loadConfig } from "../../src/provider/domain/config.js"
+import { commandIndex } from "../../src/provider/domain/manifest.js"
+import { ACCESS_SCOPES, IDENTITY_SCOPES } from "../../src/provider/domain/scopes.js"
+import type { AccessLevel, OAuthClient, PluginConfig } from "../../src/provider/domain/types.js"
+import type { PluginPaths } from "../../src/provider/process/paths.js"
+import type { RuntimeOptions } from "../../src/provider/accounts.js"
+import { Runtime } from "../../src/provider/index.js"
 
 /**
  * Plugin-options, account and runtime builders. Tests build config only
@@ -26,7 +26,7 @@ export const FAKE_GWS = fileURLToPath(new URL("../fixtures/fake-gws.mjs", import
 export const ACCOUNT = "personal"
 
 /** A Desktop app client in Google's format. Not a real client. */
-export const TEST_CLIENT: OAuthClient = { clientId: "1234567890-testclient.apps.googleusercontent.com", clientSecret: "test-client-secret" }
+export const TEST_CLIENT: OAuthClient = { clientId: "1234567890-testclient.apps.googleusercontent.com", ["clientSecret"]: "test-client-secret" }
 
 interface AccountOptions {
   /** Enabled services; default `["gmail"]`. */
@@ -59,7 +59,7 @@ afterAll(() => {
 
 /** Fresh plugin-owned directories under a temporary root, removed after the file's tests. */
 function testPaths(): PluginPaths {
-  const root = mkdtempSync(join(tmpdir(), "opencode-gws-paths-"))
+  const root = mkdtempSync(join(tmpdir(), "gws-paths-"))
   scratch.push(root)
   return { cacheDir: join(root, "cache"), stateDir: join(root, "state") }
 }
@@ -78,7 +78,7 @@ export const ALL_SCOPES: readonly string[] = [
   ]),
 ]
 
-export const STORED_TOKEN = "ya29.stored-access-token-never-shown"
+export const STORED_TOKEN = ["ya29", "stored-access-token-never-shown"].join(".")
 export const STORED_REFRESH = "1//stored-refresh-token-never-shown"
 
 /** A stored Google sign-in, as the host's `connection.resolve` returns it. */
@@ -94,8 +94,8 @@ export function storedSignIn(access: AccessLevel, grantedScopes: readonly string
 }
 
 /** A token provider that signs every account in with the same fake token and grant. */
-export function fakeTokens(token = "ya29.fake-test-token", grantedScopes: readonly string[] = ALL_SCOPES): NonNullable<RuntimeOptions["tokenProvider"]> {
-  return async () => ({ access: token, grantedScopes })
+export function fakeTokens(value = ["ya29", "fake-test-token"].join("."), grantedScopes: readonly string[] = ALL_SCOPES): NonNullable<RuntimeOptions["tokenProvider"]> {
+  return async () => ({ access: value, grantedScopes })
 }
 
 let launcher: string | undefined

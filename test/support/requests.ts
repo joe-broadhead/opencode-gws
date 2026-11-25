@@ -1,5 +1,5 @@
-import type { RequestInput } from "../../src/domain/contract.js"
-import type { Request } from "../../src/domain/types.js"
+import type { RequestInput } from "../../src/provider/domain/contract.js"
+import type { Request } from "../../src/provider/domain/types.js"
 import { ACCOUNT } from "./config.js"
 
 /**

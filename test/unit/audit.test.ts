@@ -1,0 +1,119 @@
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { AUDIT_MAX_BYTES, Audit, auditErrorCode } from "../../src/provider/domain/audit.js"
+import { GwsError } from "../../src/provider/domain/errors.js"
+
+const cleanup: (() => void)[] = []
+afterEach(() => { for (const fn of cleanup.splice(0)) fn(); vi.useRealTimers(); vi.restoreAllMocks() })
+function audit(write?: (line: string, signal: AbortSignal) => Promise<void>) {
+  const dir = mkdtempSync(join(tmpdir(), "gws-audit-")), path = join(dir, "audit.jsonl")
+  const sink = new Audit({ enabled: true, path }, "test", write)
+  cleanup.push(() => { sink.close?.(); rmSync(dir, { force: true, recursive: true }) })
+  return { sink, path }
+}
+
+describe("audit sink", () => {
+  it("projects known fields and fixed error codes instead of arbitrary error text", async () => {
+    // The same freeze as the rotation test: the sink's 100 ms write budget must not drop the first line under suite load.
+    // vi.waitFor would advance the faked timers, so the waits use real timers from node:timers/promises.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    const { sink, path } = audit()
+    sink.emit({ event: "operation.read", outcome: "error", operation: "drive.files.get", errorCode: "AUTH_REQUIRED: PRIVATE_TOKEN", body: "PRIVATE_BODY", reason: "PRIVATE_REASON" } as never)
+    const { setTimeout: pause } = await import("node:timers/promises")
+    for (let i = 0; i < 2000 && !(existsSync(path) && readFileSync(path, "utf8").includes("operation.read")); i++) await pause(5)
+    const text = readFileSync(path, "utf8")
+    expect(text).toContain("operation.read")
+    expect(text).not.toContain("PRIVATE_")
+    expect(JSON.parse(text).errorCode).toBe("UNKNOWN_ERROR")
+    sink.emit({ event: "PRIVATE_EVENT", outcome: "error", operation: "PRIVATE_OPERATION" } as never)
+    await pause(20)
+    expect(readFileSync(path, "utf8")).not.toContain("PRIVATE_")
+  })
+
+  it("records caller rpc and drops any other caller value", async () => {
+    // The same freeze as the rotation test: the sink's 100 ms write budget must not cut a line short under suite load.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    const { sink, path } = audit()
+    sink.emit({ event: "operation.read", outcome: "success", caller: "rpc" })
+    sink.emit({ event: "operation.read", outcome: "success", caller: "PRIVATE_CALLER" } as never)
+    const { setTimeout: pause } = await import("node:timers/promises")
+    for (let i = 0; i < 2000 && !(existsSync(path) && readFileSync(path, "utf8").trim().split("\n").length >= 2); i++) await pause(5)
+    const [rpc, other] = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line))
+    expect(rpc.caller).toBe("rpc")
+    expect(other).not.toHaveProperty("caller")
+  })
+
+  it("makes a failed sink observably degraded without throwing into successful work", async () => {
+    const { sink } = audit(async () => { throw new Error("PRIVATE_FAILURE") })
+    expect(() => sink.emit({ event: "plugin.loaded", outcome: "success" })).not.toThrow()
+    await vi.waitFor(() => expect(sink.degraded).toBe(true), { timeout: 5000 })
+  })
+
+  it("bounds a stalled sink to one active write and a finite queue, then drops queued work", async () => {
+    vi.useFakeTimers()
+    let writes = 0, signal: AbortSignal | undefined
+    const { sink } = audit(async (_line, control) => { writes++; signal = control; await new Promise(() => {}) })
+    for (let i = 0; i < 1_000; i++) sink.emit({ event: "plugin.loaded", outcome: "success" })
+    await vi.advanceTimersByTimeAsync(101)
+    expect(sink.degraded).toBe(true)
+    expect(writes).toBe(1)
+    expect(signal?.aborted).toBe(true)
+    sink.emit({ event: "plugin.loaded", outcome: "success" })
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(writes).toBe(1)
+  })
+
+  it("extracts only recognized runtime error prefixes", () => {
+    expect(auditErrorCode(new GwsError("API_DISABLED", "PRIVATE_DETAIL", { enableUrl: "https://console.cloud.google.com/x" }))).toBe("API_DISABLED")
+    expect(auditErrorCode(new Error("AUTH_REQUIRED: PRIVATE_DETAIL"))).toBe("AUTH_REQUIRED")
+    expect(auditErrorCode(new Error("NOT_A_CODE: PRIVATE_DETAIL"))).toBe("UNKNOWN_ERROR")
+    expect(auditErrorCode(new Error("PRIVATE_DETAIL"))).toBe("UNKNOWN_ERROR")
+    expect(auditErrorCode({ message: "PRIVATE_DETAIL" })).toBe("UNKNOWN_ERROR")
+  })
+
+  it("stores only codes from the error table", async () => {
+    const lines: string[] = []
+    const { sink } = audit(async (line) => { lines.push(line) })
+    sink.emit({ event: "operation.read", outcome: "error", errorCode: "GWS_DISCOVERY_ERROR" })
+    sink.emit({ event: "operation.read", outcome: "error", errorCode: "NOT_A_CODE" })
+    await vi.waitFor(() => expect(lines).toHaveLength(2), { timeout: 5000 })
+    expect(lines.map((line) => JSON.parse(line).errorCode)).toEqual(["GWS_DISCOVERY_ERROR", "UNKNOWN_ERROR"])
+  })
+
+  it("does not start queued or future writes after close, even when the in-flight sink settles late", async () => {
+    let done!: () => void
+    const writer = vi.fn(async () => { await new Promise<void>(resolve => { done = resolve }) })
+    const { sink } = audit(writer)
+    sink.emit({ event: "plugin.loaded", outcome: "success" })
+    sink.emit({ event: "plugin.loaded", outcome: "success" })
+    await Promise.resolve()
+    sink.close()
+    done()
+    sink.emit({ event: "plugin.loaded", outcome: "success" })
+    await new Promise(resolve => setTimeout(resolve, 10))
+    expect(writer).toHaveBeenCalledTimes(1)
+    expect(sink.degraded).toBe(true)
+  })
+})
+
+describe("audit file rotation", () => {
+  it("moves a full audit.jsonl to audit.jsonl.1 and starts a new one, keeping one previous file", async () => {
+    expect(AUDIT_MAX_BYTES).toBe(5 * 1024 * 1024)
+    // The sink quarantines a write that outlives its 100 ms budget. The suite runs its files in parallel, and real disk
+    // I/O under that load can exceed the budget, so this test freezes the sink's timers: the write is never cut short.
+    // The wait below uses real timers from node:timers/promises, which are not faked.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    const { sink, path } = audit()
+    writeFileSync(path, `${"x".repeat(AUDIT_MAX_BYTES - 10)}\n`)
+    writeFileSync(`${path}.1`, "older\n")
+    sink.emit({ event: "plugin.loaded", outcome: "success" })
+    const { setTimeout: pause } = await import("node:timers/promises")
+    for (let i = 0; i < 2000 && !(existsSync(path) && readFileSync(path, "utf8").includes("plugin.loaded")); i++) await pause(5)
+    expect(readFileSync(path, "utf8").split("\n").filter(Boolean)).toHaveLength(1)
+    expect(statSync(`${path}.1`).size).toBe(AUDIT_MAX_BYTES - 9)
+    expect(statSync(path).mode & 0o777).toBe(0o600)
+  })
+})
+

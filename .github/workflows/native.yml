@@ -2,8 +2,7 @@ name: native
 
 # Builds the gws release files for a release (NATIVE-DESIGN.md, section 4). Runs on master only, so the candidate manifest
 # pins master's commit. It writes one gzip per platform and the candidate manifest/native.json the release commit copies,
-# attests the gzips and uploads them as artifacts. It publishes nothing: the release job downloads this run's files,
-# checks them against the pinned hashes and attaches them (scripts/attach-native.mjs).
+# attests the gzips and uploads them as artifacts. It publishes nothing: the lead attaches the run's files, and the candidate native manifest, to the release.
 
 on:
   workflow_dispatch:

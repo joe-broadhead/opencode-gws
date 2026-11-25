@@ -1,5 +1,4 @@
 node_modules/
-dist/
 .DS_Store
 *.log
 # Downloaded gws archives, built gws packages, and extra host SDKs.

@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { gwsTarget } from "../../src/domain/backend.js"
-import { currentPlatform } from "../../src/process/binary.js"
+import { gwsTarget } from "../../src/provider/domain/backend.js"
+import { currentPlatform } from "../../src/provider/process/binary.js"
 
 /**
  * The verified upstream gws executable for this platform, which `npm run fetch:gws` puts in .cache/gws. A checkout has

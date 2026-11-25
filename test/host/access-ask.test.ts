@@ -1,42 +1,33 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { defaultRules } from "../../src/host/agents.js"
-import { startHost, type Harness } from "./harness.js"
-import { asked, create, expectBlock, list, run, writes } from "./access.js"
+import { afterAll, describe, expect, it } from "vitest"
+import { accessHost, expectAccessBlock, writeRule } from "./access.js"
 
-/**
- * `access: "ask-changes"`: the reads run, and each commit asks, so the tools
- * RPC refuses it before dispatch: no gws call and no prompt left waiting.
- */
-
-let host: Harness
-let sessionID: string
-
-beforeAll(async () => {
-  host = await startHost({ options: { access: "ask-changes" } })
-  sessionID = (await host.opencode.sessions.create({ location: host.location, agent: "build" })).id
-}, 120_000)
+let run: Awaited<ReturnType<typeof accessHost>>
 
 afterAll(async () => {
-  await host?.close()
+  await run?.close()
 })
 
 describe("access: ask-changes", () => {
-  it("inserts the block that asks for each commit and allows every read", async () => {
-    const block = defaultRules("ask-changes")
-    expect(block.filter((rule) => rule.effect === "ask").map((rule) => rule.action)).toEqual(["gws.*", "gws.write", "gws.export", "gws.send", "gws.share", "gws.delete", "gws.admin"])
-    await expectBlock(host, block)
-  })
+  it("asks for every non-read, accepts a saved allow, and keeps rule order", async () => {
+    run = await accessHost("ask-changes")
+    expect(run.refusal).toBeUndefined()
+    expect(run.failure).toBeUndefined()
+    expectAccessBlock(run, "ask-changes")
 
-  it("reads and plans; the commit is not a method, so a script cannot run it, and no prompt is left waiting", async () => {
-    expect((await run(host, sessionID, "read", list)).value).toMatchObject({ ok: true, category: "read" })
-    const planned = await run(host, sessionID, "plan", create)
-    expect(planned.value, planned.message).toMatchObject({ ok: true, category: "write", planId: expect.any(String) })
-    const commits = writes(host).length
-    const prompts = asked(host).length
-    const started = Date.now()
-    expect((await run(host, sessionID, "write", { planId: planned.value.planId })).value).toBeUndefined()
-    expect(Date.now() - started).toBeLessThan(5000)
-    expect(writes(host).length).toBe(commits)
-    expect(asked(host).length).toBe(prompts)
+    const readSession = await run.session([])
+    expect(await run.assert({ sessionID: readSession, action: "gws.read", resources: ["work:*"] })).toEqual({ ok: true })
+
+    // A saved "Always allow" is a session allow rule; it answers the generated ask without a new prompt.
+    const saved = await run.session([writeRule("allow")])
+    expect(await run.assert({ sessionID: saved, action: "gws.write", resources: ["work:*"] })).toEqual({ ok: true })
+
+    // A later matching rule wins: deny then allow permits, allow then deny refuses.
+    const denyThenAllow = await run.session([writeRule("deny"), writeRule("allow")])
+    expect(await run.assert({ sessionID: denyThenAllow, action: "gws.write", resources: ["work:*"] })).toEqual({ ok: true })
+    const allowThenDeny = await run.session([writeRule("allow"), writeRule("deny")])
+    expect(await run.assert({ sessionID: allowThenDeny, action: "gws.write", resources: ["work:*"] })).toMatchObject({
+      ok: false,
+      code: "PERMISSION_DENIED",
+    })
   })
 })
