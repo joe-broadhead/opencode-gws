@@ -73,3 +73,8 @@ None.
   conformance recording of this source cannot validate today. The plugin keeps the truthful output and reports the
   contract issue rather than narrowing the sheet to the `table` shape's 8 columns and 100 rows.
 - `probe` declares the identity operations whose scopes it reports. It calls no Google API.
+- The six commit tools share one `plan`: each declares `commits: "plan"`, and the plan answers the class that commits
+  it. The pinned contract refuses a plan more than one method commits; the plugin keeps the six per-class tools (LD-6)
+  and reports the contract issue rather than merging them into one method with several classes.
+- `status`, `probe` and `events_list` should declare `agent: false`; the pinned manifest schema does not accept that
+  key yet, so the plugin leaves it out and reports the contract issue.
