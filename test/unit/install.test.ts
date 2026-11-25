@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest"
 import { NativeError, type NativeManifest, cachePath, cachedNative, installNative, parseNativeManifest, readNativeManifest } from "../../src/provider/process/install.js"
 
 const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex")
-const REPO = "joe-broadhead/opencode-example"
+const REPO = "we-the-rebel-alliance/example-plugin"
 const TAG = "v0.0.0"
 const EXE = Buffer.from("#!/bin/sh\necho example 1.2.3\n")
 const GZ = gzipSync(EXE)
@@ -18,7 +18,7 @@ const KEY = "darwin-arm64"
 function manifestFor(gz: Uint8Array = GZ, exe: Uint8Array = EXE, overrides: Partial<NativeManifest> = {}): NativeManifest {
   return {
     schema: 1,
-    plugin: "opencode-example",
+    plugin: "example",
     repository: REPO,
     tag: TAG,
     built: { commit: "a".repeat(40), run: 42, workflow: "native" },
