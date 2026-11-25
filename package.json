@@ -12,6 +12,11 @@
   "bugs": {
     "url": "https://github.com/we-the-rebel-alliance/gws-plugin/issues"
   },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "google-workspace"
+  ],
   "exports": {
     "./server": "./dist/index.js"
   },
@@ -33,7 +38,7 @@
     "conformance": "npx plugin-kit conformance",
     "test:host": "vitest run -c vitest.host.config.ts",
     "test:pack": "node scripts/pack-smoke.mjs",
-    "check": "npm run fetch:gws && npm run lint && npm run typecheck && npm run bundle && npm test && npx plugin-kit check && npm run test:host && npm run test:pack && npx plugin-kit docs --check",
+    "check": "npm run fetch:gws && npm run lint && npm run typecheck && npm run bundle && npm test && npx plugin-kit check && npx plugin-kit record --check && npm run test:host && npm run test:pack && npx plugin-kit docs --check",
     "docs": "npx plugin-kit docs",
     "docs:check": "npx plugin-kit docs --check",
     "fetch:gws": "node scripts/build-native.mjs",
@@ -103,7 +108,8 @@
             "read-only"
           ],
           "default": "all",
-          "description": "How much the plugin's methods may do: everything, reads without asking and changes after an ask, or reads only."
+          "description": "How much the plugin's methods may do: everything, reads without asking and changes after an ask, or reads only.",
+          "title": "Access"
         },
         "accounts": {
           "type": "object",
@@ -265,12 +271,14 @@
                 "description": "An environment variable name; its value is read at call time and never stored."
               }
             }
-          }
+          },
+          "title": "Accounts"
         },
         "allowUntestedHost": {
           "type": "boolean",
           "default": false,
-          "description": "Start outside the tested OpenCode range."
+          "description": "Start outside the tested OpenCode range.",
+          "title": "Allow untested host"
         },
         "services": {
           "type": "array",
@@ -279,7 +287,8 @@
             "minLength": 1
           },
           "minItems": 1,
-          "description": "The services the model may see, such as gmail or drive. Default: every service the accounts enable."
+          "description": "The services the model may see, such as gmail or drive. Default: every service the accounts enable.",
+          "title": "Services"
         },
         "oauthClient": {
           "oneOf": [
@@ -363,18 +372,21 @@
               "description": "Google's downloaded client JSON for a Web application, with its registered redirect URIs."
             }
           ],
-          "description": "A Google OAuth client: a Desktop app's ID and secret, or Google's downloaded client JSON. None ships with the plugin."
+          "description": "A Google OAuth client: a Desktop app's ID and secret, or Google's downloaded client JSON. None ships with the plugin.",
+          "title": "OAuth client"
         },
         "redirectUri": {
           "type": "string",
           "minLength": 1,
-          "description": "The absolute URL Google redirects to, when the host supplies one."
+          "description": "The absolute URL Google redirects to, when the host supplies one.",
+          "title": "Redirect URI"
         },
         "callbackPort": {
           "type": "integer",
           "minimum": 1,
           "maximum": 65535,
-          "description": "The local port the redirect reaches."
+          "description": "The local port the redirect reaches.",
+          "title": "Callback port"
         },
         "policy": {
           "type": "object",
@@ -489,7 +501,10 @@
               },
               "description": "Deny-only content and recipient constraints. A rule narrows what a call may do; none widens."
             }
-          }
+          },
+          "title": "Policy",
+          "description": "Deny-only content and recipient rules, and how long a plan stays committable.",
+          "default": {}
         },
         "execution": {
           "type": "object",
@@ -539,7 +554,10 @@
                 "type": "string"
               }
             }
-          }
+          },
+          "title": "Execution",
+          "description": "Limits and the timeout for gws runs and file transfers.",
+          "default": {}
         },
         "audit": {
           "type": "object",
@@ -553,7 +571,10 @@
               "type": "string",
               "description": "Where the audit log is written. Default: the plugin's state directory."
             }
-          }
+          },
+          "title": "Audit",
+          "description": "Whether to record one JSON line per call, and where.",
+          "default": {}
         },
         "binary": {
           "type": "object",
@@ -563,7 +584,10 @@
               "type": "string",
               "description": "An absolute path to a gws 0.22.5 executable, used instead of the pinned download."
             }
-          }
+          },
+          "title": "Binary",
+          "description": "An alternative gws 0.22.5 executable; by default the pinned, verified download is used.",
+          "default": {}
         },
         "admin": {
           "type": "object",
@@ -585,7 +609,10 @@
               },
               "description": "The admin services a plan may name. Default: the admin-class services in the catalog."
             }
-          }
+          },
+          "title": "Admin",
+          "description": "Allow admin-class operations, require a reason, and choose the admin services.",
+          "default": {}
         }
       }
     },
@@ -848,6 +875,7 @@
           "chat.users.sections.patch",
           "chat.users.sections.position",
           "chat.users.spaces.spaceNotificationSetting.patch",
+          "chat.users.spaces.threads.updateThreadReadState",
           "chat.users.spaces.updateSpaceReadState",
           "classroom.courses.aliases.create",
           "classroom.courses.announcements.addOnAttachments.create",
@@ -1386,7 +1414,9 @@
           "calendar.calendarList.patch",
           "calendar.calendarList.update",
           "calendar.calendarList.watch",
+          "calendar.calendars.get",
           "calendar.calendars.insert",
+          "calendar.events.get",
           "calendar.events.import",
           "calendar.events.insert",
           "calendar.events.move",
@@ -1416,6 +1446,7 @@
           "chat.users.sections.patch",
           "chat.users.sections.position",
           "chat.users.spaces.spaceNotificationSetting.patch",
+          "chat.users.spaces.threads.updateThreadReadState",
           "chat.users.spaces.updateSpaceReadState",
           "classroom.courses.aliases.create",
           "classroom.courses.announcements.addOnAttachments.create",
@@ -1459,6 +1490,7 @@
           "classroom.userProfiles.guardianInvitations.patch",
           "docs.documents.batchUpdate",
           "docs.documents.create",
+          "drive.about.get",
           "drive.comments.create",
           "drive.comments.update",
           "drive.drives.create",
@@ -1469,6 +1501,7 @@
           "drive.files.create",
           "drive.files.modifyLabels",
           "drive.files.update",
+          "drive.permissions.get",
           "drive.replies.create",
           "drive.replies.update",
           "drive.revisions.update",
@@ -1480,11 +1513,14 @@
           "gmail.reply-all",
           "gmail.send",
           "gmail.users.drafts.create",
+          "gmail.users.drafts.get",
           "gmail.users.drafts.update",
+          "gmail.users.getProfile",
           "gmail.users.labels.create",
           "gmail.users.labels.patch",
           "gmail.users.labels.update",
           "gmail.users.messages.batchModify",
+          "gmail.users.messages.get",
           "gmail.users.messages.import",
           "gmail.users.messages.insert",
           "gmail.users.messages.modify",
@@ -1546,6 +1582,8 @@
         "commits": "plan_send",
         "accounts": "none",
         "operations": [
+          "calendar.calendars.get",
+          "calendar.events.get",
           "calendar.events.import",
           "calendar.events.insert",
           "calendar.events.move",
@@ -1554,14 +1592,19 @@
           "calendar.events.update",
           "chat.spaces.messages.create",
           "chat.spaces.messages.reactions.create",
+          "drive.about.get",
           "drive.approvals.comment",
           "drive.approvals.reassign",
           "drive.approvals.start",
+          "drive.permissions.get",
           "gmail.forward",
           "gmail.reply",
           "gmail.reply-all",
           "gmail.send",
+          "gmail.users.drafts.get",
           "gmail.users.drafts.send",
+          "gmail.users.getProfile",
+          "gmail.users.messages.get",
           "gmail.users.messages.send"
         ]
       },
@@ -1575,18 +1618,25 @@
           "calendar.acl.patch",
           "calendar.acl.update",
           "calendar.acl.watch",
+          "calendar.calendars.get",
+          "calendar.events.get",
           "chat.spaces.members.create",
           "chat.spaces.members.delete",
           "classroom.courses.studentGroups.studentGroupMembers.create",
           "classroom.invitations.create",
           "classroom.invitations.delete",
+          "drive.about.get",
           "drive.accessproposals.resolve",
           "drive.approvals.approve",
           "drive.approvals.cancel",
           "drive.approvals.decline",
           "drive.permissions.create",
           "drive.permissions.delete",
+          "drive.permissions.get",
           "drive.permissions.update",
+          "gmail.users.drafts.get",
+          "gmail.users.getProfile",
+          "gmail.users.messages.get",
           "gmail.users.settings.delegates.create",
           "gmail.users.settings.delegates.delete",
           "gmail.users.settings.forwardingAddresses.create",
@@ -1607,7 +1657,9 @@
           "calendar.calendarList.delete",
           "calendar.calendars.clear",
           "calendar.calendars.delete",
+          "calendar.calendars.get",
           "calendar.events.delete",
+          "calendar.events.get",
           "chat.customEmojis.delete",
           "chat.spaces.delete",
           "chat.spaces.messagePins.delete",
@@ -1630,17 +1682,22 @@
           "classroom.courses.teachers.delete",
           "classroom.courses.topics.delete",
           "classroom.userProfiles.guardians.delete",
+          "drive.about.get",
           "drive.comments.delete",
           "drive.drives.delete",
           "drive.files.delete",
           "drive.files.emptyTrash",
           "drive.files.update",
+          "drive.permissions.get",
           "drive.replies.delete",
           "drive.revisions.delete",
           "gmail.users.drafts.delete",
+          "gmail.users.drafts.get",
+          "gmail.users.getProfile",
           "gmail.users.labels.delete",
           "gmail.users.messages.batchDelete",
           "gmail.users.messages.delete",
+          "gmail.users.messages.get",
           "gmail.users.messages.trash",
           "gmail.users.messages.untrash",
           "gmail.users.settings.cse.identities.delete",
@@ -1878,7 +1935,14 @@
         "operations": [
           "admin-reports.activities.watch",
           "admin-reports.channels.stop",
-          "drive.files.generateCseToken"
+          "calendar.calendars.get",
+          "calendar.events.get",
+          "drive.about.get",
+          "drive.files.generateCseToken",
+          "drive.permissions.get",
+          "gmail.users.drafts.get",
+          "gmail.users.getProfile",
+          "gmail.users.messages.get"
         ]
       }
     },

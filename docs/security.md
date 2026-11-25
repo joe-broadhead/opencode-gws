@@ -19,8 +19,8 @@ used.
 - Credentials live only in OpenCode's credential store. The access token exists only in the `gws` child's environment.
 - No token, client secret, body, file content or URL query string reaches a log, status, an error or the audit. A
   reason is one line, redacted and cut to 160 characters.
-- Fixtures are recorded with `plugin-kit record`, which redacts credentials, emails, phone numbers, home directories and
-  sensitive query values before the file is committed.
+- The synthetic fixture is redacted with `plugin-kit record`, which removes credentials, emails, phone numbers, home
+  directories and sensitive query values before the file is committed.
 
 ## The plan/commit flow
 
@@ -33,11 +33,9 @@ used.
    permission gate, and refuses:
    - a second commit (`PLAN_USED`),
    - another class's tool or an expired plan (`PLAN_INVALID`),
-   - a recipient that changed after the preview (the commit re-reads them and refuses an addition),
-   - an upload whose bytes changed (`UPLOAD_CHANGED`).
+   - a recipient that changed after the preview (the commit re-reads them and refuses an addition).
 4. In an agent session, a non-read call asks through OpenCode's permission rules. Over RPC, an allow rule is not a
-   confirmation: the call needs an answered ask or a host-signed action grant. A saved "Always allow" from a tool call
-   never confirms an RPC write.
+   confirmation: the call needs an answered ask. A saved "Always allow" from a tool call never confirms an RPC write.
 
 ## Untrusted content
 

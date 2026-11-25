@@ -28,7 +28,7 @@ export const PLAN_INPUT = json(RequestInput.omit({ account: true }))
 export const EVENTS_INPUT = EVENTS_LIST_INPUT_SCHEMA
 export const PROBE_INPUT: JsonSchema = {
   type: "object",
-  properties: { source: { type: "string", description: "A declared source name: gmail, calendar, calendar-today, image or sheets." } },
+  properties: { source: { type: "string", description: "A declared source name: gmail, calendar, calendar-today or image." } },
   additionalProperties: false,
 }
 export const CALENDAR_TODAY_INPUT: JsonSchema = {
@@ -68,6 +68,7 @@ export const COMMIT_OUTPUT = json(
     category: z.enum(["write", "send", "share", "delete", "export", "admin"]),
     operation: z.string(),
     result: z.unknown(),
+    trust: z.literal("untrusted"),
     file: FileInfo.optional(),
     cleanupDegraded: z.boolean().optional(),
   }),

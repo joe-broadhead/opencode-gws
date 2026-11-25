@@ -68,6 +68,7 @@ describe("probe", () => {
   it("refuses an unknown source and an account with no verified sign-in", async () => {
     const table = handlers({ status: async () => status })
     await expect(table.probe.run({ source: "nope" }, call())).rejects.toThrow(/^SOURCE_UNKNOWN: /)
+    await expect(table.probe.run({ source: "sheets" }, call())).rejects.toThrow(/^SOURCE_UNKNOWN: /)
     await expect(table.probe.run({ source: "gmail" }, call({ account: "personal" }))).rejects.toThrow(/^NEEDS_SIGN_IN: /)
   })
 })
@@ -103,7 +104,7 @@ describe("plan and commit", () => {
     const emit = vi.fn(async () => ({ ok: true }) as const)
     const table = handlers(runtime)
     const answer = (await table.send.run({}, call({ plan: { gwsPlanId: "gws-plan-1" }, bus: { name: "gws", emit } }))) as Record<string, unknown>
-    expect(answer).toEqual({ ok: true, category: "send", operation: "gmail.send", result: { id: "m1" } })
+    expect(answer).toEqual({ ok: true, category: "send", operation: "gmail.send", result: { id: "m1" }, trust: "untrusted" })
     expect(emit).toHaveBeenCalledExactlyOnceWith("changed", { capability: "gws.gmail", account: "work", reason: "write" })
   })
 
@@ -111,6 +112,16 @@ describe("plan and commit", () => {
     const emit = vi.fn(async () => ({ ok: true }) as const)
     const table = handlers({ ...runtime, commit: async () => ({ ok: true, planId: "p", category: "write", operation: "drive.files.update", result: {} }) })
     await table.write.run({}, call({ plan: { gwsPlanId: "p" }, bus: { name: "gws", emit } }))
+    expect(emit).not.toHaveBeenCalled()
+  })
+
+  it("does not nudge a declared source for a Gmail or Calendar settings write", async () => {
+    const emit = vi.fn(async () => ({ ok: true }) as const)
+    const table = handlers({ ...runtime, commit: async () => ({ ok: true, planId: "p", category: "write", operation: "gmail.users.settings.updateVacation", result: {} }) })
+    await table.write.run({}, call({ plan: { gwsPlanId: "p" }, bus: { name: "gws", emit } }))
+    expect(emit).not.toHaveBeenCalled()
+    const calendar = handlers({ ...runtime, commit: async () => ({ ok: true, planId: "p", category: "write", operation: "calendar.settings.watch", result: {} }) })
+    await calendar.write.run({}, call({ plan: { gwsPlanId: "p" }, bus: { name: "gws", emit } }))
     expect(emit).not.toHaveBeenCalled()
   })
 

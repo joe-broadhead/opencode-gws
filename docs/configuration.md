@@ -13,11 +13,11 @@ are gws-specific.
 | `oauthClient` | value | — | A Google OAuth client: a Desktop app's ID and secret, or Google's downloaded client JSON. None ships with the plugin. |
 | `redirectUri` | string | — | The absolute URL Google redirects to, when the host supplies one. |
 | `callbackPort` | integer | — | The local port the redirect reaches. |
-| `policy` | object | — |  |
-| `execution` | object | — |  |
-| `audit` | object | — |  |
-| `binary` | object | — |  |
-| `admin` | object | — |  |
+| `policy` | object | `{}` | Deny-only content and recipient rules, and how long a plan stays committable. |
+| `execution` | object | `{}` | Limits and the timeout for gws runs and file transfers. |
+| `audit` | object | `{}` | Whether to record one JSON line per call, and where. |
+| `binary` | object | `{}` | An alternative gws 0.22.5 executable; by default the pinned, verified download is used. |
+| `admin` | object | `{}` | Allow admin-class operations, require a reason, and choose the admin services. |
 <!-- /generated:configuration -->
 
 ## Examples

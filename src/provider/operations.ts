@@ -311,7 +311,7 @@ export class Operations {
         truncated,
         diagnostics: parsed.diagnostics,
         pagination: pages ? { pages: pages.pages, items: pages.items, capped: pages.capped } : undefined,
-        trust: { workspaceContent: "untrusted" },
+        trust: "untrusted",
       }
     } catch (error) {
       this.runtime.audit.emit({ event: "operation.read", outcome: "error", account: request.account, operation: entry.id, durationMs: Date.now() - started, errorCode: auditErrorCode(error), caller: ctx.caller })
@@ -507,7 +507,7 @@ export class Operations {
         caller: ctx.caller,
       })
       const answer = plan.files?.output ? parsed.data : withoutSavedBody(parsed.data)
-      receipt = { ok: true, planId: plan.id, category, operation: plan.operation, result: answer ?? parsed.raw, file, ...(delivered?.cleanupDegraded ? { cleanupDegraded: true } : {}) }
+      receipt = { ok: true, planId: plan.id, category, operation: plan.operation, result: answer ?? parsed.raw, trust: "untrusted", file, ...(delivered?.cleanupDegraded ? { cleanupDegraded: true } : {}) }
       return receipt
     } catch (error) {
       this.runtime.plans.release(plan.id)

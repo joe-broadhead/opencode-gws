@@ -56,6 +56,9 @@ function runtime() {
         if (found === undefined) throw new Error(`no message ${String(id)}`)
         return { data: found }
       }
+      if (input.operation === "gmail.users.history.list") {
+        return { data: { historyId: "1000" } }
+      }
       throw new Error(`unexpected operation ${input.operation}`)
     },
   }
@@ -78,5 +81,10 @@ describe("Gmail events across a same-timestamp page boundary", () => {
     expect(ids(second)).toEqual(["msg_b"])
     expect(second.more).toBe(false)
     expect(resultProblems(second, 1, PAGE_MAX_BYTES)).toEqual([])
+
+    const third = await gmailEvents(gws as never, ACCOUNT, { cursor: second.cursor, limit: 1 }, ctx, NOW)
+    expect(ids(third)).toEqual([])
+    expect(third.more).toBe(false)
+    expect(resultProblems(third, 1, PAGE_MAX_BYTES)).toEqual([])
   })
 })

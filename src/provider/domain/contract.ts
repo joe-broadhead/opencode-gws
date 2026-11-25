@@ -220,7 +220,7 @@ export const ReadOutput = z.object({
     })
     .optional()
     .describe("Present for paginated reads"),
-  trust: z.object({ workspaceContent: z.literal("untrusted") }),
+  trust: z.literal("untrusted"),
 })
 
 export const Preview = z
@@ -241,7 +241,7 @@ export const Preview = z
     category: Category,
     reason: z.string().optional(),
   })
-  .describe("Redacted preview of the exact command the commit will run")
+  .describe("Redacted preview of the command the commit will run")
 
 export const PlanOutput = z.object({
   ok: z.literal(true),
@@ -258,6 +258,7 @@ export const CommitOutput = z.object({
   category: CommitCategory,
   operation: z.string(),
   result: z.unknown().describe(`Google API response. ${Untrusted}`),
+  trust: z.literal("untrusted"),
   file: FileInfo.optional().describe("Present for an export: the delivered file"),
   cleanupDegraded: z.boolean().optional().describe("The change succeeded, but private staging cleanup failed; do not retry the mutation"),
 })

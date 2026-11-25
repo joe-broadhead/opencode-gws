@@ -6,8 +6,15 @@ import { COMMIT_OUTPUT } from "./schemas.js"
 
 /** The source ids a write changes, by operation; none when no declared source changes. */
 function capabilitiesOf(operation: string): string[] {
-  if (operation.startsWith("gmail.")) return ["gws.gmail"]
-  if (operation.startsWith("calendar.")) return ["gws.calendar", "gws.calendar.today"]
+  const gmail =
+    operation.startsWith("gmail.users.messages.") ||
+    operation.startsWith("gmail.users.threads.") ||
+    operation === "gmail.users.drafts.send" ||
+    operation === "gmail.send" ||
+    operation === "gmail.forward" ||
+    operation.startsWith("gmail.reply")
+  if (gmail) return ["gws.gmail"]
+  if (operation.startsWith("calendar.events.")) return ["gws.calendar", "gws.calendar.today"]
   return []
 }
 
@@ -49,6 +56,7 @@ export function commitHandler(runtime: Runtime, category: CommitCategory): Metho
           category: answer.category,
           operation: answer.operation,
           result: answer.result,
+          trust: "untrusted" as const,
           ...(answer.file === undefined ? {} : { file: answer.file }),
           ...(answer.cleanupDegraded === undefined ? {} : { cleanupDegraded: answer.cleanupDegraded }),
         }

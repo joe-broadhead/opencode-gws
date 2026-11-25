@@ -17898,6 +17898,7 @@ function hostInRange(version3) {
   return major === 2 && minor === 4 && patch >= 1;
 }
 var PLUGIN_NAME2 = /^[a-z0-9]{2,31}$/;
+var EXTENSION_KEY = /^x-[a-z][a-z0-9-]*$/;
 var METHOD_CLASSES = ["read", "write", "send", "share", "delete", "export", "admin"];
 var METHOD_ACCOUNTS = ["optional", "none"];
 var METHOD_EFFECTS = ["ask", "deny"];
@@ -17911,8 +17912,19 @@ var SERVICE_ID_MAX = 128;
 var SERVICE_LABEL_MAX = 64;
 var THUMBNAIL_URL_MAX = 2048;
 var DETAIL_FIELDS = ["external_id", "kind", "occurred_at", "url", "thread", "actors", "labels", "hash"];
+var EVENT_KINDS = ["message", "meeting", "session", "bookmark", "issue", "pr", "commit", "doc", "event", "task", "file"];
 var EXTENSION_SEGMENT_MAX = 32;
 var EXTENSION_NAME = new RegExp(`^x-[a-z][a-z0-9-]{0,${EXTENSION_SEGMENT_MAX - 1}}/[a-z][a-z0-9-]{0,${EXTENSION_SEGMENT_MAX - 1}}$`);
+var isExtensionName = (name) => typeof name === "string" && EXTENSION_NAME.test(name);
+var isEventKind = (kind) => typeof kind === "string" && (EVENT_KINDS.includes(kind) || isExtensionName(kind));
+function extensionNamespace(kind) {
+  return isEventKind(kind) && kind.startsWith("x-") ? kind.slice(2, kind.indexOf("/")) : void 0;
+}
+function isEventKindIn(kind, namespace) {
+  if (!isEventKind(kind)) return false;
+  const own3 = extensionNamespace(kind);
+  return own3 === void 0 || own3 === namespace;
+}
 var EVENT_LIMITS = {
   source: 64,
   account: 128,
@@ -18449,6 +18461,7 @@ function write2(value, seen) {
 function manifestHash(value) {
   return `sha256:${createHash4("sha256").update(canonicalJson2(value)).digest("hex")}`;
 }
+var plain2 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 var METHOD_NAME = /^[a-z][a-z0-9_]*$/;
 var MCP_METHOD_NAME = /^mcp:(?:[a-z0-9][a-z0-9_.-]{0,99}|\*)$/;
 var SOURCE_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/;
@@ -18594,6 +18607,37 @@ var events = strictObject({
   status: strictObject({}).optional().describe("The plugin's state changed."),
   account: strictObject({}).optional().describe("An account signed in, out, or needs sign-in.")
 }).describe("The bus events the plugin emits. Each is declared with an empty object.");
+function jsonSchemaProblems(schema, what) {
+  if (!plain2(schema)) return [`${what} must be a JSON Schema object`];
+  try {
+    fromJSONSchema(schema);
+  } catch (error3) {
+    const reason = error3 instanceof Error ? error3.message.replace(/\s+/g, " ").slice(0, 200) : "it cannot be read";
+    return [`${what} must be a JSON Schema 2020-12 object: ${reason}`];
+  }
+  return [];
+}
+function optionProblems(schema) {
+  if (!plain2(schema)) return [{ path: [], message: "options must be a JSON Schema object" }];
+  if (schema["type"] !== "object") return [{ path: ["type"], message: 'options must be a JSON Schema object, with "type": "object"' }];
+  const properties = schema["properties"];
+  if (!plain2(properties)) return [{ path: ["properties"], message: "must be a JSON Schema object with properties, including access" }];
+  const problems = [];
+  if (!Object.hasOwn(properties, "access")) problems.push({ path: ["properties", "access"], message: "the options schema must include access" });
+  else if (!plain2(properties["access"]) && typeof properties["access"] !== "boolean") problems.push({ path: ["properties", "access"], message: "must be a JSON Schema object" });
+  for (const key of ["access", "accounts", "allowUntestedHost"]) {
+    const property = properties[key];
+    if (property !== void 0 && !plain2(property) && typeof property !== "boolean") problems.push({ path: ["properties", key], message: "must be a JSON Schema object" });
+  }
+  if (problems.length > 0) return problems;
+  try {
+    fromJSONSchema(schema);
+  } catch (error3) {
+    const reason = error3 instanceof Error ? error3.message.replace(/\s+/g, " ").slice(0, 200) : "it cannot be read";
+    problems.push({ path: [], message: `options must be a JSON Schema 2020-12 object: ${reason}` });
+  }
+  return problems;
+}
 var versionField = literal(MANIFEST_VERSION);
 var optionsField = record(string2(), unknown()).describe("JSON Schema 2020-12 of the plugin's options. It must include access.");
 var normalizedMCPTool = (tool) => tool.replace(/[^A-Za-z0-9_-]/g, "_");
@@ -18621,6 +18665,16 @@ var methodsField = record(methodName, methodItem).superRefine((methods, context)
 var sourcesField = array(source);
 var actionsField = array(action);
 var eventsField = events;
+var FIELDS = {
+  version: { schema: versionField, required: true },
+  plugin: { schema: plugin, required: true },
+  accounts: { schema: accountsInfo, required: false },
+  options: { schema: optionsField, required: true },
+  methods: { schema: methodsField, required: true },
+  sources: { schema: sourcesField, required: true },
+  actions: { schema: actionsField, required: true },
+  events: { schema: eventsField, required: true }
+};
 var top = looseObject({
   version: versionField,
   plugin,
@@ -18631,6 +18685,144 @@ var top = looseObject({
   actions: actionsField,
   events: eventsField
 });
+var asObject = (value) => plain2(value) ? value : void 0;
+var objectRecord = (value) => asObject(value) ?? {};
+var objectList = (value) => Array.isArray(value) ? value.filter(plain2) : [];
+function crossProblems(value, parsed) {
+  const problems = [];
+  const issue3 = (path, message2) => problems.push(`capabilities${pathText2(path)}: ${message2}`);
+  const plugin2 = asObject(parsed["plugin"]) ?? asObject(value["plugin"]);
+  const name = typeof plugin2?.["name"] === "string" ? plugin2["name"] : void 0;
+  const accounts = asObject(parsed["accounts"]) ?? asObject(value["accounts"]);
+  const methods = objectRecord(parsed["methods"] ?? value["methods"]);
+  if (!Object.hasOwn(methods, "status")) issue3(["methods", "status"], "every plugin declares status");
+  if (accounts !== void 0 && !Object.hasOwn(methods, "probe")) issue3(["methods", "probe"], "a plugin with accounts declares probe");
+  if (value["options"] !== void 0) for (const problem of optionProblems(value["options"])) issue3(["options", ...problem.path], problem.message);
+  if (accounts !== void 0) {
+    const options = asObject(value["options"]);
+    const properties = options === void 0 ? void 0 : asObject(options["properties"]);
+    if (properties === void 0) issue3(["options", "properties", "accounts"], "an account-taking plugin declares accounts in its options schema");
+    else if (!Object.hasOwn(properties, "accounts")) issue3(["options", "properties", "accounts"], "an account-taking plugin declares accounts in its options schema");
+    else {
+      const accountSchema = asObject(properties["accounts"]);
+      if (accountSchema === void 0 || !plain2(accountSchema["additionalProperties"])) {
+        issue3(["options", "properties", "accounts", "additionalProperties"], "must define the profile schema every alias is checked against");
+      }
+    }
+    const profile = asObject(accounts["profile"]);
+    if (profile !== void 0 && profile["$ref"] !== PROFILE_REF) issue3(["accounts", "profile", "$ref"], `must be "${PROFILE_REF}"`);
+  }
+  let pinned = 0;
+  for (const [methodNameValue, item2] of Object.entries(methods)) {
+    const record22 = objectRecord(item2);
+    if (record22["pinned"] === true) pinned++;
+    const commits = record22["commits"];
+    if (typeof commits === "string") {
+      const target = methods[commits];
+      if (target === void 0) issue3(["methods", methodNameValue, "commits"], `"${commits}" is not a declared method`);
+      else if (objectRecord(target)["plans"] !== true) issue3(["methods", methodNameValue, "commits"], `"${commits}" does not declare plans: true`);
+      if (commits === methodNameValue) issue3(["methods", methodNameValue, "commits"], "a method cannot commit itself");
+    }
+    const named = methodNameValue.startsWith("mcp:") ? methodNameValue.slice(4) : methodNameValue;
+    if (named !== "*") {
+      if (/^(?:delete|remove)_/.test(named) && record22["class"] !== "delete") issue3(["methods", methodNameValue, "class"], "a delete_* or remove_* method must be class delete");
+      if (/^(?:send|post)_/.test(named) && record22["class"] !== "send") issue3(["methods", methodNameValue, "class"], "a send_* or post_* method must be class send");
+      if (/^share_/.test(named) && record22["class"] !== "share") issue3(["methods", methodNameValue, "class"], "a share_* method must be class share");
+    }
+  }
+  if (pinned > 1) issue3(["methods"], "at most one method may be pinned");
+  const sourceIds = /* @__PURE__ */ new Set();
+  const serviceLabels = /* @__PURE__ */ new Map();
+  for (const [index2, item2] of objectList(value["sources"]).entries()) {
+    const id = item2["id"];
+    if (typeof id === "string") {
+      if (name !== void 0 && id.split(".")[0] !== name) issue3(["sources", index2, "id"], `must begin with the plugin's name "${name}"`);
+      if (sourceIds.has(id)) issue3(["sources", index2, "id"], `"${id}" is declared twice`);
+      sourceIds.add(id);
+    }
+    const method = item2["method"];
+    if (typeof method === "string" && methods[method] === void 0) issue3(["sources", index2, "method"], `"${method}" is not a declared method`);
+    const kind = item2["kind"];
+    if (kind === "events") {
+      const reads = item2["reads"];
+      if (typeof reads === "string" && name !== void 0 && !isEventKindIn(reads, name)) issue3(["sources", index2, "reads"], `must be one of ${EVENT_KINDS.join(", ")}, or x-${name}/<kind>`);
+    } else if (kind === "snapshot") {
+      const output = item2["output"];
+      if (typeof output === "string") {
+        if (!isOutputName(output) && !isExtensionOutput(output)) issue3(["sources", index2, "output"], `"${output}" is not a registered output and not an x-<namespace>/<name>`);
+        else if (isExtensionOutput(output) && name !== void 0 && !output.startsWith(`x-${name}/`)) issue3(["sources", index2, "output"], `an extension output must be in the plugin's namespace, x-${name}/<name>`);
+      }
+    }
+    const service2 = asObject(item2["service"]);
+    if (service2 !== void 0 && typeof service2["id"] === "string" && typeof service2["label"] === "string") {
+      const seen = serviceLabels.get(service2["id"]);
+      if (seen !== void 0 && seen !== service2["label"]) issue3(["sources", index2, "service", "label"], `is "${service2["label"]}", and ${service2["id"]} says "${seen}" everywhere else`);
+      else serviceLabels.set(service2["id"], service2["label"]);
+    }
+    const scope2 = asObject(item2["scope"]);
+    const suggest = scope2 === void 0 ? void 0 : asObject(scope2["suggest"]);
+    const suggested = suggest?.["method"];
+    if (typeof suggested === "string" && methods[suggested] === void 0) issue3(["sources", index2, "scope", "suggest", "method"], `"${suggested}" is not a declared method`);
+    for (const [detailIndex, entry] of objectList(item2["details"]).entries()) {
+      const detailMethod = entry["method"];
+      if (typeof detailMethod === "string" && methods[detailMethod] === void 0) issue3(["sources", index2, "details", detailIndex, "method"], `"${detailMethod}" is not a declared method`);
+    }
+  }
+  const actionIds = /* @__PURE__ */ new Set();
+  for (const [index2, item2] of objectList(value["actions"]).entries()) {
+    const id = item2["id"];
+    if (typeof id === "string") {
+      if (name !== void 0 && id.split(".")[0] !== name) issue3(["actions", index2, "id"], `must begin with the plugin's name "${name}"`);
+      if (actionIds.has(id)) issue3(["actions", index2, "id"], `"${id}" is declared twice`);
+      actionIds.add(id);
+    }
+    const preview = item2["preview"];
+    const commit2 = item2["commit"];
+    if (typeof preview === "string" && preview === commit2) issue3(["actions", index2, "commit"], "the commit must be a different method from the preview");
+    if (typeof preview === "string" && methods[preview] === void 0) issue3(["actions", index2, "preview"], `"${preview}" is not a declared method`);
+    if (typeof commit2 === "string" && methods[commit2] === void 0) issue3(["actions", index2, "commit"], `"${commit2}" is not a declared method`);
+    if (item2["input"] !== void 0) for (const problem of jsonSchemaProblems(item2["input"], "input")) issue3(["actions", index2, "input"], problem.replace(/^input: /, ""));
+    if (item2["output"] !== void 0) for (const problem of jsonSchemaProblems(item2["output"], "output")) issue3(["actions", index2, "output"], problem.replace(/^output: /, ""));
+  }
+  return problems;
+}
+function pathText2(path) {
+  return path.map((part) => typeof part === "number" ? `[${part}]` : `.${String(part)}`).join("");
+}
+function problemsOf2(error3) {
+  const problems = [];
+  for (const issue3 of error3.issues) {
+    if (issue3.code === "unrecognized_keys") {
+      for (const key of issue3.keys) problems.push(`capabilities${pathText2([...issue3.path, key])}: is not a key the manifest defines; app-only hints use x-<app>`);
+      continue;
+    }
+    problems.push(`capabilities${pathText2(issue3.path)}: ${issue3.message}`);
+  }
+  return problems;
+}
+function checkManifest(value) {
+  if (!plain2(value)) return { ok: false, problems: ["capabilities: must be an object"] };
+  const problems = [];
+  for (const key of Object.keys(value)) {
+    if (!Object.hasOwn(FIELDS, key) && !EXTENSION_KEY.test(key)) {
+      problems.push(`capabilities.${key}: is not a key the manifest defines; app-only hints use x-<app>`);
+    }
+  }
+  const parsed = {};
+  for (const key of Object.keys(value)) if (EXTENSION_KEY.test(key)) parsed[key] = value[key];
+  for (const [key, field2] of Object.entries(FIELDS)) {
+    const raw = value[key];
+    if (raw === void 0) {
+      if (field2.required) problems.push(`capabilities.${key}: Required`);
+      continue;
+    }
+    const result = field2.schema.safeParse(raw);
+    if (result.success) parsed[key] = result.data;
+    else problems.push(...problemsOf2(result.error).map((problem) => `capabilities.${key}${problem.slice("capabilities".length)}`));
+  }
+  problems.push(...crossProblems(value, parsed));
+  return problems.length === 0 ? { ok: true, value: parsed } : { ok: false, problems };
+}
 
 // node_modules/@we-the-rebel-alliance/plugin-contract/dist/chunks/chunk-LJBRNDIR.js
 var ACCESS_LEVELS = ["all", "ask-changes", "read-only"];
@@ -18789,12 +18981,12 @@ function refusal(code2, what, next) {
 function refuse(code2, what, next) {
   throw new RegisterError(refusal(code2, what, next));
 }
-var plain2 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+var plain3 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 function refusalOf(error3) {
   if (error3 instanceof RegisterError) return error3.refusal;
-  if (!plain2(error3) && !(error3 instanceof Error)) return void 0;
+  if (!plain3(error3) && !(error3 instanceof Error)) return void 0;
   const record7 = error3;
-  const data = plain2(record7["data"]) ? record7["data"] : {};
+  const data = plain3(record7["data"]) ? record7["data"] : {};
   const message2 = typeof record7["message"] === "string" ? record7["message"] : String(error3);
   const raw = [record7["code"], data["code"], /^([A-Z][A-Z0-9_]*):/.exec(message2)?.[1]].find((code22) => typeof code22 === "string");
   if (raw === void 0) return void 0;
@@ -19079,12 +19271,12 @@ function shapes(name, method, item2, handler) {
     refuse("OPTIONS_INVALID", `${name}.${method}: ${error3 instanceof Error ? error3.message : String(error3)}`, "Fix the handler's schema.");
   }
 }
-var plain3 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+var plain32 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 function prepare(manifest2, handlers, accounts, access, agents) {
   return { name: manifest2.plugin.name, manifest: manifest2, hash: manifestHash(manifest2), entries: methodEntries(manifest2, handlers), accounts, plans: planStore(), access, agents };
 }
 function checkedInput(entry, raw) {
-  if (!plain3(raw)) refuse("INPUT_INVALID", `${entry.name} takes an object as its input`, "Pass the input its schema describes.");
+  if (!plain32(raw)) refuse("INPUT_INVALID", `${entry.name} takes an object as its input`, "Pass the input its schema describes.");
   const input = { ...raw };
   const account = input["account"];
   if (entry.item.commits !== void 0) {
@@ -26069,7 +26261,7 @@ var ErrorCode = {
   },
   SOURCE_UNKNOWN: {
     meaning: "A source read was asked for a source this plugin does not declare: events_list for one it does not list, or probe for one it does not know. Nothing ran.",
-    next: "Pass a source the plugin declares: gmail or calendar for events_list, and also calendar-today, image or sheets for probe."
+    next: "Pass a source the plugin declares: gmail or calendar for events_list, and also calendar-today or image for probe."
   },
   TOO_LARGE: {
     meaning: "A source read's answer exceeds its size limit: 1 MiB for the Sheets snapshot, or 1 MiB less 4 KiB for a picture's data URI. Nothing is cut short.",
@@ -27717,7 +27909,7 @@ function loadConfig(raw) {
       path: parsed.audit?.path
     },
     admin: {
-      enabled: parsed.admin?.enabled ?? true,
+      enabled: parsed.admin?.enabled ?? false,
       requireReason: parsed.admin?.requireReason ?? true,
       allowedServices: parsed.admin?.allowedServices ?? adminServices()
     }
@@ -28895,7 +29087,9 @@ var CODES = {
   GWS_VALIDATION_ERROR: "INPUT_INVALID",
   FIELDS_INVALID: "INPUT_INVALID",
   UPLOAD_INVALID: "INPUT_INVALID",
+  UPLOAD_CHANGED: "PLAN_INVALID",
   DOWNLOAD_INVALID: "INPUT_INVALID",
+  DOWNLOAD_EXISTS: "INPUT_INVALID",
   SOURCE_UNKNOWN: "SOURCE_UNKNOWN",
   TOO_LARGE: "TOO_LARGE",
   POLICY_DENIED: "PERMISSION_DENIED",
@@ -29082,7 +29276,7 @@ var ReadOutput = object2({
     items: number4().optional().describe("Items kept; absent when a page has no single item array, so maxItems could not apply"),
     capped: boolean4().describe("True when items or pages were dropped at the item cap; the cut page has no nextPageToken")
   }).optional().describe("Present for paginated reads"),
-  trust: object2({ workspaceContent: literal2("untrusted") })
+  trust: literal2("untrusted")
 });
 var Preview = object2({
   method: string4(),
@@ -29097,7 +29291,7 @@ var Preview = object2({
   account: string4(),
   category: Category,
   reason: string4().optional()
-}).describe("Redacted preview of the exact command the commit will run");
+}).describe("Redacted preview of the command the commit will run");
 var PlanOutput = object2({
   ok: literal2(true),
   planId: string4().describe("Single-use id; commit with the tool named by category, passing only {planId}"),
@@ -29112,6 +29306,7 @@ var CommitOutput = object2({
   category: CommitCategory,
   operation: string4(),
   result: unknown2().describe(`Google API response. ${Untrusted}`),
+  trust: literal2("untrusted"),
   file: FileInfo.optional().describe("Present for an export: the delivered file"),
   cleanupDegraded: boolean4().optional().describe("The change succeeded, but private staging cleanup failed; do not retry the mutation")
 });
@@ -29134,7 +29329,7 @@ var PLAN_INPUT = json2(RequestInput.omit({ account: true }));
 var EVENTS_INPUT = EVENTS_LIST_INPUT_SCHEMA;
 var PROBE_INPUT = {
   type: "object",
-  properties: { source: { type: "string", description: "A declared source name: gmail, calendar, calendar-today, image or sheets." } },
+  properties: { source: { type: "string", description: "A declared source name: gmail, calendar, calendar-today or image." } },
   additionalProperties: false
 };
 var CALENDAR_TODAY_INPUT = {
@@ -29171,6 +29366,7 @@ var COMMIT_OUTPUT = json2(
     category: _enum2(["write", "send", "share", "delete", "export", "admin"]),
     operation: string4(),
     result: unknown2(),
+    trust: literal2("untrusted"),
     file: FileInfo2.optional(),
     cleanupDegraded: boolean4().optional()
   })
@@ -29223,8 +29419,9 @@ function catalogHandler(runtime) {
 
 // src/handlers/commit.ts
 function capabilitiesOf(operation) {
-  if (operation.startsWith("gmail.")) return ["gws.gmail"];
-  if (operation.startsWith("calendar.")) return ["gws.calendar", "gws.calendar.today"];
+  const gmail = operation.startsWith("gmail.users.messages.") || operation.startsWith("gmail.users.threads.") || operation === "gmail.users.drafts.send" || operation === "gmail.send" || operation === "gmail.forward" || operation.startsWith("gmail.reply");
+  if (gmail) return ["gws.gmail"];
+  if (operation.startsWith("calendar.events.")) return ["gws.calendar", "gws.calendar.today"];
   return [];
 }
 function commitHandler(runtime, category) {
@@ -29255,6 +29452,7 @@ function commitHandler(runtime, category) {
           category: answer.category,
           operation: answer.operation,
           result: answer.result,
+          trust: "untrusted",
           ...answer.file === void 0 ? {} : { file: answer.file },
           ...answer.cleanupDegraded === void 0 ? {} : { cleanupDegraded: answer.cleanupDegraded }
         };
@@ -29271,7 +29469,16 @@ import { createHash as createHash7 } from "node:crypto";
 // src/manifest.ts
 import { readFileSync as readFileSync2 } from "node:fs";
 var pkg = JSON.parse(readFileSync2(new URL("../package.json", new URL("./manifest.js", import.meta.url).href), "utf8"));
-var manifest = pkg.capabilities;
+function assertManifest(value) {
+  const checked = checkManifest(value);
+  if (!checked.ok) {
+    throw new GwsError("OPTIONS_INVALID", `package.json capabilities: ${checked.problems.join("; ")}`, {
+      next: "Fix package.json capabilities; the plugin refuses to load until the contract accepts it."
+    });
+  }
+  return checked.value;
+}
+var manifest = assertManifest(pkg.capabilities);
 var packageVersion = pkg.version;
 
 // src/provider/domain/version.ts
@@ -30873,8 +31080,7 @@ var PROBED = {
   gmail: { operation: "gmail.users.getProfile", scopes: /^https:\/\/(?:mail\.google\.com\/|www\.googleapis\.com\/auth\/gmail\.)/ },
   calendar: { operation: "calendar.events.list", scopes: /^https:\/\/www\.googleapis\.com\/auth\/calendar(?:\.|$)/ },
   "calendar-today": { operation: "calendar.events.list", scopes: /^https:\/\/www\.googleapis\.com\/auth\/calendar(?:\.|$)/ },
-  image: { operation: "drive.files.get", scopes: /^https:\/\/www\.googleapis\.com\/auth\/drive(?:\.|$)/ },
-  sheets: { operation: "sheets.spreadsheets.values.get", scopes: /^https:\/\/www\.googleapis\.com\/auth\/spreadsheets(?:\.|$)/ }
+  image: { operation: "drive.files.get", scopes: /^https:\/\/www\.googleapis\.com\/auth\/drive(?:\.|$)/ }
 };
 function probeHandler(runtimeStatus) {
   return {
@@ -32963,7 +33169,7 @@ var Operations = class {
         truncated,
         diagnostics: parsed.diagnostics,
         pagination: pages ? { pages: pages.pages, items: pages.items, capped: pages.capped } : void 0,
-        trust: { workspaceContent: "untrusted" }
+        trust: "untrusted"
       };
     } catch (error3) {
       this.runtime.audit.emit({ event: "operation.read", outcome: "error", account: request.account, operation: entry.id, durationMs: Date.now() - started, errorCode: auditErrorCode(error3), caller: ctx.caller });
@@ -33138,7 +33344,7 @@ var Operations = class {
         caller: ctx.caller
       });
       const answer = plan2.files?.output ? parsed.data : withoutSavedBody(parsed.data);
-      receipt = { ok: true, planId: plan2.id, category, operation: plan2.operation, result: answer ?? parsed.raw, file: file2, ...delivered?.cleanupDegraded ? { cleanupDegraded: true } : {} };
+      receipt = { ok: true, planId: plan2.id, category, operation: plan2.operation, result: answer ?? parsed.raw, trust: "untrusted", file: file2, ...delivered?.cleanupDegraded ? { cleanupDegraded: true } : {} };
       return receipt;
     } catch (error3) {
       this.runtime.plans.release(plan2.id);

@@ -48,12 +48,12 @@ If `catalog` returns `unavailable`, or finds nothing for a service, this setup d
 
 | Category | Plan | Commit | `access: "ask-changes"` |
 | --- | --- | --- | --- |
-| write | `plan_write` | `write` | asks, and offers Always |
-| export | `plan_export` | `export` | asks, and offers Always |
-| send | `plan_send` | `send` | asks every time |
-| share | `plan_share` | `share` | asks every time |
-| delete | `plan_delete` | `delete` | every time |
-| admin | `plan_admin` | `admin` | every time |
+| write | `plan_write` | `write` | asks |
+| export | `plan_export` | `export` | asks |
+| send | `plan_send` | `send` | asks |
+| share | `plan_share` | `share` | asks |
+| delete | `plan_delete` | `delete` | asks |
+| admin | `plan_admin` | `admin` | asks |
 
 The plan method fixes the class; an operation that resolves to another class is refused with the plan to use. A Drive update with `trashed: true` (the bin) is delete, so use `plan_delete` and commit with `delete`. Only the owner can trash a file (on a shared drive, an organizer or file organizer, with `supportsAllDrives: true`). People it's shared with keep access until it's permanently deleted, and the owner can restore it for 30 days. Put `ownedByMe,capabilities/canTrash` in the list's `fields`, so you need no extra call. `drive.files.delete` deletes permanently and removes everyone's access. A Calendar write with `sendUpdates` other than `none` emails guests, so it is send. A read with `download.path` is export. A mail helper with `draft: true` is write.
 
@@ -81,4 +81,4 @@ If `status` lists any `unguardedAgents`, tell the user once: those agents lack t
 
 ## Scripts
 
-For a job that runs without you, such as an OpenCode automation, a script calls the RPC `gws`: `POST /api/rpc/gws/<method>` with `{"sessionID": "...", "input": {...}}`. The methods take the same input as the tools and run under that session's agent and rules. Never borrow a session found through history or a session list. A script can plan; a non-read RPC call needs an answered permission ask or a host-signed action grant, so a script cannot commit on its own.
+For a job that runs without you, such as an OpenCode automation, a script calls the RPC `gws`: `POST /api/rpc/gws/<method>` with `{"sessionID": "...", "input": {...}}`. The methods take the same input as the tools and run under that session's agent and rules. Never borrow a session found through history or a session list. A script can plan; a non-read RPC call needs an answered permission ask, so a script cannot commit on its own.

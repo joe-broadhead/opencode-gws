@@ -180,7 +180,7 @@ function fakeReader(accounts: Record<string, unknown> = { work: account({ servic
       const answer = answers[request.operation]
       if (answer instanceof Error) throw answer
       if (answer === NEVER) return new Promise(() => {})
-      return { ok: true, operation: request.operation, category: "read", data: answer, truncated: false, trust: { workspaceContent: "untrusted" } }
+      return { ok: true, operation: request.operation, category: "read", data: answer, truncated: false, trust: "untrusted" }
     },
   } as unknown as Pick<Runtime, "config" | "read">
   return { reader, answers, calls, audited }

@@ -12,7 +12,6 @@ const PROBED: Readonly<Record<string, { readonly operation: string; readonly sco
   calendar: { operation: "calendar.events.list", scopes: /^https:\/\/www\.googleapis\.com\/auth\/calendar(?:\.|$)/ },
   "calendar-today": { operation: "calendar.events.list", scopes: /^https:\/\/www\.googleapis\.com\/auth\/calendar(?:\.|$)/ },
   image: { operation: "drive.files.get", scopes: /^https:\/\/www\.googleapis\.com\/auth\/drive(?:\.|$)/ },
-  sheets: { operation: "sheets.spreadsheets.values.get", scopes: /^https:\/\/www\.googleapis\.com\/auth\/spreadsheets(?:\.|$)/ },
 }
 
 /**

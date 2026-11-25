@@ -33,7 +33,7 @@ describe("manifest coverage contract", () => {
   it("covers every invocable service", () => {
     const manifest = loadManifest()
     expect(manifest.services).toHaveLength(18)
-    expect(manifest.services.flatMap((service) => service.methods)).toHaveLength(471)
+    expect(manifest.services.flatMap((service) => service.methods)).toHaveLength(472)
     expect(manifest.services.flatMap((service) => service.helpers)).toHaveLength(25)
   })
 

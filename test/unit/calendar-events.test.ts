@@ -508,10 +508,10 @@ describe("removals in the consumed prefix", () => {
 
 describe("page identity and drift", () => {
   it("breaks a same-time tie by external_id, so a provider reorder cannot skip an item", async () => {
-    const at = iso(NOW + HOUR)
+    const at = iso(NOW - 2 * HOUR)
     const items: Item[] = [meeting("evt_a", at), meeting("evt_b", at)]
     const { runtime } = pagedGoogle(items)
-    const first = await list(runtime, { since: NOW - HOUR, limit: 1 }, NOW)
+    const first = await list(runtime, { since: NOW - 3 * HOUR, limit: 1 }, NOW)
     expect(ids(first.events)).toEqual(["evt_a"])
     expect(first.more).toBe(true)
     // The provider answers the same two items in the other order; the stable tie-break keeps the cursor's place.
@@ -519,6 +519,11 @@ describe("page identity and drift", () => {
     const second = await list(runtime, { cursor: first.cursor, limit: 500 }, NOW + MINUTE)
     expect(ids(second.events)).toEqual(["evt_b"])
     expect(second.more).toBe(false)
+
+    // The finished window starts an hour before it opened; these older events are behind that window, so the third read is empty.
+    const third = await list(runtime, { cursor: second.cursor, limit: 500 }, NOW + 2 * MINUTE)
+    expect(ids(third.events)).toEqual([])
+    expect(third.more).toBe(false)
   })
 
   it("keeps a since older than the first-run window across a page boundary", async () => {

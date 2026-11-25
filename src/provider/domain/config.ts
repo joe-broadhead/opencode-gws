@@ -294,7 +294,7 @@ export function loadConfig(raw: unknown): PluginConfig {
       path: parsed.audit?.path,
     },
     admin: {
-      enabled: parsed.admin?.enabled ?? true,
+      enabled: parsed.admin?.enabled ?? false,
       requireReason: parsed.admin?.requireReason ?? true,
       allowedServices: parsed.admin?.allowedServices ?? adminServices(),
     },

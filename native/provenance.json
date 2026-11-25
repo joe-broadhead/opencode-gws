@@ -15,7 +15,7 @@
       "workflow": "https://github.com/googleworkspace/cli/.github/workflows/release.yml@refs/tags/v0.22.5",
       "run": "https://github.com/googleworkspace/cli/actions/runs/23813381253/attempts/1"
     },
-    "binary": "The binary sha256 and size are recorded from the verified archive by scripts/build-bin-packages.mjs --record."
+    "binary": "The binary sha256 and size are recorded from the verified archive by scripts/build-native.mjs --record."
   },
   "targets": {
     "darwin-arm64": {

@@ -50,7 +50,7 @@ export const ErrorCode = {
   },
   SOURCE_UNKNOWN: {
     meaning: "A source read was asked for a source this plugin does not declare: events_list for one it does not list, or probe for one it does not know. Nothing ran.",
-    next: "Pass a source the plugin declares: gmail or calendar for events_list, and also calendar-today, image or sheets for probe.",
+    next: "Pass a source the plugin declares: gmail or calendar for events_list, and also calendar-today or image for probe.",
   },
   TOO_LARGE: {
     meaning: "A source read's answer exceeds its size limit: 1 MiB for the Sheets snapshot, or 1 MiB less 4 KiB for a picture's data URI. Nothing is cut short.",

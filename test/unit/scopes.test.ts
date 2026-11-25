@@ -136,7 +136,7 @@ describe("the no-options install", () => {
   const requested = requestedScopes(profile.enabledServices, profile.access, profile.scopes)
   const defaultMethods = () => methods().filter((method) => profile.enabledServices.includes(method.service))
 
-  it("enables every manifest service but the delegation services, Model Armor and admin-reports at Read and write, with the admin gate on", () => {
+  it("enables every manifest service but the delegation services, Model Armor and admin-reports at Read and write, with the admin gate off", () => {
     expect(Object.keys(config.accounts)).toEqual(["default"])
     expect(profile).toMatchObject({ mode: "interactive", access: "write" })
     expect([...profile.enabledServices].sort()).toEqual(
@@ -146,7 +146,7 @@ describe("the no-options install", () => {
         .sort(),
     )
     for (const service of ["keep", "modelarmor", "admin-reports"]) expect(profile.enabledServices).not.toContain(service)
-    expect(config.admin.enabled).toBe(true)
+    expect(config.admin.enabled).toBe(false)
   })
 
   it("requests every scope it can use in one consent, under Google's cap", () => {
@@ -189,7 +189,7 @@ describe("the no-options install", () => {
     expect(blocked.sort()).toEqual([...RESTRICTED].filter((id) => !id.startsWith("keep.")).sort())
     const runnable = defaultMethods().filter((method) => !NEVER_RUN.has(method.category) && grants(acceptedScopes(method.id), requested))
     expect(runnable).toHaveLength(defaultMethods().length - defaultMethods().filter((method) => NEVER_RUN.has(method.category)).length - blocked.length)
-    expect(runnable).toHaveLength(398)
+    expect(runnable).toHaveLength(399)
     for (const helper of commandIndex().helpers.values()) {
       if (!NEVER_RUN.has(helper.category)) expect(grants(acceptedScopes(helper.id), requested), helper.id).toBe(true)
     }
