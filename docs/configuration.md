@@ -16,7 +16,7 @@ are gws-specific.
 | `policy` | object | `{}` | Deny-only content and recipient rules, and how long a plan stays committable. |
 | `execution` | object | `{}` | Limits and the timeout for gws runs and file transfers. |
 | `audit` | object | `{}` | Whether to record one JSON line per call, and where. |
-| `binary` | object | `{}` | An alternative gws 0.22.5 executable; by default the pinned, verified download is used. |
+| `binary` | object | `{}` | An alternative gws 0.22.5 executable; the pinned download needs the lead's manifest/native.json and gws-<target>.gz assets. |
 | `admin` | object | `{}` | Allow admin-class operations, require a reason, and choose the admin services. |
 <!-- /generated:configuration -->
 

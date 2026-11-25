@@ -1,8 +1,10 @@
 # Google Workspace
 
 Google Workspace for OpenCode: Gmail, Calendar, Drive, Docs and Sheets, with plans and per-class commits. The plugin
-runs a pinned, verified `gws` 0.22.5 executable against each account's own Google sign-in; it never calls a `gws` found
-on `PATH`, and it ships no OAuth client.
+is built for a pinned, verified `gws` 0.22.5 executable against each account's own Google sign-in, but the `v0.0.0`
+package does not yet carry `manifest/native.json` or the native `gws-<target>.gz` assets. Until the lead adds them,
+native calls answer `GWS_UNAVAILABLE`, and `binary.path` must name a system copy. It never calls a `gws` found on
+`PATH`, and it ships no OAuth client.
 
 ## Install
 
@@ -15,8 +17,9 @@ tags; until then `#v0.0.0` resolves to the old package, so use only the tag the 
 OpenCode `>=2.4.1 <2.5.0`; it is tested on `2.4.1`. A release outside that range is refused with `HOST_UNTESTED`; a
 release inside the range starts, and status reports it as untested.
 
-On the first call that needs the `gws` executable, the plugin downloads and verifies the pinned 0.22.5 build from its
-release assets. `binary.path` can name an absolute system copy instead.
+When `manifest/native.json` and its `gws-<target>.gz` assets are present, the first call that needs the executable
+downloads and verifies the pinned 0.22.5 build. The `v0.0.0` package does not commit them yet; `binary.path` can name
+an absolute system copy until the lead attaches them.
 
 ## Sign in
 
@@ -139,9 +142,9 @@ None.
 - **`NEEDS_SIGN_IN`, `SCOPE_MISSING`**: run `/connect`, choose the account's integration and approve every scope. A
   read-only sign-in cannot approve a write; sign in again and choose Read and write.
 - **`ACCOUNT_REQUIRED`, `ACCOUNT_UNKNOWN`**: pass `account` with one of the aliases `status` lists.
-- **`GWS_UNAVAILABLE`, `BINARY_TRUST_FAILED`**: the first-use download was refused or the configured `binary.path` is
-  not a trusted 0.22.5 executable. Remove a bad cached copy under the plugin cache, or point `binary.path` at a copy
-  only you can write.
+- **`GWS_UNAVAILABLE`, `BINARY_TRUST_FAILED`**: the package has no native manifest yet, the first-use download was
+  refused, or the configured `binary.path` is not a trusted 0.22.5 executable. Point `binary.path` at a copy only you
+  can write, or wait for the lead's native manifest/assets.
 - **`PLAN_INVALID`, `PLAN_USED`**: plan again and show the new preview; check the current state with `read` before
   repeating a committed change.
 - **`PERMISSION_DENIED`**: a deny-only policy rule, the admin gate or the session's rules refused the call. Tell the

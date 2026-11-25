@@ -582,11 +582,11 @@
           "properties": {
             "path": {
               "type": "string",
-              "description": "An absolute path to a gws 0.22.5 executable, used instead of the pinned download."
+              "description": "An absolute path to a gws 0.22.5 executable, used when the pinned download is unavailable."
             }
           },
           "title": "Binary",
-          "description": "An alternative gws 0.22.5 executable; by default the pinned, verified download is used.",
+          "description": "An alternative gws 0.22.5 executable; the pinned download needs the lead's manifest/native.json and gws-<target>.gz assets.",
           "default": {}
         },
         "admin": {

@@ -16,5 +16,6 @@ The first release of `gws` on plugin-contract v0.
 - Plans and commits through `methods.plans` and `methods.commits`; each plan covers exactly its class, and each commit
   takes only its plan's `planId`.
 - A `changed` bus event after a write, send or delete that changes a declared Gmail or Calendar source.
-- The pinned, verified upstream `gws` 0.22.5 executable is downloaded on first use and checked against its provenance;
-  no OAuth client ships.
+- The upstream `gws` 0.22.5 provenance is pinned, but v0.0.0 does not package `manifest/native.json` or the
+  `gws-<target>.gz` assets; native calls answer `GWS_UNAVAILABLE` until the lead attaches them, or `binary.path` names a
+  system copy. No OAuth client ships.

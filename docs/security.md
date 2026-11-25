@@ -3,8 +3,9 @@
 ## What leaves the machine
 
 Only calls the user makes, through the pinned `gws` executable, to Google's API endpoints and Google's image servers.
-Setup itself makes no network call and downloads nothing: the binary is fetched on the first call that needs it, under
-the access rules. The plugin sends no telemetry.
+Setup itself makes no network call and downloads nothing: when the native manifest is present, the binary is fetched
+on the first call that needs it, under the access rules. The `v0.0.0` package does not commit that manifest yet, so
+native calls need `binary.path` until the lead adds it. The plugin sends no telemetry.
 
 ## Scopes
 
