@@ -21,7 +21,7 @@ import { CURSOR_PLUGIN, PAGE_MAX_BYTES, PLUGIN_PACKAGE } from "./page.js"
 
 /**
  * events_list for Gmail, the source `gws.gmail`: the messages that arrived
- * since a cursor, as the source contract's events, for Memory's collector
+ * since a cursor, as the source contract's events, for a collector
  * and any other consumer. Every call is
  * plain reads through the runtime, so each one passes the plugin's policy
  * and audit like a read; the tool asserts gws.events_list, then
@@ -30,7 +30,7 @@ import { CURSOR_PLUGIN, PAGE_MAX_BYTES, PLUGIN_PACKAGE } from "./page.js"
  * - The first listing (no cursor) searches messages.list for everything
  *   after `since`, oldest first, after noting the mailbox's history id.
  *   Then it follows history.list from that id, so a message that arrives
- *   meanwhile is listed too (at worst twice; Memory drops the repeat).
+ *   meanwhile is listed too (at worst twice; the consumer drops the repeat).
  * - A history id Gmail no longer keeps (it answers 404) falls back to the
  *   search, from the last event listed, and the page says so with
  *   `gap: { reason: "expired", since }`.
@@ -256,7 +256,7 @@ export async function gmailEvents(runtime: Pick<Runtime, "read">, account: strin
     throwIfCancelled(ctx.signal)
     if (state.p === "s") {
       const ids = await search(state.t)
-      // A last-listed message that is gone starts the search over; Memory drops the repeats.
+      // A last-listed message that is gone starts the search over; the consumer drops the repeats.
       const from = state.l === undefined ? 0 : ids.indexOf(state.l) + 1
       const take = ids.slice(from, from + request.limit - candidates.length)
       for (const id of take) {

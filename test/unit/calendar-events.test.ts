@@ -89,7 +89,7 @@ function google(items: readonly Item[], zone = "UTC") {
   return { runtime: { read } as unknown as Pick<Runtime, "read">, calls, fields }
 }
 
-/** A weekly meeting from 2026-10-19 until 2041: the shape that filled Memory with 2,610 future instances. */
+/** A weekly meeting from 2026-10-19 until 2041: the shape that once filled a collector with 2,610 future instances. */
 function weekly(): Item[] {
   const items: Item[] = []
   const last = Date.parse("2041-12-31T00:00:00Z")
@@ -284,7 +284,7 @@ describe("removals", () => {
     items[0] = meeting("evt-moved-out", "2040-12-31T10:00:00Z")
     const second = await list(runtime, { cursor: first.cursor }, NOW + HOUR)
     expect(second.events).toEqual([])
-    // Absent from the window is not deleted: Memory must keep the meeting, not lose it for up to a week.
+    // Absent from the window is not deleted: the consumer must keep the meeting, not lose it for up to a week.
     expect(second.removals).toBeUndefined()
   })
 

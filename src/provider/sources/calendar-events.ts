@@ -39,7 +39,7 @@ import { CURSOR_PLUGIN, PAGE_MAX_BYTES, PLUGIN_PACKAGE } from "./page.js"
  * - The next call reads from the time the last window opened less an hour,
  *   not from the time of its last page, so a late run re-reads a bounded
  *   hour. That overlap is best-effort, not a catch-up guarantee: a change
- *   outside it, or an edit to an already-read row, may not return. Memory
+ *   outside it, or an edit to an already-read row, may not return. the consumer
  *   drops a repeat, so the overlap itself is harmless. A `since` in the
  *   future is read as now:
  *   there is nothing later to start from, and it must not shorten the window
@@ -96,7 +96,7 @@ import { CURSOR_PLUGIN, PAGE_MAX_BYTES, PLUGIN_PACKAGE } from "./page.js"
  *   recurring slot is never the removal's `at`.
  * - A recurring series deleted whole is not retracted: the window read
  *   sends no instance for it, and the instances already listed age out by
- *   Memory's retention. A removal guessed from an absence cannot tell a
+ *   the consumer's retention. A removal guessed from an absence cannot tell a
  *   deletion from a meeting moved out of the window, and losing a real
  *   meeting is worse than the gap.
  * - An event holding a secret is refused for good (`refused[]`, reason

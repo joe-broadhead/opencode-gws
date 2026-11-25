@@ -41,7 +41,7 @@ export const ErrorCode = {
   CURSOR_INVALID: {
     meaning:
       "The events_list cursor was not issued by events_list for this source, account and scope: another account's, source's or calendar's cursor, one from before the account signed in as another address, or a malformed one. Nothing ran.",
-    next: "Call events_list without cursor, with since where the listing should start; Memory drops events it already has.",
+    next: "Call events_list without cursor, with since where the listing should start; the consumer drops events it already has.",
   },
   INPUT_INVALID: {
     meaning:

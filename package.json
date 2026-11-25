@@ -43,7 +43,7 @@
     "conformance": "npx plugin-kit conformance",
     "test:host": "vitest run -c vitest.host.config.ts",
     "test:pack": "node scripts/pack-smoke.mjs",
-    "check": "npm run lint && npm run typecheck && npm run build && npm test && npx plugin-kit check && npm run test:host && npm run test:pack && npx plugin-kit docs --check",
+    "check": "npm run fetch:gws && npm run lint && npm run typecheck && npm run build && npm test && npx plugin-kit check && npm run test:host && npm run test:pack && npx plugin-kit docs --check",
     "docs:check": "npx plugin-kit docs --check",
     "fetch:gws": "node scripts/build-native.mjs",
     "manifest": "node scripts/generate-manifest.mjs",
@@ -1310,18 +1310,7 @@
       },
       "probe": {
         "class": "read",
-        "accounts": "optional",
-        "operations": [
-          "gmail.users.getProfile",
-          "gmail.users.history.list",
-          "gmail.users.messages.list",
-          "gmail.users.messages.get",
-          "calendar.calendarList.get",
-          "calendar.events.list",
-          "calendar.calendars.get",
-          "drive.files.get",
-          "sheets.spreadsheets.values.get"
-        ]
+        "accounts": "optional"
       },
       "write": {
         "class": "write",
