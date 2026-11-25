@@ -26,8 +26,8 @@ one exists.
 
 - **Commands `/gws-status`, `/gws-doctor` and `/gws-install`:** the `status` tool and RPC replace the status command and
   carry the doctor facts; the pinned native binary self-installs on first use.
-- **TUI status dialog (`/gws`, `dist/tui.js`) and its icon/vendor metadata:** the `status` tool and `gws/status` RPC
-  replace it.
+- **TUI status dialog (`/gws`, `dist/tui.js`):** the `status` tool and `gws/status` RPC replace it. The plugin's
+  vendor and icons moved into `capabilities.plugin` and are retained.
 - **Retired desktop-app integration:** its app-specific key, `calendar.today` and `images.read` RPCs, views, native
   data, settings card and image-read declaration are removed now that the app is retired. `calendar_today` and
   `images_read` remain contract tools, and `status` reports sign-in and access.
