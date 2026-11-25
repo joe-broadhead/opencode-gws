@@ -65,7 +65,8 @@ const ctx = { sessionId: "session", agentId: "build", signal: new AbortControlle
 const ids = (page: EventsListResult) => page.events.map((event) => event.external_id)
 
 describe("Gmail events across a same-timestamp page boundary", () => {
-  it("returns the second message after the first page's cursor, never skipping a shared timestamp", async () => {
+  it("keeps a since older than the first-run window, returning each same-timestamp message once", async () => {
+    // SINCE is 36 hours before NOW: a dropped filter defaulting to 24 hours would exclude both messages.
     const gws = runtime()
     const first = await gmailEvents(gws as never, ACCOUNT, { since: SINCE, limit: 1 }, ctx, NOW)
     expect(ids(first)).toEqual(["msg_a"])

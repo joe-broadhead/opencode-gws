@@ -521,6 +521,19 @@ describe("page identity and drift", () => {
     expect(second.more).toBe(false)
   })
 
+  it("keeps a since older than the first-run window across a page boundary", async () => {
+    const since = NOW - 36 * HOUR
+    const items: Item[] = [meeting("evt_since_a", iso(since + HOUR)), meeting("evt_since_b", iso(since + 2 * HOUR))]
+    const { runtime } = pagedGoogle(items)
+    const first = await list(runtime, { since, limit: 1 }, NOW)
+    expect(ids(first.events)).toEqual(["evt_since_a"])
+    expect(first.more).toBe(true)
+    // No since on the second call: the cursor must carry the window, or the default 24-hour window would exclude both.
+    const second = await list(runtime, { cursor: first.cursor, limit: 1 }, NOW)
+    expect(ids(second.events)).toEqual(["evt_since_b"])
+    expect(second.more).toBe(false)
+  })
+
   it("restarts a page whose membership changed instead of reusing its offset", async () => {
     const items: Item[] = [
       meeting("evt_a", iso(NOW - 3 * HOUR)),
