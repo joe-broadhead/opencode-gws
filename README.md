@@ -7,10 +7,11 @@ on `PATH`, and it ships no OAuth client.
 ## Install
 
 ```sh
-opencode plugin add github:we-the-rebel-alliance/gws-plugin#v0.0.0
+opencode plugin add github:we-the-rebel-alliance/gws-plugin#<release-tag>
 ```
 
-`v0.0.0` is the release this branch prepares; the owner cuts it at merge, and the release tag is the only install path. The plugin needs Node 24 and
+The release tag is assigned when this branch is merged. The owner must first clear the pre-transfer `v0.0.0`–`v0.0.13`
+tags; until then `#v0.0.0` resolves to the old package, so use only the tag the owner cuts. The plugin needs Node 24 and
 OpenCode `>=2.4.1 <2.5.0`; it is tested on `2.4.1`. A release outside that range is refused with `HOST_UNTESTED`; a
 release inside the range starts, and status reports it as untested.
 
