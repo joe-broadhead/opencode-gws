@@ -109,6 +109,13 @@ describe("plan and commit", () => {
     expect(emit).not.toHaveBeenCalled()
   })
 
+  it("emits no nudge for an export of a declared source", async () => {
+    const emit = vi.fn(async () => ({ ok: true }) as const)
+    const table = handlers({ ...runtime, commit: async () => ({ ok: true, planId: "p", category: "export", operation: "calendar.events.list", result: {} }) })
+    await table.export.run({}, call({ plan: { gwsPlanId: "p" }, bus: { name: "gws", emit } }))
+    expect(emit).not.toHaveBeenCalled()
+  })
+
   it("refuses a plan whose private id is missing", async () => {
     const table = handlers(runtime)
     await expect(table.send.run({}, call({ plan: {} }))).rejects.toThrow(/^PLAN_INVALID: /)

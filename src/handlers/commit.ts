@@ -39,7 +39,10 @@ export function commitHandler(runtime: Runtime, category: CommitCategory): Metho
           progress: (update) => void call.progress(update as unknown as Record<string, unknown>),
           ...(call.door === "rpc" ? { caller: "rpc" as const } : {}),
         })
-        for (const capability of capabilitiesOf(answer.operation)) {
+        // A read with a destination is an export and changes nothing; sharing or administering changes access, not
+        // the source's content. Only a write, send or delete can change a declared source.
+        const changes = category === "write" || category === "send" || category === "delete" ? capabilitiesOf(answer.operation) : []
+        for (const capability of changes) {
           await call.bus.emit("changed", { capability, account: call.account, reason: "write" })
         }
         return {
