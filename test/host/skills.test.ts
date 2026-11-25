@@ -37,10 +37,10 @@ const scratch = mkdtempSync(join(tmpdir(), "gws-skills-host-"))
 afterAll(() => rmSync(scratch, { recursive: true, force: true }))
 
 /**
- * The built bundle in the real OpenCode 2.4.1 host, loaded as a plugin definition in a separate project. The plugin's
+ * The built bundle in the real OpenCode 2.4.1 host, loaded as a plugin definition in an empty temp project. The plugin's
  * setup must register every `skills/<id>/SKILL.md` through `ctx.skill.transform`; stock discovery cannot find them,
- * because the project is not the package. A probe plugin captures the same host context so `ctx.skill.list` is checked
- * as well as the host's `skill.list`.
+ * because the project is empty and is not the package. A probe plugin captures the same host context so
+ * `ctx.skill.list` is checked as well as the host's `skill.list`.
  */
 describe("skills on OpenCode 2.4.1", () => {
   it("registers every skills/<id>/SKILL.md before the plugin becomes active", async () => {
@@ -49,6 +49,9 @@ describe("skills on OpenCode 2.4.1", () => {
     for (const directory of [project, home, join(home, "config"), join(home, "cache"), join(home, "data"), join(home, "state")]) {
       mkdirSync(directory, { recursive: true })
     }
+    // Stock discovery looks in `<project>/skills`; the project is empty, so a listing can only come from transform.
+    expect(project.startsWith(`${root}/`)).toBe(false)
+    expect(readdirSync(project)).toEqual([])
     const saved = new Map<string, string | undefined>()
     const setEnv = (key: string, value: string | undefined) => {
       if (!saved.has(key)) saved.set(key, process.env[key])
