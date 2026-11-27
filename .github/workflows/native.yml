@@ -13,7 +13,7 @@ permissions:
 jobs:
   native:
     name: native (gws)
-    runs-on: ubuntu-24.04
+    runs-on: boxd-public
     timeout-minutes: 20
     permissions:
       contents: read
