@@ -21,7 +21,7 @@ export function planHandler(runtime: Runtime, category: CommitCategory): MethodH
   return {
     description:
       `Plan one ${category} change without making it: a gws dry run whose preview names the exact operation, recipients and destination. ` +
-      `Show it to the person, then commit with ${category}, passing only the planId.`,
+      `Show it to the person, then commit with ${category}, passing only the planId. Gmail's mailbox changes are the Gmail MCP server's tools, not this plan.`,
     input: PLAN_INPUT,
     output: PLAN_OUTPUT,
     async run(input, call) {

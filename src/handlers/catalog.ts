@@ -10,7 +10,7 @@ import { CATALOG_INPUT, CATALOG_OUTPUT } from "./schemas.js"
  */
 export function catalogHandler(runtime: Runtime): MethodHandler {
   return {
-    description: "Search the local gws command manifest for services, methods and helpers by words from their ids.",
+    description: "Search the local gws command manifest for services, methods and helpers by words from their ids, for the account's Gmail surface.",
     input: CATALOG_INPUT,
     output: CATALOG_OUTPUT,
     async run(input, call) {

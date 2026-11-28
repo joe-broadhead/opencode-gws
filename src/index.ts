@@ -8,8 +8,8 @@ import { Runtime } from "./provider/index.js"
 import { registerSkills } from "./skills.js"
 
 /**
- * The plugin's one `register` call: the host gate, the provider, one integration per alias, and every method through
- * the contract's doors. No module registers a tool, an RPC id or a permission rule itself.
+ * The plugin's one `register` call: the host gate, the provider, one Gmail MCP server per alias, and every method
+ * through the contract's doors. No module registers a tool, an RPC id or a permission rule itself.
  */
 export default Plugin.define({
   id: manifest.plugin.name,
