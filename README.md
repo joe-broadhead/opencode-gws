@@ -17,9 +17,10 @@ is not the plugin's own any more: `read`, `plan_write`, `plan_send` and `plan_de
 plugin keeps what the server does not offer: its Gmail sources, Gmail settings, attachments and history, exports to a
 file, and plan-then-commit for every other service. Calendar, Drive, Docs, Sheets and the other products stay on the
 pinned executable, because the contract registers one MCP server per alias and Google publishes one server per
-product. That gap is [plugin-contract#109](https://github.com/we-the-rebel-alliance/plugin-contract/issues/109): several
-MCP servers per account alias, one per product. A headless profile, which has no MCP sign-in, keeps the plugin's own
-Gmail operations too.
+product. The follow-up that lifts that limit, so each product's tools can follow, is
+[plugin-contract#109](https://github.com/we-the-rebel-alliance/plugin-contract/issues/109): several MCP servers per
+account alias, one per product. A headless profile, which has no MCP sign-in, keeps the plugin's own Gmail operations
+too.
 
 ## Install
 
