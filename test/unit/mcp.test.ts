@@ -19,6 +19,7 @@ describe("Google's Gmail MCP server", () => {
     expect(readme).toContain("checked on 28 November 2026")
     expect(readme).toContain("https://gmailmcp.googleapis.com/mcp/v1")
     expect(readme).toContain("Use this client for an AI-powered agent")
+    expect(readme).toContain("plugin-contract/issues/109")
   })
 
   it("names only operations the pinned catalog has", () => {
