@@ -202,8 +202,9 @@ None.
   repeating a committed change.
 - **`PERMISSION_DENIED`**: a deny-only policy rule, the admin gate or the session's rules refused the call. Tell the
   user; do not rephrase the call to get around it.
-- **`UNAVAILABLE`**: the provider, the `gws` process or a guard failed. Retry once; if it persists, read `status` and
-  the audit log.
+- **`UNAVAILABLE`**: the provider, the `gws` process or a guard failed, or a Gmail operation is now Google's MCP
+  tool and the next step names it. For the first, retry once; if it persists, read `status` and the audit log. For the
+  second, call the tool the message names.
 
 ## Docs
 
