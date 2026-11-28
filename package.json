@@ -623,7 +623,7 @@
       },
       "catalog": {
         "class": "read",
-        "accounts": "none"
+        "accounts": "optional"
       },
       "schema": {
         "class": "read",

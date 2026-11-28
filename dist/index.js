@@ -29608,12 +29608,12 @@ function gmailMcpNextStep(operation, server) {
 
 // src/handlers/catalog.ts
 function catalogHandler(runtime) {
-  const hidden = new Set(gmailMcpOperations());
   return {
     description: "Search the local gws command manifest for services, methods and helpers by words from their ids.",
     input: CATALOG_INPUT,
     output: CATALOG_OUTPUT,
-    async run(input) {
+    async run(input, call) {
+      const hidden = runtime.gmailOnMcp(call.account) ? new Set(gmailMcpOperations()) : void 0;
       return catalog(input, runtime.visibleServices(), hidden);
     }
   };
