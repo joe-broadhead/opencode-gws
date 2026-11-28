@@ -59,6 +59,11 @@ export interface RuntimeOptions {
   /** Plugin-owned directories; the platform defaults unless given. */
   paths?: PluginPaths
   /**
+   * One integration id per alias. Setup passes the map the MCP registration fills as OpenCode creates each server's
+   * integration; without it, the contract's predictable names are used.
+   */
+  integrationIds?: ReadonlyMap<string, string>
+  /**
    * The current sign-in of an interactive account: undefined when it has
    * none. A rejection means the sign-in exists but could not be refreshed.
    */
@@ -104,11 +109,11 @@ interface AccountsContext {
 }
 
 export class Accounts {
-  private readonly integrations: Map<string, string>
+  private readonly integrations: ReadonlyMap<string, string>
   private readonly names: Map<string, string>
 
   constructor(private readonly runtime: AccountsContext) {
-    this.integrations = integrationIds(runtime.config.accounts)
+    this.integrations = runtime.options.integrationIds ?? integrationIds(runtime.config.accounts)
     this.names = integrationNames(runtime.config.accounts)
   }
 
@@ -275,7 +280,7 @@ export class Accounts {
 
   /** The plugin-owned per-account gws directory: its Discovery cache, and in credentials_file mode its token cache. */
   private accountDir(account: string): string {
-    return ownedDir(join(this.runtime.paths.cacheDir, "accounts", this.integrationId(account).replace(/^gws-/, "")))
+    return ownedDir(join(this.runtime.paths.cacheDir, "accounts", account))
   }
 
   /** Remediation text for an account's sign-in, consent and admin privilege problems, by credential mode. */

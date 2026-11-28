@@ -18,18 +18,34 @@ describe("capabilities", () => {
     expect(manifest.plugin.host).toEqual({ opencode: ">=2.4.1 <2.5.0", tested: ["2.4.1"] })
   })
 
-  it("declares the 20 methods: 8 reads, 6 plans and 6 commits", () => {
-    expect(Object.keys(manifest.methods).sort()).toEqual(
-      ["status", "catalog", "schema", "read", "events_list", "calendar_today", "images_read", "probe",
-        "plan_write", "plan_send", "plan_share", "plan_delete", "plan_export", "plan_admin",
-        "write", "send", "share", "delete", "export", "admin"].sort(),
-    )
+  it("declares the 20 register methods and Google's 30 Gmail MCP tools", () => {
+    const register = ["status", "catalog", "schema", "read", "events_list", "calendar_today", "images_read", "probe",
+      "plan_write", "plan_send", "plan_share", "plan_delete", "plan_export", "plan_admin",
+      "write", "send", "share", "delete", "export", "admin"]
+    const tools = ["apply_sensitive_message_label", "apply_sensitive_thread_label", "create_draft", "create_filter",
+      "create_label", "forward", "get_draft", "get_message", "get_thread", "label_message", "label_thread",
+      "list_drafts", "list_filters", "list_labels", "mark_message_spam", "mark_thread_spam", "reply",
+      "search_threads", "send_message", "trash_message", "trash_thread", "unlabel_message", "unlabel_thread",
+      "unmark_message_spam", "unmark_thread_spam", "untrash_message", "untrash_thread", "update_draft",
+      "update_label", "update_message_labels"]
+    expect(Object.keys(manifest.methods).sort()).toEqual([...register, ...tools.map((tool) => `mcp:${tool}`)].sort())
     const byClass = Object.fromEntries(Object.entries(manifest.methods).map(([name, item]) => [name, item.class]))
     expect(byClass).toMatchObject({ status: "read", write: "write", send: "send", share: "share", delete: "delete", export: "export", admin: "admin" })
     for (const commit of ["write", "send", "share", "delete", "export", "admin"]) {
       expect(manifest.methods[commit]?.commits).toBe(`plan_${commit}`)
       expect(manifest.methods[`plan_${commit}`]?.plans).toBe(true)
     }
+    expect(manifest.accounts?.via).toBe("mcp")
+    for (const tool of tools) {
+      const row = manifest.methods[`mcp:${tool}`]
+      expect(row, tool).toBeDefined()
+      if (row?.class === "read") {
+        expect(row.effect, tool).toBeUndefined()
+        continue
+      }
+      expect(row?.effect, tool).toBe("ask")
+    }
+    expect(manifest.methods["mcp:search_threads"]?.class).toBe("read")
   })
 
   it("declares one service per Google service and at least changed", () => {
@@ -49,7 +65,9 @@ describe("capabilities", () => {
       expect(description.length, file).toBeGreaterThan(0)
       expect(description.length, file).toBeLessThanOrEqual(300)
       for (const match of text.matchAll(/tools\.gws\.([a-z][a-z0-9_]*)/g)) expect(declared.has(match[1]!), match[1]).toBe(true)
-      for (const match of text.matchAll(/\bgws_([a-z][a-z0-9_]*)/g)) expect(declared.has(match[1]!), match[1]).toBe(true)
+      for (const match of text.matchAll(/\bgws_([a-z][a-z0-9_]*)/g)) {
+        expect(declared.has(match[1]!) || declared.has(`mcp:${match[1]!}`), match[1]).toBe(true)
+      }
     }
   })
 

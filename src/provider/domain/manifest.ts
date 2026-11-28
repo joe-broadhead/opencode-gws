@@ -263,13 +263,14 @@ function unavailableServices(tokens: readonly string[], only: string | undefined
  * first, then the best matches, then by id. When no entry matches every
  * word, the entries that match the most words come back, with relaxed set.
  */
-export function catalog(input: CatalogInput = {}, services?: ReadonlySet<string>): CatalogOutput {
+export function catalog(input: CatalogInput = {}, services?: ReadonlySet<string>, hidden?: ReadonlySet<string>): CatalogOutput {
   const include = new Set(input.include ?? ["services", "methods", "helpers"])
   const tokens = words(input.query)
   const allowed = services ? new Set([...services].map(canonicalService)) : undefined
   const only = input.service ? canonicalService(input.service) : undefined
   const ranked: Array<{ entry: CatalogEntry; matched: number; score: number }> = []
   const consider = (entry: CatalogEntry): void => {
+    if (hidden?.has(entry.id)) return
     if (allowed && !allowed.has(entry.service)) return
     if (only && entry.service !== only) return
     if (input.category && entry.category !== input.category) return
@@ -279,12 +280,14 @@ export function catalog(input: CatalogInput = {}, services?: ReadonlySet<string>
 
   if (include.has("services") && !input.category) {
     for (const service of loadManifest().services) {
+      const methods = hidden === undefined ? service.methods : service.methods.filter((method) => !hidden.has(method.id))
+      const helpers = hidden === undefined ? service.helpers : service.helpers.filter((helper) => !hidden.has(helper.id))
       consider({
         kind: "service",
         id: service.alias,
         service: service.alias,
-        description: `${service.alias} (${service.methods.length} methods, ${service.helpers.length} helpers)`,
-        executable: service.methods.some(methodExecutable) || service.helpers.some(helperExecutable),
+        description: `${service.alias} (${methods.length} methods, ${helpers.length} helpers)`,
+        executable: methods.some(methodExecutable) || helpers.some(helperExecutable),
       })
     }
   }

@@ -11,27 +11,29 @@ Copy the shape and replace the ids. `gws` covers accounts, plan then commit, and
 
 ## Gmail
 
-- **A time window.** `after:` and `before:` take Unix seconds, so compute them for the user's zone. 09:00 to 12:00 on 2026-11-03 at UTC+1 is `after:1793692800 before:1793703600`. `after:2026/11/03` means a whole day, and `newer_than:` takes only `d`, `m` or `y`.
-- **Who sent it.** Get each message with `format: "metadata"`, which skips the body. For the text, use `gmail.read` with `{"id": "...", "format": "text"}`. For a whole conversation, use `gmail.users.threads.get` with `format: "metadata"`.
-- **Exact unread count.** Read `gmail.users.labels.get`, not a list's `resultSizeEstimate`.
+Gmail's mailbox tools are Google's Gmail MCP tools (`gws_search_threads` and the rest); they take Google's arguments, not the plugin's `{operation,...}` shape, and a send or a delete asks first. A plugin `read` of a covered Gmail operation is refused with the tool to call.
+
+- **A time window.** Gmail's `after:` and `before:` take a date, `YYYY/MM/DD`; a whole day is `after:2026/11/03 before:2026/11/04`, and `newer_than:` takes `d`, `m` or `y`. Gmail evaluates a date at midnight in the account's time zone.
+- **Who sent it.** Search with `gws_search_threads`; the threads carry up to five recent messages with sender, recipients, date and labels. For one message, `gws_get_message` with `messageFormat: "METADATA_ONLY"` skips the subject and body, and `PLAIN_TEXT` gives the text. For a whole conversation, `gws_get_thread` with the thread id.
+- **Exact unread count.** `gws_list_labels` gives `threadsUnread` for each user label. For the inbox itself, the plugin's `read` still has `gmail.users.labels.get` with `fields: "messagesUnread,threadsUnread"`.
 
 ```json
-{ "operation": "gmail.users.messages.list", "params": { "userId": "me", "q": "after:1793692800 before:1793703600", "maxResults": 100 }, "fields": "messages(id),nextPageToken" }
+{ "tool": "gws_search_threads", "arguments": { "query": "after:2026/11/03 before:2026/11/04", "pageSize": 50 } }
 ```
 
 ```json
-{ "operation": "gmail.users.messages.get", "params": { "userId": "me", "id": "MESSAGE_ID", "format": "metadata", "metadataHeaders": ["From", "Subject", "Date"] }, "fields": "id,payload/headers" }
+{ "tool": "gws_get_message", "arguments": { "messageId": "MESSAGE_ID", "messageFormat": "METADATA_ONLY" } }
 ```
 
 ```json
 { "operation": "gmail.users.labels.get", "params": { "userId": "me", "id": "INBOX" }, "fields": "messagesUnread,threadsUnread" }
 ```
 
-- **Send, reply, forward.** Use `gmail.send` (`to`, `subject`, `body`, `cc`, `bcc`, `attachments`), or `gmail.reply`, `gmail.reply-all` or `gmail.forward` with `messageId`. Each plans as send. The preview lists everyone it reaches, including the sender a reply answers. Commit with `send`.
-- **Draft.** Add `"draft": true`. It plans as write and reaches no one, so commit with `write`. Sending the draft later is `gmail.users.drafts.send`, which is a send.
+- **Send, reply, forward.** `gws_send_message` with `to`, `subject`, `body` (and `cc`, `bcc`, `htmlBody`, `attachments`); `gws_reply` with `messageId`, `body` and `replyAll`; `gws_forward` with `messageId` and `to`. They ask first; there is no plan to show, and the answer names the message and thread.
+- **Draft.** `gws_create_draft` with `to`, `subject`, `body`; it reaches no one. Sending the draft later is `gws_send_message` with `draftId`.
 
 ```json
-{ "operation": "gmail.reply", "input": { "messageId": "MESSAGE_ID", "body": "Thanks, Thursday works.", "draft": true } }
+{ "tool": "gws_reply", "arguments": { "messageId": "MESSAGE_ID", "body": "Thanks, Thursday works." } }
 ```
 
 ## Calendar
