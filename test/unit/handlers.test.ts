@@ -34,8 +34,9 @@ const handlers = (runtime: Record<string, unknown>, state = { hostVersion: "2.4.
   createHandlers({ runtime: runtime as never, manifest, version: "0.0.0", state })
 
 describe("handler table", () => {
-  it("has exactly the manifest's methods", () => {
-    expect(Object.keys(handlers({})).sort()).toEqual(Object.keys(manifest.methods).sort())
+  it("has exactly the manifest's register methods, and no pass-through MCP row", () => {
+    const declared = Object.keys(manifest.methods).filter((method) => !method.startsWith("mcp:"))
+    expect(Object.keys(handlers({})).sort()).toEqual(declared.sort())
   })
 })
 
@@ -83,6 +84,7 @@ describe("plan and commit", () => {
   }
   const runtime = {
     inspect: () => ({ account: "work", operation: "gmail.send", service: "gmail", category: "send" }),
+    gmailOnMcp: () => false,
     plan: async () => plan,
     commit: async () => ({ ok: true, planId: plan.planId, category: "send", operation: "gmail.send", result: { id: "m1" } }),
   }
@@ -90,6 +92,12 @@ describe("plan and commit", () => {
   it("refuses an operation whose effective category is another plan's class", async () => {
     const table = handlers(runtime)
     await expect(table.plan_write.run({ operation: "gmail.send" }, call())).rejects.toThrow(/^PLAN_INVALID: plan_write: plan_write plans only write operations/)
+  })
+
+  it("hands a covered Gmail operation to the server's tool for an interactive account", async () => {
+    const table = handlers({ ...runtime, gmailOnMcp: () => true })
+    await expect(table.plan_send.run({ operation: "gmail.send" }, call())).rejects.toThrow(/^UNAVAILABLE: plan_send: .*gws-work_send_message/)
+    await expect(table.read.run({ operation: "gmail.users.messages.list" }, call())).rejects.toThrow(/^UNAVAILABLE: read: .*gws-work_search_threads/)
   })
 
   it("plans with the committing method and a preview, and keeps the gws plan id private", async () => {

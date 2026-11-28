@@ -3,17 +3,31 @@
 ## Layers
 
 ```
-src/index.ts        one register call: host gate, skills, provider, integrations, handlers
-src/accounts.ts     integration mechanism: auth methods, token, connection, auth-state reports
+src/index.ts        one register call: host gate, skills, provider, MCP server, handlers
+src/accounts.ts     the mcp mechanism: one Gmail server per alias, the Google sign-in, token, connection, auth-state
 src/skills.ts       registers every skills/<id>/SKILL.md through ctx.skill.transform
 src/handlers/       one handler per method; schemas and error mapping
-src/provider/       the gws client and the operation pipeline
+src/provider/       the gws client, Google's Gmail MCP endpoint and the operation pipeline
 ```
 
 The handler layer knows the contract; it never spawns a process or reads a credential. The provider layer knows gws and
 Google; it never registers a tool, an RPC id or a permission rule. `src/provider/domain/` holds the catalog, policy,
-recipient rules, plans, configuration, audit and error table; `src/provider/process/` holds the binary resolution, the
-child process, staging and the image fetch; `src/provider/sources/` holds the events and snapshot readers.
+recipient rules, plans, configuration, audit, error table and the Gmail operations Google's MCP server covers;
+`src/provider/process/` holds the binary resolution, the child process, staging and the image fetch;
+`src/provider/sources/` holds the events and snapshot readers.
+
+## Google's Gmail MCP server
+
+`src/provider/auth/mcp.ts` is the only place the Gmail endpoint is named. Setup registers one server per alias through
+the contract's `accounts` module, then attaches the plugin's Google sign-in to the integration OpenCode gives it, in
+place of the generic OAuth method. The server's tools are the Gmail surface for an interactive account: `read`,
+`plan_write`, `plan_send` and `plan_delete` refuse an operation in `src/provider/domain/mcp.ts` and name the tool; the
+catalog hides those operations. `plan_export` and `plan_admin` keep them, because an export to a file and an admin
+audit are acts the server does not offer. A headless profile keeps the plugin's own Gmail operations, because it has no
+MCP sign-in.
+
+The other Google services stay on the pinned gws executable. Google publishes one MCP server per product, and the
+contract registers one server per alias; registering nine would leave eight outside the generated permission rules.
 
 ## The provider client
 
@@ -44,7 +58,9 @@ child process, staging and the image fetch; `src/provider/sources/` holds the ev
 
 ## OpenCode APIs
 
-The plugin uses `@opencode/plugin` 2.4.1 only: `ctx.integration` for the sign-in methods and credentials,
-`ctx.options`, `ctx.app.version`, `ctx.location.directory`, `ctx.skill.transform` for the packaged skills, and
-`ctx.agent.list()` through the contract's `unguardedAgents`. Every door (agent tool, Code Mode, RPC) and every
-permission rule comes from the contract's `register`; the plugin writes none of them.
+The plugin uses `@opencode/plugin` 2.4.1 only: `ctx.mcp` for the Gmail server per alias, `ctx.integration` for the
+sign-in methods, credentials and auth-state reports on each server's integration, `ctx.options`, `ctx.app.version`,
+`ctx.location.directory`, `ctx.skill.transform` for the packaged skills, and `ctx.agent.list()` through the contract's
+`unguardedAgents`. Every door (agent tool, Code Mode, RPC) and every permission rule comes from the contract's
+`register`; the plugin writes none of them. The Gmail MCP tools get their rules from the manifest's `mcp:` rows, which
+the contract's access module derives for each alias's server name.

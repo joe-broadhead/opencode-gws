@@ -90,7 +90,7 @@
       }
     },
     "accounts": {
-      "via": "integration",
+      "via": "mcp",
       "profile": {
         "$ref": "#/options/properties/accounts/additionalProperties"
       },
@@ -746,17 +746,10 @@
           "forms.forms.get",
           "forms.forms.responses.get",
           "forms.forms.responses.list",
-          "gmail.read",
-          "gmail.triage",
-          "gmail.users.drafts.get",
-          "gmail.users.drafts.list",
           "gmail.users.getProfile",
           "gmail.users.history.list",
           "gmail.users.labels.get",
-          "gmail.users.labels.list",
           "gmail.users.messages.attachments.get",
-          "gmail.users.messages.get",
-          "gmail.users.messages.list",
           "gmail.users.settings.cse.identities.get",
           "gmail.users.settings.cse.identities.list",
           "gmail.users.settings.cse.keypairs.get",
@@ -764,7 +757,6 @@
           "gmail.users.settings.delegates.get",
           "gmail.users.settings.delegates.list",
           "gmail.users.settings.filters.get",
-          "gmail.users.settings.filters.list",
           "gmail.users.settings.forwardingAddresses.get",
           "gmail.users.settings.forwardingAddresses.list",
           "gmail.users.settings.getAutoForwarding",
@@ -774,8 +766,6 @@
           "gmail.users.settings.getVacation",
           "gmail.users.settings.sendAs.get",
           "gmail.users.settings.sendAs.list",
-          "gmail.users.threads.get",
-          "gmail.users.threads.list",
           "keep.media.download",
           "keep.notes.get",
           "keep.notes.list",
@@ -937,28 +927,14 @@
           "forms.forms.batchUpdate",
           "forms.forms.create",
           "forms.forms.setPublishSettings",
-          "gmail.forward",
-          "gmail.reply",
-          "gmail.reply-all",
-          "gmail.send",
-          "gmail.users.drafts.create",
-          "gmail.users.drafts.get",
-          "gmail.users.drafts.update",
           "gmail.users.getProfile",
-          "gmail.users.labels.create",
-          "gmail.users.labels.patch",
-          "gmail.users.labels.update",
-          "gmail.users.messages.batchModify",
-          "gmail.users.messages.get",
           "gmail.users.messages.import",
           "gmail.users.messages.insert",
-          "gmail.users.messages.modify",
           "gmail.users.settings.cse.identities.create",
           "gmail.users.settings.cse.identities.patch",
           "gmail.users.settings.cse.keypairs.create",
           "gmail.users.settings.cse.keypairs.disable",
           "gmail.users.settings.cse.keypairs.enable",
-          "gmail.users.settings.filters.create",
           "gmail.users.settings.sendAs.create",
           "gmail.users.settings.sendAs.patch",
           "gmail.users.settings.sendAs.smimeInfo.delete",
@@ -972,7 +948,6 @@
           "gmail.users.settings.updateLanguage",
           "gmail.users.settings.updatePop",
           "gmail.users.settings.updateVacation",
-          "gmail.users.threads.modify",
           "keep.notes.create",
           "meet.spaces.create",
           "meet.spaces.endActiveConference",
@@ -1025,16 +1000,7 @@
           "drive.approvals.comment",
           "drive.approvals.reassign",
           "drive.approvals.start",
-          "drive.permissions.get",
-          "gmail.forward",
-          "gmail.reply",
-          "gmail.reply-all",
-          "gmail.send",
-          "gmail.users.drafts.get",
-          "gmail.users.drafts.send",
-          "gmail.users.getProfile",
-          "gmail.users.messages.get",
-          "gmail.users.messages.send"
+          "drive.permissions.get"
         ]
       },
       "plan_share": {
@@ -1063,9 +1029,7 @@
           "drive.permissions.delete",
           "drive.permissions.get",
           "drive.permissions.update",
-          "gmail.users.drafts.get",
           "gmail.users.getProfile",
-          "gmail.users.messages.get",
           "gmail.users.settings.delegates.create",
           "gmail.users.settings.delegates.delete",
           "gmail.users.settings.forwardingAddresses.create",
@@ -1121,21 +1085,15 @@
           "drive.replies.delete",
           "drive.revisions.delete",
           "gmail.users.drafts.delete",
-          "gmail.users.drafts.get",
           "gmail.users.getProfile",
           "gmail.users.labels.delete",
           "gmail.users.messages.batchDelete",
           "gmail.users.messages.delete",
-          "gmail.users.messages.get",
-          "gmail.users.messages.trash",
-          "gmail.users.messages.untrash",
           "gmail.users.settings.cse.identities.delete",
           "gmail.users.settings.cse.keypairs.obliterate",
           "gmail.users.settings.filters.delete",
           "gmail.users.settings.sendAs.delete",
           "gmail.users.threads.delete",
-          "gmail.users.threads.trash",
-          "gmail.users.threads.untrash",
           "keep.notes.delete",
           "meet.spaces.members.delete",
           "people.contactGroups.delete",
@@ -1405,6 +1363,149 @@
         "class": "read",
         "accounts": "optional"
       },
+      "mcp:apply_sensitive_message_label": {
+        "class": "delete",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:apply_sensitive_thread_label": {
+        "class": "delete",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:create_draft": {
+        "class": "write",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:create_filter": {
+        "class": "write",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:create_label": {
+        "class": "write",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:forward": {
+        "class": "send",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:get_draft": {
+        "class": "read",
+        "accounts": "optional"
+      },
+      "mcp:get_message": {
+        "class": "read",
+        "accounts": "optional"
+      },
+      "mcp:get_thread": {
+        "class": "read",
+        "accounts": "optional"
+      },
+      "mcp:label_message": {
+        "class": "write",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:label_thread": {
+        "class": "write",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:list_drafts": {
+        "class": "read",
+        "accounts": "optional"
+      },
+      "mcp:list_filters": {
+        "class": "read",
+        "accounts": "optional"
+      },
+      "mcp:list_labels": {
+        "class": "read",
+        "accounts": "optional"
+      },
+      "mcp:mark_message_spam": {
+        "class": "write",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:mark_thread_spam": {
+        "class": "write",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:reply": {
+        "class": "send",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:search_threads": {
+        "class": "read",
+        "accounts": "optional"
+      },
+      "mcp:send_message": {
+        "class": "send",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:trash_message": {
+        "class": "delete",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:trash_thread": {
+        "class": "delete",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:unlabel_message": {
+        "class": "write",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:unlabel_thread": {
+        "class": "write",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:unmark_message_spam": {
+        "class": "write",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:unmark_thread_spam": {
+        "class": "write",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:untrash_message": {
+        "class": "delete",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:untrash_thread": {
+        "class": "delete",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:update_draft": {
+        "class": "write",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:update_label": {
+        "class": "write",
+        "accounts": "optional",
+        "effect": "ask"
+      },
+      "mcp:update_message_labels": {
+        "class": "write",
+        "accounts": "optional",
+        "effect": "ask"
+      },
       "write": {
         "class": "write",
         "commits": "plan_write",
@@ -1508,28 +1609,14 @@
           "forms.forms.batchUpdate",
           "forms.forms.create",
           "forms.forms.setPublishSettings",
-          "gmail.forward",
-          "gmail.reply",
-          "gmail.reply-all",
-          "gmail.send",
-          "gmail.users.drafts.create",
-          "gmail.users.drafts.get",
-          "gmail.users.drafts.update",
           "gmail.users.getProfile",
-          "gmail.users.labels.create",
-          "gmail.users.labels.patch",
-          "gmail.users.labels.update",
-          "gmail.users.messages.batchModify",
-          "gmail.users.messages.get",
           "gmail.users.messages.import",
           "gmail.users.messages.insert",
-          "gmail.users.messages.modify",
           "gmail.users.settings.cse.identities.create",
           "gmail.users.settings.cse.identities.patch",
           "gmail.users.settings.cse.keypairs.create",
           "gmail.users.settings.cse.keypairs.disable",
           "gmail.users.settings.cse.keypairs.enable",
-          "gmail.users.settings.filters.create",
           "gmail.users.settings.sendAs.create",
           "gmail.users.settings.sendAs.patch",
           "gmail.users.settings.sendAs.smimeInfo.delete",
@@ -1543,7 +1630,6 @@
           "gmail.users.settings.updateLanguage",
           "gmail.users.settings.updatePop",
           "gmail.users.settings.updateVacation",
-          "gmail.users.threads.modify",
           "keep.notes.create",
           "meet.spaces.create",
           "meet.spaces.endActiveConference",
@@ -1596,16 +1682,7 @@
           "drive.approvals.comment",
           "drive.approvals.reassign",
           "drive.approvals.start",
-          "drive.permissions.get",
-          "gmail.forward",
-          "gmail.reply",
-          "gmail.reply-all",
-          "gmail.send",
-          "gmail.users.drafts.get",
-          "gmail.users.drafts.send",
-          "gmail.users.getProfile",
-          "gmail.users.messages.get",
-          "gmail.users.messages.send"
+          "drive.permissions.get"
         ]
       },
       "share": {
@@ -1634,9 +1711,7 @@
           "drive.permissions.delete",
           "drive.permissions.get",
           "drive.permissions.update",
-          "gmail.users.drafts.get",
           "gmail.users.getProfile",
-          "gmail.users.messages.get",
           "gmail.users.settings.delegates.create",
           "gmail.users.settings.delegates.delete",
           "gmail.users.settings.forwardingAddresses.create",
@@ -1692,21 +1767,15 @@
           "drive.replies.delete",
           "drive.revisions.delete",
           "gmail.users.drafts.delete",
-          "gmail.users.drafts.get",
           "gmail.users.getProfile",
           "gmail.users.labels.delete",
           "gmail.users.messages.batchDelete",
           "gmail.users.messages.delete",
-          "gmail.users.messages.get",
-          "gmail.users.messages.trash",
-          "gmail.users.messages.untrash",
           "gmail.users.settings.cse.identities.delete",
           "gmail.users.settings.cse.keypairs.obliterate",
           "gmail.users.settings.filters.delete",
           "gmail.users.settings.sendAs.delete",
           "gmail.users.threads.delete",
-          "gmail.users.threads.trash",
-          "gmail.users.threads.untrash",
           "keep.notes.delete",
           "meet.spaces.members.delete",
           "people.contactGroups.delete",

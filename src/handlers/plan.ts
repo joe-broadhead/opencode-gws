@@ -3,6 +3,7 @@ import { GwsError } from "../provider/domain/errors.js"
 import type { CommitCategory } from "../provider/domain/types.js"
 import type { Runtime } from "../provider/index.js"
 import { throwRefusal } from "./errors.js"
+import { refuseGmailMcp } from "./mcp.js"
 import { PLAN_INPUT, PLAN_OUTPUT } from "./schemas.js"
 
 /** A recipient the preview shows, in the contract's `reaches` shape. */
@@ -25,6 +26,8 @@ export function planHandler(runtime: Runtime, category: CommitCategory): MethodH
     output: PLAN_OUTPUT,
     async run(input, call) {
       try {
+        const operation = String((input as Record<string, unknown>)["operation"] ?? "")
+        refuseGmailMcp(runtime, operation, call.account, `plan_${category}`)
         const target = runtime.inspect({ ...(input as Record<string, unknown>), account: call.account } as never, "plan")
         if (target.category !== category) {
           throw new GwsError("CATEGORY_MISMATCH", `plan_${category} plans only ${category} operations, and ${target.operation} is ${target.category}`, {

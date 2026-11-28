@@ -151,6 +151,14 @@ export class Runtime {
     return this.visibleServices().has(canonicalService(service))
   }
 
+  /**
+   * Whether the account's Gmail surface is Google's Gmail MCP server. An interactive account signs in to that server;
+   * a headless one has no MCP sign-in, so it keeps the plugin's own Gmail operations.
+   */
+  gmailOnMcp(account: string): boolean {
+    return this.config.accounts[account]?.mode === "interactive"
+  }
+
   /** Versions, the binary, and each account's sign-in state, read from OpenCode's credential store. */
   status(signal?: AbortSignal): Promise<RuntimeStatus> {
     return this.accounts.status(signal)

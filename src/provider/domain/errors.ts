@@ -97,6 +97,11 @@ export const ErrorCode = {
     meaning: "The tool does not match the operation's or the plan's category: a change sent to read, a read sent to plan, or a plan committed with another category's tool.",
     next: "Call the tool the message names.",
   },
+  MCP_HANDOFF: {
+    meaning:
+      "The Gmail operation is served by Google's Gmail MCP server, so the plugin's own read or plan does not run it. This applies to an interactive account; a headless profile keeps the plugin's own Gmail operations.",
+    next: "Call the Gmail MCP tool the message names; it returns the same data and asks before a change.",
+  },
 
   // ── Scripts (the tools RPC) ───────────────────────────────────────────
   PERMISSION_DENIED: {
